@@ -30,15 +30,40 @@ class StateGameplay(State):
 
     def build_player_intents(self, input_state):
         intents = []
-
         keys = input_state.keys
-        dx = keys[pygame.K_d] - keys[pygame.K_a]
-        dy = keys[pygame.K_w] - keys[pygame.K_s]
 
-        if dx != 0 or dy != 0:
+        screen_dx = 0
+        screen_dy = 0
+
+        if keys[pygame.K_d]:
+            screen_dx += 1
+        if keys[pygame.K_a]:
+            screen_dx -= 1
+        if keys[pygame.K_s]:
+            screen_dy += 1
+        if keys[pygame.K_w]:
+            screen_dy -= 1
+
+        screen_dx = max(-1, min(1, screen_dx))
+        screen_dy = max(-1, min(1, screen_dy))
+
+        SCREEN_TO_TILE_DIR = {
+            (0, -1): (-1, -1),  # W     = visual up
+            (0, 1): (1, 1),  # S     = visual down
+            (-1, 0): (-1, 1),  # A     = visual left
+            (1, 0): (1, -1),  # D     = visual right
+
+            (-1, -1): (-1, 0),  # W+A   = visual up-left
+            (1, -1): (0, -1),  # W+D   = visual up-right
+            (-1, 1): (0, 1),  # S+A   = visual down-left
+            (1, 1): (1, 0),  # S+D   = visual down-right
+        }
+
+        if (screen_dx, screen_dy) in SCREEN_TO_TILE_DIR:
+            tile_dx, tile_dy = SCREEN_TO_TILE_DIR[(screen_dx, screen_dy)]
             intents.append({
                 "type": "move",
-                "direction": (dx, dy)
+                "direction": (tile_dx, tile_dy)
             })
 
         # -------------------------
@@ -57,6 +82,11 @@ class StateGameplay(State):
 
             if key in input_state.keys_released:
                 intents.append({"type": "skill_released", "slot": slot})
+
+        if pygame.K_SPACE in input_state.keys_pressed:
+            intents.append({
+                "type": "spawn_test_projectile",
+            })
 
         # -------------------------
         # MOUSE SKILLS (LMB/RMB)
@@ -86,8 +116,13 @@ class StateGameplay(State):
 
         # Update Systems
         intent_system(self.game.world, intents)
-        movement_system(self.game.world, dt)
         skill_system(self.game.world, intents)
+        movement_system(self.game.world)
+        movement_arbiter_system(self.game.world)
+        test_projectile_spawn_system(self.game.world, intents)
+
+        # Cleanup Entities
+        self.game.entities.cleanup(self.game.world)
 
     def draw(self, surface):
         render_tiles(self.game.world, surface)

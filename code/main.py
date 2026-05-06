@@ -17,11 +17,13 @@ class Game:
         self.clock = pygame.time.Clock()
         self.previous_time = time.time()
         self.toggle = True
+        self.fps = 0
+        self.sim_accumulator = 0.0
 
         # Window and Display
-        self.fps = 0
         os.environ['SDL_VIDEO_CENTERED'] = '1'
         pygame.init()
+        self.debug_font = pygame.font.Font(None, 18)
         self.monitor_info = pygame.display.Info()
         self.internal_width = INTERNAL_WIDTH
         self.internal_height = INTERNAL_HEIGHT
@@ -109,9 +111,15 @@ class Game:
             self.flip_state()
         self.state.update(dt, input_state)
 
+    def draw_debug_overlay(self):
+        fps_text = f"FPS: {self.fps:.1f}"
+        fps_surface = self.debug_font.render(fps_text, False, "white")
+        self.render_surface.blit(fps_surface, (4, 4))
+
     def draw(self):
         self.render_surface.fill('black')
         self.state.draw(self.render_surface)
+        self.draw_debug_overlay()
         scaled_width = self.internal_size[0] * self.scale
         scaled_height = self.internal_size[1] * self.scale
         x_offset = (self.window_size[0] - scaled_width) // 2
@@ -122,20 +130,23 @@ class Game:
 
     def run(self):
         while not self.done:
-
-            dt = self.clock.tick(FPS) / 1000.0
+            frame_dt = self.clock.tick(FPS) / 1000.0
             self.fps = self.clock.get_fps()
+
+            if frame_dt > MAX_FRAME_DT:
+                frame_dt = MAX_FRAME_DT
 
             input_state = self.input_handler.collect()
             if input_state.quit:
                 self.done = True
 
-            if dt > 1:
-                dt = 1
+            self.sim_accumulator += frame_dt
 
-            self.update_state(dt, input_state)
+            while self.sim_accumulator >= SIM_DT:
+                self.update_state(SIM_DT, input_state)
+                self.sim_accumulator -= SIM_DT
+
             self.draw()
-#            print(self.world.position[self.world.player])
 
 
 if __name__ == '__main__':
