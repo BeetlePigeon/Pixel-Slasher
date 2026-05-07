@@ -1,17 +1,20 @@
+from settings import TILE_DIMENSION, TILE_UNITS
 from support import (
     Vec2i,
     Transform,
     tile_center,
     tile_from_cpos,
     LinearProjectileController,
+    SpiralProjectileController,
+    ANGLE_SCALE
 )
-from settings import TILE_DIMENSION, TILE_UNITS
 
 
 class World:
     def __init__(self, game, entities):
         self.game = game
         self.entities = entities
+        self.tick = 0
 
         ## Camera
         self.camera_offset = (0, 0)  # Camera offset in tile coords
@@ -19,14 +22,20 @@ class World:
         ## Components
         self.transform = {}
         self.motion_state = {}
+        self.facing = {}
         self.move_intent = {}
-        self.locomotion = {}
-        self.projectile = {}
         self.intent = {}
         self.skills = {}
         self.input_controlled = {}
         self.active_skill = {}
         self.sprite = {}
+        self.locomotion = {}
+        self.projectile = {}
+        self.lifetime = {}
+        self.movement_collision = {}
+        self.influence_emitter = {}
+        self.influence_receiver = {}
+        self.influence_delta = {}
 
         ## Tiles
         self.tile_size = TILE_DIMENSION
@@ -35,25 +44,59 @@ class World:
             1: self.game.assets.images["water"]     # Walkable
         }
         self.tilemap = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ]
         self.static_collision_tiles = self.build_static_collision_tiles()
+#        self.create_wind_field_emitter()
 
         ## Initialize entities
         # Spawn player
         self.player = self.spawn_player()
 
+    def create_wind_field_emitter(self):
+        eid = self.entities.create()
+
+        self.influence_emitter[eid] = {
+            "type": "wind",
+            "mode": "cycle",
+            "ticks_per_step": 480,
+            "cycle": [
+                Vec2i(0, TILE_UNITS // 24),  # visual down-left
+#                Vec2i(0, 0),  # calm
+#                Vec2i(0, -TILE_UNITS // 24),  # visual up-right
+#                Vec2i(0, 0),  # calm
+            ],
+        }
+
+        return eid
+
     def remove_entity(self, eid):
         self.transform.pop(eid, None)
+        self.facing.pop(eid, None)
         self.motion_state.pop(eid, None)
         self.move_intent.pop(eid, None)
         self.locomotion.pop(eid, None)
         self.projectile.pop(eid, None)
         self.sprite.pop(eid, None)
+        self.lifetime.pop(eid, None)
+        self.movement_collision.pop(eid, None)
+        self.influence_emitter.pop(eid, None)
+        self.influence_receiver.pop(eid, None)
+        self.influence_delta.pop(eid, None)
 
     def build_static_collision_tiles(self):
         blocked = set()
@@ -66,14 +109,18 @@ class World:
 
     def spawn_player(self):
         eid = self.entities.create()
-        player_tile = Vec2i(10, 4)
+        player_tile = Vec2i(16, 4)
 
         player_transform = Transform(
             tile=player_tile,
             cpos=tile_center(player_tile),
+            position_mode="grid",
         )
         self.transform[eid] = player_transform
-
+        self.facing[eid] = Vec2i(1, -1)
+        self.movement_collision[eid] = {
+            "static_tiles": "block",
+        }
         self.motion_state[eid] = {
             "controller": None,
             "last_delta": Vec2i(0, 0),
@@ -82,37 +129,20 @@ class World:
             "step_duration": 30,
             "can_move_8way": True,
         }
-
+        self.skills[(eid, "TEST_PROJECTILE")] = {
+            "id": "test_projectile",
+        }
+        self.skills[(eid, 2)] = {
+            "id": "spiral_projectile",
+        }
+        self.skills[(eid, 3)] = {
+            "id": "magnet_orb",
+        }
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {
             "image": player_image,
-            "offset": (-player_image.get_width() // 2, -player_image.get_height()),
+            "anchor": "bottom_center",
             "z": 0
         }
-
-        return eid
-
-    def spawn_test_projectile(self, cpos, direction):
-        eid = self.entities.create()
-
-        self.transform[eid] = Transform(
-            tile=tile_from_cpos(cpos),
-            cpos=cpos,
-        )
-
-        self.motion_state[eid] = {
-            "controller": LinearProjectileController(
-                direction=direction,
-                speed=TILE_UNITS // 8,
-            ),
-            "last_delta": Vec2i(0, 0),
-        }
-
-        self.sprite[eid] = {
-            "image": self.game.assets.images["player"],  # temporary placeholder
-            "offset": (-4, -4),
-            "z": 0,
-        }
-        self.projectile[eid] = {}
 
         return eid

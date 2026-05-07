@@ -74,6 +74,7 @@ class StateGameplay(State):
             pygame.K_2: 2,
             pygame.K_3: 3,
             pygame.K_4: 4,
+            pygame.K_SPACE: "TEST_PROJECTILE",
         }
 
         for key, slot in KEY_TO_SLOT.items():
@@ -82,11 +83,6 @@ class StateGameplay(State):
 
             if key in input_state.keys_released:
                 intents.append({"type": "skill_released", "slot": slot})
-
-        if pygame.K_SPACE in input_state.keys_pressed:
-            intents.append({
-                "type": "spawn_test_projectile",
-            })
 
         # -------------------------
         # MOUSE SKILLS (LMB/RMB)
@@ -106,6 +102,8 @@ class StateGameplay(State):
         return intents, input_state.mouse_pos
 
     def update(self, dt, input_state):
+        self.game.world.tick += 1
+
         # Player Intents
         player = self.game.world.player
         player_intents, _ = self.build_player_intents(input_state)
@@ -117,9 +115,10 @@ class StateGameplay(State):
         # Update Systems
         intent_system(self.game.world, intents)
         skill_system(self.game.world, intents)
+        influence_system(self.game.world)
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
-        test_projectile_spawn_system(self.game.world, intents)
+        lifetime_system(self.game.world)
 
         # Cleanup Entities
         self.game.entities.cleanup(self.game.world)

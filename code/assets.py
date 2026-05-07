@@ -14,7 +14,14 @@ class Assets:
         return pygame.image.load(path).convert_alpha()
 
     def load(self):
+        # Entities
         self.images["player"] = self.load_image("characters", "player.png")
+        self.images["test_projectile"] = self.load_image("projectiles", "test_projectile.png")
+        self.images["magnet"] = self.load_image("projectiles", "magnet.png")
+
+        # Tiles
         self.images["block"] = self.load_image("tiles", "block.png")
         self.images["water"] = self.load_image("tiles", "water.png")
+
+        # UI
         self.images["button"] = self.load_image("ui", "button.png")
