@@ -10,6 +10,7 @@ MAX_FRAME_DT = 0.25
 
 ANIMATION_RATE = 60
 TILE_UNITS = 4096
+MAX_COLLISION_STEP = TILE_UNITS // 4
 TILE_DIMENSION = 32     # Width/Height in pixels
 
 # game configuration settings

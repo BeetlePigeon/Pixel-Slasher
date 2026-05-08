@@ -112,9 +112,25 @@ class Game:
         self.state.update(dt, input_state)
 
     def draw_debug_overlay(self):
-        fps_text = f"FPS: {self.fps:.1f}"
-        fps_surface = self.debug_font.render(fps_text, False, "white")
-        self.render_surface.blit(fps_surface, (4, 4))
+        lines = [
+            f"FPS: {self.fps:.1f}",
+            f"Entities next_id: {self.entities.next_id}",
+            f"Transforms: {len(self.world.transform)}",
+            f"MotionState: {len(self.world.motion_state)}",
+            f"Sprites: {len(self.world.sprite)}",
+            f"Projectiles: {len(self.world.projectile)}",
+            f"Emitters: {len(self.world.influence_emitter)}",
+            f"Receivers: {len(self.world.influence_receiver)}",
+            f"Lifetime: {len(self.world.lifetime)}",
+            f"Camera: {self.world.camera['transition_mode']}"
+        ]
+
+        y = 4
+
+        for line in lines:
+            text_surface = self.debug_font.render(line, False, "white")
+            self.render_surface.blit(text_surface, (4, y))
+            y += 14
 
     def draw(self):
         self.render_surface.fill('black')

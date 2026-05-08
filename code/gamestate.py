@@ -112,17 +112,41 @@ class StateGameplay(State):
         # AI Intents
         pass  # add intents to the intents dict created under Player Intents
 
+        # Debug camera
+        if pygame.K_LSHIFT in input_state.keys_pressed:
+            camera = self.game.world.camera
+
+            if camera["mode"] == "follow":
+                player = self.game.world.player
+                fixed_cpos = self.game.world.transform[player].cpos
+                set_camera_fixed(self.game.world, fixed_cpos, transition_mode="snap")
+            else:
+                set_camera_follow(self.game.world, self.game.world.player, transition_mode="smooth", transition_duration=120)
+
+        if pygame.K_v in input_state.keys_pressed:
+            start_camera_shake(
+                self.game.world,
+                duration_ticks=18,
+                strength=4,
+            )
+        # End debug
+
+
         # Update Systems
         intent_system(self.game.world, intents)
-        skill_system(self.game.world, intents)
+        skill_intent_resolution_system(self.game.world, intents)
+        skill_execution_system(self.game.world)
         influence_system(self.game.world)
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
         lifetime_system(self.game.world)
+        camera_update_system(self.game.world)
+        camera_shake_system(self.game.world)
 
         # Cleanup Entities
         self.game.entities.cleanup(self.game.world)
 
     def draw(self, surface):
+        camera_system(self.game.world, surface)
         render_tiles(self.game.world, surface)
         sprite_system(self.game.world, surface)

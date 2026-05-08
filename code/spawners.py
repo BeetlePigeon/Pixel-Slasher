@@ -26,6 +26,7 @@ def spawn_test_projectile(world, cpos, direction):
             speed=TILE_UNITS // 8,
         ),
         "last_delta": Vec2i(0, 0),
+        "influence_mode": "normal",
     }
 
     world.projectile[eid] = {}
@@ -72,6 +73,7 @@ def spawn_spiral_projectile(world, cpos):
             angle_step_fp=ANGLE_SCALE // 8,
         ),
         "last_delta": Vec2i(0, 0),
+        "influence_mode": "ignore_all",
     }
 
     world.projectile[eid] = {}

@@ -12,6 +12,6 @@ class EntityManager:
         self.dead.add(eid)
 
     def cleanup(self, world):
-        for eid in self.dead:
+        for eid in sorted(self.dead):
             world.remove_entity(eid)
         self.dead.clear()

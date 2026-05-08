@@ -104,6 +104,40 @@ def lerp_vec(a: Vec2i, b: Vec2i, n: int, d: int) -> Vec2i:
         lerp_int(a.y, b.y, n, d),
     )
 
+def lerp_cpos(a: Vec2i, b: Vec2i, n: int, d: int) -> Vec2i:
+    return Vec2i(
+        a.x + (b.x - a.x) * n // d,
+        a.y + (b.y - a.y) * n // d,
+    )
+
+def close_enough_cpos(a: Vec2i, b: Vec2i, threshold: int) -> bool:
+    return (
+        abs(a.x - b.x) <= threshold
+        and abs(a.y - b.y) <= threshold
+    )
+
+def smooth_lerp_axis(current: int, target: int, divisor: int) -> int:
+    diff = target - current
+
+    if diff == 0:
+        return current
+
+    abs_step = abs(diff) // divisor
+
+    if abs_step == 0:
+        abs_step = 1
+
+    if diff > 0:
+        return current + abs_step
+    else:
+        return current - abs_step
+
+def smooth_lerp_cpos(current: Vec2i, target: Vec2i, divisor: int) -> Vec2i:
+    return Vec2i(
+        smooth_lerp_axis(current.x, target.x, divisor),
+        smooth_lerp_axis(current.y, target.y, divisor),
+    )
+
 def scale_dir(direction: Vec2i, distance: int) -> Vec2i:
     move_dir = DIRECTION_VECTORS[direction]
 
@@ -201,3 +235,25 @@ class SpiralProjectileController:
 
     def finished(self) -> bool:
         return False
+
+
+@dataclass
+class DashController:
+    direction: Vec2i
+    age: int
+    duration: int
+    distance: int
+
+    def sample_delta(self) -> Vec2i:
+        prev_dist = self.distance * self.age // self.duration
+        next_dist = self.distance * (self.age + 1) // self.duration
+
+        step_distance = next_dist - prev_dist
+
+        return scale_dir(self.direction, step_distance)
+
+    def advance(self):
+        self.age += 1
+
+    def finished(self) -> bool:
+        return self.age >= self.duration

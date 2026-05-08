@@ -17,17 +17,35 @@ class World:
         self.tick = 0
 
         ## Camera
-        self.camera_offset = (0, 0)  # Camera offset in tile coords
+        self.camera_offset = (0, 0)
+        self.camera = {
+            "mode": "follow",
+            "target": None,
+            "fixed_cpos": None,
+            "screen_offset": Vec2i(0, 0),
 
+            "current_cpos": None,
+            "transition_mode": "snap",
+            "transition_ticks": 0,
+            "transition_duration": 0,
+            "default_transition_duration": 24,
+            "transition_start_cpos": None,
+
+            "shake_ticks": 0,
+            "shake_duration": 0,
+            "shake_strength": 0,
+        }
         ## Components
         self.transform = {}
         self.motion_state = {}
         self.facing = {}
         self.move_intent = {}
         self.intent = {}
-        self.skills = {}
         self.input_controlled = {}
+        self.skills = {}
         self.active_skill = {}
+        self.skill_cooldown = {}
+        self.resolved_skill_intents = []
         self.sprite = {}
         self.locomotion = {}
         self.projectile = {}
@@ -46,9 +64,9 @@ class World:
         self.tilemap = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -61,11 +79,13 @@ class World:
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ]
         self.static_collision_tiles = self.build_static_collision_tiles()
-#        self.create_wind_field_emitter()
+        self.create_wind_field_emitter()
 
         ## Initialize entities
         # Spawn player
         self.player = self.spawn_player()
+        self.camera["target"] = self.player
+        self.camera["current_cpos"] = self.transform[self.player].cpos
 
     def create_wind_field_emitter(self):
         eid = self.entities.create()
@@ -97,6 +117,9 @@ class World:
         self.influence_emitter.pop(eid, None)
         self.influence_receiver.pop(eid, None)
         self.influence_delta.pop(eid, None)
+        for key in list(self.skill_cooldown):
+            if key[0] == eid:
+                self.skill_cooldown.pop(key, None)
 
     def build_static_collision_tiles(self):
         blocked = set()
@@ -109,7 +132,7 @@ class World:
 
     def spawn_player(self):
         eid = self.entities.create()
-        player_tile = Vec2i(16, 4)
+        player_tile = Vec2i(7, 4)
 
         player_transform = Transform(
             tile=player_tile,
@@ -124,19 +147,27 @@ class World:
         self.motion_state[eid] = {
             "controller": None,
             "last_delta": Vec2i(0, 0),
+            "influence_mode": "normal",
         }
         self.locomotion[eid] = {
-            "step_duration": 30,
+            "step_duration": 18,
             "can_move_8way": True,
         }
         self.skills[(eid, "TEST_PROJECTILE")] = {
             "id": "test_projectile",
+            "cooldown_ticks": 12,
         }
         self.skills[(eid, 2)] = {
             "id": "spiral_projectile",
+            "cooldown_ticks": 30,
         }
         self.skills[(eid, 3)] = {
             "id": "magnet_orb",
+            "cooldown_ticks": 60,
+        }
+        self.skills[(eid, 4)] = {
+            "id": "dash",
+            "cooldown_ticks": 45,
         }
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {
