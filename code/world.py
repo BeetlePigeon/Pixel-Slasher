@@ -142,7 +142,8 @@ class World:
         self.transform[eid] = player_transform
         self.facing[eid] = Vec2i(1, -1)
         self.movement_collision[eid] = {
-            "static_tiles": "block",
+            "static_tiles": "slide",
+            "slide_min_tangent_ratio": (1, 2),
         }
         self.motion_state[eid] = {
             "controller": None,

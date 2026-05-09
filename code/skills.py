@@ -37,9 +37,9 @@ def execute_test_projectile(world, caster, intent, skill):
     spawn_offset = scale_dir(direction, TILE_UNITS // 4)
     spawn_cpos = caster_cpos + spawn_offset
 
-    spawn_test_projectile(world, spawn_cpos, direction)
+    eid = spawn_test_projectile(world, spawn_cpos, direction)
 
-    return True
+    return eid is not None
 
 def execute_spiral_projectile(world, caster, intent, skill):
     if caster not in world.transform:       # Since projectiles use caster for spawn point. Later, can change this: add a default arg for cast location and if none and also no caster THEN don't cast. Good for cutscene projectile spawning, 'ambient' casts of projectiles etc
@@ -47,9 +47,9 @@ def execute_spiral_projectile(world, caster, intent, skill):
 
     caster_cpos = world.transform[caster].cpos
 
-    spawn_spiral_projectile(world, caster_cpos)
+    eid = spawn_spiral_projectile(world, caster_cpos)
 
-    return True
+    return eid is not None
 
 def execute_magnet(world, caster, intent, skill):
     if caster not in world.transform:
@@ -61,9 +61,9 @@ def execute_magnet(world, caster, intent, skill):
     spawn_offset = scale_dir(direction, TILE_UNITS)
     spawn_cpos = caster_cpos + spawn_offset
 
-    create_magnet_emitter(world, spawn_cpos)
+    eid = create_magnet_emitter(world, spawn_cpos)
 
-    return True
+    return eid is not None
 
 SKILL_HANDLERS = {
     "test_projectile": execute_test_projectile,

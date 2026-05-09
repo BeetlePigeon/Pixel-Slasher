@@ -121,7 +121,7 @@ class StateGameplay(State):
                 fixed_cpos = self.game.world.transform[player].cpos
                 set_camera_fixed(self.game.world, fixed_cpos, transition_mode="snap")
             else:
-                set_camera_follow(self.game.world, self.game.world.player, transition_mode="smooth", transition_duration=120)
+                set_camera_follow(self.game.world, self.game.world.player, transition_mode="smooth", transition_duration=26)
 
         if pygame.K_v in input_state.keys_pressed:
             start_camera_shake(

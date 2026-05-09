@@ -257,3 +257,22 @@ class DashController:
 
     def finished(self) -> bool:
         return self.age >= self.duration
+
+
+@dataclass
+class SettleToGridController:
+    start: Vec2i
+    end: Vec2i
+    progress: int
+    duration: int
+
+    def sample_delta(self) -> Vec2i:
+        prev = lerp_vec(self.start, self.end, self.progress, self.duration)
+        next_ = lerp_vec(self.start, self.end, self.progress + 1, self.duration)
+        return next_ - prev
+
+    def advance(self):
+        self.progress += 1
+
+    def finished(self) -> bool:
+        return self.progress >= self.duration

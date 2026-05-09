@@ -1,6 +1,5 @@
 import sys
 import os
-import math
 import pygame
 from settings import *
 import time
@@ -9,6 +8,7 @@ from inputhandler import Input
 from world import World
 from assets import Assets
 from entity import EntityManager
+from inputbuffer import InputBuffer
 
 
 class Game:
@@ -16,20 +16,33 @@ class Game:
         self.done = False
         self.clock = pygame.time.Clock()
         self.previous_time = time.time()
-        self.toggle = True
         self.fps = 0
         self.sim_accumulator = 0.0
 
         # Window and Display
         os.environ['SDL_VIDEO_CENTERED'] = '1'
         pygame.init()
-        self.debug_font = pygame.font.Font(None, 18)
         self.monitor_info = pygame.display.Info()
         self.internal_width = INTERNAL_WIDTH
         self.internal_height = INTERNAL_HEIGHT
         self.internal_size = INTERNAL_RES
         self.render_surface = pygame.Surface(self.internal_size)
         self.scale = 1
+        self.toggle = True
+
+        self.vsync_enabled = True
+
+        self.fps_caps = [5, 30, 60, 120, 0]  # 0 = uncapped
+        self.fps_cap_index = 1  # starts at 60
+        self.fps_cap = self.fps_caps[self.fps_cap_index]
+
+        self.debug_font = pygame.font.Font(None, 18)
+
+        # Debug screen resize
+        self.debug_scales = [1, 2, 3]
+        self.debug_scale_index = 0
+        # End debug
+
         self.window_size = self.internal_size
         self.window = pygame.display.set_mode(self.internal_size, vsync=1)
         pygame.display.set_caption('Pixel Slasher')
@@ -39,8 +52,9 @@ class Game:
         self.assets = Assets()
         self.assets.load()
 
-        # Input Handler
+        # Input
         self.input_handler = Input()
+        self.input_buffer = InputBuffer()
 
         # Entities
         self.entities = EntityManager()
@@ -48,7 +62,7 @@ class Game:
         # World
         self.world = World(self, self.entities)
 
-        # States
+        # Game State Machine
         self.states = {
             'STARTUP': StateGameplay(self),
         }
@@ -56,26 +70,41 @@ class Game:
         self.state = self.states[self.state_name]
         self.state.startup({})
 
-    def resize_display(self, resolution):
-        self.scale = resolution.scale
-        size = (self.scale * self.internal_width, self.scale * self.internal_height)
-        self.window = pygame.display.set_mode(size, vsync=1)
-        self.window_size = size
+    def set_debug_scale(self, scale: int):
+        self.scale = scale
 
-    def resize_display2(self, resolution):
-        if resolution.flags == pygame.FULLSCREEN:
-            info = pygame.display.Info()
-            size = (info.current_w, info.current_h)
-            self.window = pygame.display.set_mode(size, flags=pygame.FULLSCREEN, vsync=1)
-            self.window_size = size
-            self.scale = max(1, min(math.floor(size[0] / self.internal_size[0]),
-                             math.floor(size[1] / self.internal_size[1])))
-        else:
-            self.scale = max(1, min(math.floor(resolution.width / self.internal_size[0]),
-                             math.floor(resolution.height / self.internal_size[1])))
-            size = (resolution.width, resolution.height)
-            self.window = pygame.display.set_mode(size, vsync=1)
-            self.window_size = size
+        self.window_size = (
+            self.internal_width * self.scale,
+            self.internal_height * self.scale,
+        )
+
+        self.window = pygame.display.set_mode(
+            self.window_size,
+            vsync=1 if self.vsync_enabled else 0,
+        )
+
+    def cycle_debug_scale(self):
+        self.debug_scale_index = (
+                                         self.debug_scale_index + 1
+                                 ) % len(self.debug_scales)
+
+        new_scale = self.debug_scales[self.debug_scale_index]
+        self.set_debug_scale(new_scale)
+
+    def toggle_vsync(self):
+        self.vsync_enabled = not self.vsync_enabled
+
+        self.window = pygame.display.set_mode(
+            self.window_size,
+            vsync=1 if self.vsync_enabled else 0,
+        )
+
+    def cycle_fps_cap(self):
+        self.fps_cap_index = (
+                                     self.fps_cap_index + 1
+                             ) % len(self.fps_caps)
+
+        self.fps_cap = self.fps_caps[self.fps_cap_index]
 
     def load_sounds(self):
         return  {'SOUND_EFFECTS':
@@ -122,7 +151,10 @@ class Game:
             f"Emitters: {len(self.world.influence_emitter)}",
             f"Receivers: {len(self.world.influence_receiver)}",
             f"Lifetime: {len(self.world.lifetime)}",
-            f"Camera: {self.world.camera['transition_mode']}"
+            f"Scale: {self.scale}x",
+            f"VSync: {'on' if self.vsync_enabled else 'off'}",
+            f"FPS cap: {'uncapped' if self.fps_cap == 0 else self.fps_cap}",
+            f"Camera: {self.world.camera['transition_mode']}",
         ]
 
         y = 4
@@ -146,20 +178,45 @@ class Game:
 
     def run(self):
         while not self.done:
-            frame_dt = self.clock.tick(FPS) / 1000.0
+            frame_dt = self.clock.tick(self.fps_cap) / 1000.0
             self.fps = self.clock.get_fps()
 
             if frame_dt > MAX_FRAME_DT:
                 frame_dt = MAX_FRAME_DT
 
             input_state = self.input_handler.collect()
+
             if input_state.quit:
                 self.done = True
 
+            # Store edge-triggered input until the next simulation tick.
+            self.input_buffer.add_frame_input(input_state)
+
+            # Debug/window hotkeys can still act immediately on raw input.
+            if pygame.K_F5 in input_state.keys_pressed:
+                self.cycle_debug_scale()
+            if pygame.K_F6 in input_state.keys_pressed:
+                self.toggle_vsync()
+            if pygame.K_F7 in input_state.keys_pressed:
+                self.cycle_fps_cap()
+            # End debug
+
             self.sim_accumulator += frame_dt
 
+            used_edges_this_frame = False
+
             while self.sim_accumulator >= SIM_DT:
-                self.update_state(SIM_DT, input_state)
+                sim_input_state = self.input_buffer.build_sim_input_state(
+                    input_state,
+                    include_edges=not used_edges_this_frame,
+                )
+
+                self.update_state(SIM_DT, sim_input_state)
+
+                if not used_edges_this_frame:
+                    self.input_buffer.clear_edges()
+                    used_edges_this_frame = True
+
                 self.sim_accumulator -= SIM_DT
 
             self.draw()

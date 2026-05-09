@@ -8,8 +8,37 @@ from support import (
     ANGLE_SCALE,
 )
 
+def is_spawn_tile_blocked(world, tile):
+    if tile.y < 0 or tile.y >= len(world.tilemap):
+        return True
+
+    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
+        return True
+
+    return (tile.x, tile.y) in world.static_collision_tiles
+
+
+def can_spawn_at(world, cpos, static_tiles="reject"):
+    tile = tile_from_cpos(cpos)
+
+    blocked = is_spawn_tile_blocked(world, tile)
+
+    if not blocked:
+        return True
+
+    if static_tiles == "allow":
+        return True
+
+    if static_tiles == "reject":
+        return False
+
+    raise ValueError(f"Unknown spawn collision policy: {static_tiles}")
+
 
 def spawn_test_projectile(world, cpos, direction):
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
+
     eid = world.entities.create()
 
     projectile_image = world.game.assets.images["test_projectile"]
@@ -55,6 +84,9 @@ def spawn_test_projectile(world, cpos, direction):
     return eid
 
 def spawn_spiral_projectile(world, cpos):
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
+
     eid = world.entities.create()
 
     projectile_image = world.game.assets.images["test_projectile"]
@@ -102,6 +134,9 @@ def spawn_spiral_projectile(world, cpos):
     return eid
 
 def create_magnet_emitter(world, cpos):
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
+
     eid = world.entities.create()
 
     orb_image = world.game.assets.images["magnet"]

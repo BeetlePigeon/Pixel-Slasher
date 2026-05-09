@@ -9,77 +9,13 @@ from support import (
     tile_from_cpos,
     iso_to_screen,
     cpos_to_screen,
-    GridMoveController,
     scale_vec,
     clamp_vec_axis,
     lerp_cpos,
-    close_enough_cpos,
-    smooth_lerp_cpos,
+    GridMoveController,
+    SettleToGridController,
 )
 
-
-def num_collision_substeps(delta: Vec2i) -> int:
-    max_axis = max(abs(delta.x), abs(delta.y))
-
-    if max_axis == 0:
-        return 1
-
-    return max(1, (max_axis + MAX_COLLISION_STEP - 1) // MAX_COLLISION_STEP)
-
-def substep_position(start: Vec2i, delta: Vec2i, step: int, total_steps: int) -> Vec2i:
-    return Vec2i(
-        start.x + delta.x * step // total_steps,
-        start.y + delta.y * step // total_steps,
-    )
-
-def is_tile_blocked(world, tile: Vec2i) -> bool:
-    # Out of bounds is blocked.
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
-
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    # Static collision from tilemap.
-    return (tile.x, tile.y) in world.static_collision_tiles
-
-def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
-    steps = num_collision_substeps(delta)
-
-    previous_cpos = start_cpos
-
-    for step in range(1, steps + 1):
-        candidate_cpos = substep_position(start_cpos, delta, step, steps)
-        candidate_tile = tile_from_cpos(candidate_cpos)
-
-        collision_result = handle_static_tile_collision(
-            world,
-            entity,
-            candidate_tile,
-        )
-
-        if collision_result == "destroy":
-            return "destroy", previous_cpos
-
-        if collision_result == "block":
-            return "block", previous_cpos
-
-        previous_cpos = candidate_cpos
-
-    return "allow", start_cpos + delta
-
-def handle_static_tile_collision(world, entity, next_tile):
-    policy = world.movement_collision.get(entity)
-
-    if policy is None:
-        return "allow"
-
-    behavior = policy.get("static_tiles", "allow")
-
-    if not is_tile_blocked(world, next_tile):
-        return "allow"
-
-    return behavior
 
 def intent_system(world, intents):
     world.move_intent.clear()
@@ -241,6 +177,176 @@ def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
 
+def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
+    return a.x == b.x and a.y == b.y
+
+def num_collision_substeps(delta: Vec2i) -> int:
+    max_axis = max(abs(delta.x), abs(delta.y))
+
+    if max_axis == 0:
+        return 1
+
+    return max(1, (max_axis + MAX_COLLISION_STEP - 1) // MAX_COLLISION_STEP)
+
+def substep_position(start: Vec2i, delta: Vec2i, step: int, total_steps: int) -> Vec2i:
+    return Vec2i(
+        start.x + delta.x * step // total_steps,
+        start.y + delta.y * step // total_steps,
+    )
+
+def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
+    num, den = ratio
+
+    tangent_abs = abs(tangent)
+    normal_abs = abs(normal)
+
+    if tangent_abs == 0:
+        return False
+
+    return tangent_abs * den >= normal_abs * num
+
+def is_tile_blocked(world, tile: Vec2i) -> bool:
+    # Out of bounds is blocked.
+    if tile.y < 0 or tile.y >= len(world.tilemap):
+        return True
+
+    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
+        return True
+
+    # Static collision from tilemap.
+    return (tile.x, tile.y) in world.static_collision_tiles
+
+def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
+    collision_result, resolved_cpos = trace_static_tile_path(
+        world,
+        entity,
+        start_cpos,
+        delta,
+    )
+
+    if collision_result == "slide":
+        return resolve_slide_static_tile_movement(
+            world,
+            entity,
+            start_cpos,
+            delta,
+        )
+
+    return collision_result, resolved_cpos
+
+def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
+    policy = world.movement_collision.get(entity, {})
+    ratio = policy.get("slide_min_tangent_ratio", (1, 2))
+
+    options = []
+
+    # Try x-only movement.
+    if delta.x != 0:
+        x_delta = Vec2i(delta.x, 0)
+        x_result, x_cpos = trace_static_tile_path(
+            world,
+            entity,
+            start_cpos,
+            x_delta,
+        )
+
+        if x_result == "allow":
+            tangent = delta.x
+            normal = delta.y
+
+            if passes_slide_threshold(tangent, normal, ratio):
+                options.append(("x", abs(tangent), x_cpos))
+
+    # Try y-only movement.
+    if delta.y != 0:
+        y_delta = Vec2i(0, delta.y)
+        y_result, y_cpos = trace_static_tile_path(
+            world,
+            entity,
+            start_cpos,
+            y_delta,
+        )
+
+        if y_result == "allow":
+            tangent = delta.y
+            normal = delta.x
+
+            if passes_slide_threshold(tangent, normal, ratio):
+                options.append(("y", abs(tangent), y_cpos))
+
+    if not options:
+        return "block", start_cpos
+
+    # Pick the stronger valid slide component.
+    # Tie-breaker is deterministic because "x" sorts before "y".
+    options.sort(key=lambda item: (-item[1], item[0]))
+
+    _, _, chosen_cpos = options[0]
+    return "allow", chosen_cpos
+
+def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
+    steps = num_collision_substeps(delta)
+
+    previous_cpos = start_cpos
+
+    for step in range(1, steps + 1):
+        candidate_cpos = substep_position(start_cpos, delta, step, steps)
+        candidate_tile = tile_from_cpos(candidate_cpos)
+
+        collision_result = handle_static_tile_collision(
+            world,
+            entity,
+            candidate_tile,
+        )
+
+        if collision_result != "allow":
+            return collision_result, previous_cpos
+
+        previous_cpos = candidate_cpos
+
+    return "allow", start_cpos + delta
+
+def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
+    # Only grid-positioned actors should settle.
+    if transform.position_mode != "grid":
+        return False
+
+    # Only entities with locomotion are currently considered grid actors.
+    if entity not in world.locomotion:
+        return False
+
+    target_tile = tile_from_cpos(transform.cpos)
+    target_cpos = tile_center(target_tile)
+
+    transform.tile = target_tile
+
+    if is_at_cpos(transform.cpos, target_cpos):
+        return False
+
+    motion_state["controller"] = SettleToGridController(
+        start=transform.cpos,
+        end=target_cpos,
+        progress=0,
+        duration=4,
+    )
+
+    motion_state["influence_mode"] = "normal"
+
+    return True
+
+def handle_static_tile_collision(world, entity, next_tile):
+    policy = world.movement_collision.get(entity)
+
+    if policy is None:
+        return "allow"
+
+    behavior = policy.get("static_tiles", "allow")
+
+    if not is_tile_blocked(world, next_tile):
+        return "allow"
+
+    return behavior
+
 def movement_system(world):
     entities = (
         set(world.transform)
@@ -284,6 +390,7 @@ def movement_system(world):
 
                 if controller is not None:
                     clear_motion_controller(motion_state)
+                    start_settle_to_grid_if_needed(world, entity, transform, motion_state)
 
                 continue
 
@@ -302,7 +409,9 @@ def movement_system(world):
                     transform.cpos = controller.end
 
                 transform.tile = tile_from_cpos(transform.cpos)
+
                 clear_motion_controller(motion_state)
+                start_settle_to_grid_if_needed(world, entity, transform, motion_state)
 
 def skill_intent_resolution_system(world, intents):
     world.resolved_skill_intents.clear()
