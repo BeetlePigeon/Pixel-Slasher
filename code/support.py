@@ -337,7 +337,56 @@ class GridMoveController:
     progress: int
     duration: int
 
+    motion_tag = "grid_move"
+
     def sample_delta(self) -> Vec2i:    # LERP style
+        prev = lerp_vec(self.start, self.end, self.progress, self.duration)
+        next_ = lerp_vec(self.start, self.end, self.progress + 1, self.duration)
+        return next_ - prev
+
+    def advance(self):
+        self.progress += 1
+
+    def finished(self) -> bool:
+        return self.progress >= self.duration
+
+
+
+
+@dataclass
+class DashController:
+    direction: Vec2i
+    age: int
+    duration: int
+    distance: int
+
+    motion_tag = "dash"
+
+    def sample_delta(self) -> Vec2i:
+        prev_dist = self.distance * self.age // self.duration
+        next_dist = self.distance * (self.age + 1) // self.duration
+
+        step_distance = next_dist - prev_dist
+
+        return scale_dir(self.direction, step_distance)
+
+    def advance(self):
+        self.age += 1
+
+    def finished(self) -> bool:
+        return self.age >= self.duration
+
+
+@dataclass
+class SettleToGridController:
+    start: Vec2i
+    end: Vec2i
+    progress: int
+    duration: int
+
+    motion_tag = "settle"
+
+    def sample_delta(self) -> Vec2i:
         prev = lerp_vec(self.start, self.end, self.progress, self.duration)
         next_ = lerp_vec(self.start, self.end, self.progress + 1, self.duration)
         return next_ - prev
@@ -399,43 +448,3 @@ class SpiralProjectileController:
     def finished(self) -> bool:
         return False
 
-
-@dataclass
-class DashController:
-    direction: Vec2i
-    age: int
-    duration: int
-    distance: int
-
-    def sample_delta(self) -> Vec2i:
-        prev_dist = self.distance * self.age // self.duration
-        next_dist = self.distance * (self.age + 1) // self.duration
-
-        step_distance = next_dist - prev_dist
-
-        return scale_dir(self.direction, step_distance)
-
-    def advance(self):
-        self.age += 1
-
-    def finished(self) -> bool:
-        return self.age >= self.duration
-
-
-@dataclass
-class SettleToGridController:
-    start: Vec2i
-    end: Vec2i
-    progress: int
-    duration: int
-
-    def sample_delta(self) -> Vec2i:
-        prev = lerp_vec(self.start, self.end, self.progress, self.duration)
-        next_ = lerp_vec(self.start, self.end, self.progress + 1, self.duration)
-        return next_ - prev
-
-    def advance(self):
-        self.progress += 1
-
-    def finished(self) -> bool:
-        return self.progress >= self.duration

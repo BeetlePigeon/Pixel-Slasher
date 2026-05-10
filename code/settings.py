@@ -12,6 +12,7 @@ ANIMATION_RATE = 60
 TILE_UNITS = 4096
 MAX_COLLISION_STEP = TILE_UNITS // 4
 TILE_DIMENSION = 32     # Width/Height in pixels
+MOVE_BUFFER_TICKS = 8
 
 # game configuration settings
 data_file = {

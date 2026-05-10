@@ -1,6 +1,6 @@
 import pygame
 from skills import SKILL_DEFS
-from camera_utils import internal_screen_to_world_tile
+from settings import MOVE_BUFFER_TICKS
 from support import (
     TILE_UNITS,
     Vec2i,
@@ -10,7 +10,6 @@ from support import (
     interp_cpos,
     iso_to_screen,
     cpos_to_screen,
-    screen_to_cpos,
     scale_vec,
     clamp_vec_axis,
     lerp_cpos,
@@ -25,6 +24,7 @@ def emit_event(world, event_type, **data):
         **data,
     })
 
+
 def snapshot_system(world):
     world.snapshot["cpos"].clear()
     world.snapshot["tile"].clear()
@@ -35,6 +35,35 @@ def snapshot_system(world):
 
         world.snapshot["cpos"][entity] = transform.cpos
         world.snapshot["tile"][entity] = transform.tile
+
+
+def buffer_move_intent(world, entity, direction: Vec2i):
+    world.buffered_move_intent[entity] = {
+        "type": "direction",
+        "direction": direction,
+        "expires_tick": world.tick + MOVE_BUFFER_TICKS,
+    }
+
+
+def clear_buffered_move_intent(world, entity):
+    world.buffered_move_intent.pop(entity, None)
+
+
+def get_buffered_move_direction(world, entity):
+    buffered = world.buffered_move_intent.get(entity)
+
+    if buffered is None:
+        return None
+
+    if world.tick > buffered["expires_tick"]:
+        clear_buffered_move_intent(world, entity)
+        return None
+
+    if buffered["type"] != "direction":
+        return None
+
+    return buffered["direction"]
+
 
 def intent_system(world, intents):
     world.move_intent.clear()
@@ -49,51 +78,89 @@ def intent_system(world, intents):
             if dx == 0 and dy == 0:
                 continue
 
-            world.move_intent[entity] = Vec2i(dx, dy)
+            direction = Vec2i(dx, dy)
+            world.move_intent[entity] = direction
+
+            motion_state = world.motion_state.get(entity)
+
+            if motion_state is not None:
+                if motion_state.get("controller") is not None:
+                    buffer_move_intent(world, entity, direction)
 
             if entity in world.facing:
-                world.facing[entity] = Vec2i(dx, dy)
+                world.facing[entity] = direction
 
             break
 
+
 def movement_arbiter_system(world):
     entities = (
-        set(world.move_intent)
+        (
+            set(world.move_intent)
+            | set(world.buffered_move_intent)
+        )
         & set(world.transform)
         & set(world.motion_state)
         & set(world.locomotion)
     )
 
     for entity in sorted(entities):
-        direction = world.move_intent[entity]
         transform = world.transform[entity]
         motion_state = world.motion_state[entity]
         locomotion = world.locomotion[entity]
 
-        if not locomotion["can_move_8way"]:
-            if direction.x != 0 and direction.y != 0:
+        if motion_state["controller"] is not None:
+            continue
+
+        if entity in world.move_intent:
+            desired_direction = world.move_intent[entity]
+            using_buffered_intent = False
+        else:
+            desired_direction = get_buffered_move_direction(world, entity)
+            using_buffered_intent = True
+
+            if desired_direction is None:
                 continue
 
-        if motion_state["controller"] is not None:
+        if not locomotion["can_move_8way"]:
+            if desired_direction.x != 0 and desired_direction.y != 0:
+                if using_buffered_intent:
+                    clear_buffered_move_intent(world, entity)
+                continue
+
+        resolved_direction = resolve_grid_move_direction(
+            world,
+            entity,
+            desired_direction,
+        )
+
+        if resolved_direction is None:
+            if using_buffered_intent:
+                clear_buffered_move_intent(world, entity)
             continue
 
         current_tile = transform.tile
         target_tile = Vec2i(
-            current_tile.x + direction.x,
-            current_tile.y + direction.y,
+            current_tile.x + resolved_direction.x,
+            current_tile.y + resolved_direction.y,
         )
-
-        if is_tile_blocked(world, target_tile):
-            continue
 
         start = tile_center(current_tile)
         end = tile_center(target_tile)
+
         motion_state["controller"] = GridMoveController(
             start=start,
             end=end,
             progress=0,
             duration=locomotion["step_duration"],
         )
+
+        if entity in world.facing:
+            world.facing[entity] = resolved_direction
+
+        if using_buffered_intent:
+            clear_buffered_move_intent(world, entity)
+
 
 def sample_wind_delta(world, emitter):
     mode = emitter.get("mode", "constant")
@@ -108,6 +175,7 @@ def sample_wind_delta(world, emitter):
         return cycle[index]
 
     return emitter["delta"]
+
 
 def sample_magnet_delta(world, emitter_entity, emitter, target_entity):
     emitter_cpos = world.snapshot["cpos"].get(emitter_entity)
@@ -131,6 +199,7 @@ def sample_magnet_delta(world, emitter_entity, emitter, target_entity):
         sign(dy) * strength,
     )
 
+
 def motion_accepts_influences(motion_state) -> bool:
     if motion_state is None:
         return True
@@ -141,6 +210,7 @@ def motion_accepts_influences(motion_state) -> bool:
         return False
 
     return True
+
 
 def influence_system(world):
     world.influence_delta.clear()
@@ -192,12 +262,15 @@ def influence_system(world):
 
         world.influence_delta[entity] = total
 
+
 def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
 
+
 def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
     return a.x == b.x and a.y == b.y
+
 
 def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
     return Vec2i(
@@ -205,11 +278,13 @@ def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs
         start.y + delta.y * axis_distance // axis_abs_delta,
     )
 
+
 def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
     return Vec2i(
         boundary_cpos.x - step_x,
         boundary_cpos.y,
     )
+
 
 def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
     return Vec2i(
@@ -217,11 +292,89 @@ def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
         boundary_cpos.y - step_y,
     )
 
+
 def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> Vec2i:
     return Vec2i(
         boundary_cpos.x - step_x,
         boundary_cpos.y - step_y,
     )
+
+
+def get_entity_slide_ratio(world, entity):
+    policy = world.movement_collision.get(entity, {})
+    return policy.get("slide_min_tangent_ratio", (1, 2))
+
+
+def entity_allows_grid_slide(world, entity):
+    policy = world.movement_collision.get(entity, {})
+    return policy.get("static_tiles") == "slide"
+
+
+def resolve_grid_move_direction(world, entity, desired_direction: Vec2i):
+    transform = world.transform[entity]
+    current_tile = transform.tile
+
+    desired_tile = current_tile + desired_direction
+
+    # If desired movement is open, take it directly.
+    if not is_tile_blocked(world, desired_tile):
+        return desired_direction
+
+    # Only entities with slide policy may use this fallback.
+    if not entity_allows_grid_slide(world, entity):
+        return None
+
+    # Cardinal movement into a wall has no tangent component.
+    # It should block.
+    if desired_direction.x == 0 or desired_direction.y == 0:
+        return None
+
+    ratio = get_entity_slide_ratio(world, entity)
+
+    candidates = []
+
+    # Try x-only slide.
+    x_direction = Vec2i(desired_direction.x, 0)
+    x_tile = current_tile + x_direction
+
+    if not is_tile_blocked(world, x_tile):
+        tangent = desired_direction.x
+        normal = desired_direction.y
+
+        if passes_slide_threshold(tangent, normal, ratio):
+            candidates.append((
+                abs(tangent),
+                0,  # deterministic priority: x before y on tie
+                x_direction,
+            ))
+
+    # Try y-only slide.
+    y_direction = Vec2i(0, desired_direction.y)
+    y_tile = current_tile + y_direction
+
+    if not is_tile_blocked(world, y_tile):
+        tangent = desired_direction.y
+        normal = desired_direction.x
+
+        if passes_slide_threshold(tangent, normal, ratio):
+            candidates.append((
+                abs(tangent),
+                1,  # y after x on tie
+                y_direction,
+            ))
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda item: (
+            -item[0],  # preserve strongest tangent component
+            item[1],   # deterministic tie-break
+        )
+    )
+
+    return candidates[0][2]
+
 
 def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
     num, den = ratio
@@ -234,6 +387,7 @@ def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
 
     return tangent_abs * den >= normal_abs * num
 
+
 def is_tile_blocked(world, tile: Vec2i) -> bool:
     # Out of bounds is blocked.
     if tile.y < 0 or tile.y >= len(world.tilemap):
@@ -244,6 +398,7 @@ def is_tile_blocked(world, tile: Vec2i) -> bool:
 
     # Static collision from tilemap.
     return (tile.x, tile.y) in world.static_collision_tiles
+
 
 def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
     collision_result, resolved_cpos = trace_static_tile_path(
@@ -262,6 +417,7 @@ def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i)
         )
 
     return collision_result, resolved_cpos
+
 
 def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
     policy = world.movement_collision.get(entity, {})
@@ -312,6 +468,7 @@ def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: 
 
     _, _, chosen_cpos = options[0]
     return "allow", chosen_cpos
+
 
 def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
     end_cpos = start_cpos + delta
@@ -483,6 +640,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
 
     return "allow", end_cpos
 
+
 def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
     # Only grid-positioned actors should settle.
     if transform.position_mode != "grid":
@@ -511,6 +669,7 @@ def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bo
 
     return True
 
+
 def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision.get(entity)
 
@@ -523,6 +682,7 @@ def handle_static_tile_collision(world, entity, next_tile):
         return "allow"
 
     return behavior
+
 
 def movement_system(world):
     entities = (
@@ -598,6 +758,7 @@ def movement_system(world):
                 clear_motion_controller(motion_state)
                 start_settle_to_grid_if_needed(world, entity, transform, motion_state)
 
+
 def skill_trigger_matches_intent(skill_def, intent):
     trigger_mode = skill_def["trigger_mode"]
     intent_type = intent["type"]
@@ -610,9 +771,36 @@ def skill_trigger_matches_intent(skill_def, intent):
 
     return False
 
+
 def entity_has_component(world, entity, component_name):
     component_map = getattr(world, component_name)
     return entity in component_map
+
+
+def get_active_motion_tag(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return None
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return None
+
+    return getattr(controller, "motion_tag", None)
+
+
+def skill_allowed_by_motion_state(world, entity, skill_def):
+    active_motion_tag = get_active_motion_tag(world, entity)
+
+    if active_motion_tag is None:
+        return True
+
+    blocked_tags = skill_def["blocked_by_motion_tags"]
+
+    return active_motion_tag not in blocked_tags
+
 
 def entity_meets_skill_requirements(world, entity, skill_def):
     required_components = skill_def.get("required_components", set())
@@ -622,6 +810,7 @@ def entity_meets_skill_requirements(world, entity, skill_def):
             return False
 
     return True
+
 
 def build_resolved_skill(world, caster, skill_def):
     resolved = dict(skill_def)
@@ -666,6 +855,9 @@ def skill_intent_resolution_system(world, intents):
             if not entity_meets_skill_requirements(world, entity, skill_def):
                 continue
 
+            if not skill_allowed_by_motion_state(world, entity, skill_def):
+                continue
+
             resolved_skill = build_resolved_skill(world, entity, skill_def)
             handler = resolved_skill["handler"]
 
@@ -677,6 +869,7 @@ def skill_intent_resolution_system(world, intents):
                 "intent": intent,
                 "handler": handler,
             })
+
 
 def skill_execution_system(world):
     for resolved in sorted(
@@ -695,6 +888,7 @@ def skill_execution_system(world):
             cooldown_ticks = skill_def.get("cooldown_ticks", 0)
             world.skill_cooldown[(caster, slot)] = world.tick + cooldown_ticks
 
+
 def lifetime_system(world):
     for entity in sorted(list(world.lifetime)):
         lifetime = world.lifetime[entity]
@@ -703,6 +897,7 @@ def lifetime_system(world):
 
         if lifetime["remaining_ticks"] <= 0:
             world.entities.destroy(entity)
+
 
 def event_system(world):
     for event in world.events:
@@ -716,6 +911,7 @@ def event_system(world):
             )
 
     world.events.clear()
+
 
 def sample_camera_shake(camera):
     ticks_left = camera["shake_ticks"]
@@ -749,6 +945,7 @@ def sample_camera_shake(camera):
         direction.y * current_strength,
     )
 
+
 def get_camera_target_cpos(world):
     camera = world.camera
     mode = camera["mode"]
@@ -766,6 +963,7 @@ def get_camera_target_cpos(world):
 
     return None
 
+
 def set_camera_follow(world, target_entity, transition_mode="snap", transition_duration=None):
     camera = world.camera
 
@@ -781,6 +979,7 @@ def set_camera_follow(world, target_entity, transition_mode="snap", transition_d
         camera["transition_duration"] = transition_duration
         camera["transition_start_cpos"] = camera["current_cpos"]
 
+
 def set_camera_fixed(world, fixed_cpos, transition_mode="snap", transition_duration=20):
     camera = world.camera
 
@@ -793,12 +992,14 @@ def set_camera_fixed(world, fixed_cpos, transition_mode="snap", transition_durat
         camera["transition_duration"] = transition_duration
         camera["transition_start_cpos"] = camera["current_cpos"]
 
+
 def start_camera_shake(world, duration_ticks: int, strength: int):
     camera = world.camera
 
     camera["shake_ticks"] = duration_ticks
     camera["shake_duration"] = duration_ticks
     camera["shake_strength"] = strength
+
 
 def camera_shake_system(world):
     camera = world.camera
@@ -809,6 +1010,7 @@ def camera_shake_system(world):
         if camera["shake_ticks"] <= 0:
             camera["shake_duration"] = 0
             camera["shake_strength"] = 0
+
 
 def camera_update_system(world):
     camera = world.camera
@@ -857,6 +1059,7 @@ def camera_update_system(world):
             duration,
         )
 
+
 def camera_system(world, surface, render_alpha):
     camera = world.camera
 
@@ -897,6 +1100,8 @@ def camera_system(world, surface, render_alpha):
         base_offset[0] + shake_offset.x,
         base_offset[1] + shake_offset.y,
     )
+
+
 def render_tiles(world, surface, render_alpha=0.0):
     offset_x, offset_y = world.camera_offset
 
@@ -918,6 +1123,8 @@ def render_tiles(world, surface, render_alpha=0.0):
                     ),
                     3,
                 )
+
+
 def get_sprite_offset(image, anchor):
     if anchor == "center":
         return Vec2i(-image.get_width() // 2, -image.get_height() // 2)
@@ -926,8 +1133,34 @@ def get_sprite_offset(image, anchor):
 
     raise ValueError(f"Unknown anchor: {anchor}")
 
+
+def facing_to_screen_delta(facing: Vec2i, tile_size: int, arrow_length: int) -> tuple[int, int]:
+    start_cpos = Vec2i(0, 0)
+    end_cpos = Vec2i(
+        facing.x * TILE_UNITS,
+        facing.y * TILE_UNITS,
+    )
+
+    start_x, start_y = cpos_to_screen(start_cpos, tile_size)
+    end_x, end_y = cpos_to_screen(end_cpos, tile_size)
+
+    dx = end_x - start_x
+    dy = end_y - start_y
+
+    max_abs = max(abs(dx), abs(dy))
+
+    if max_abs == 0:
+        return 0, 0
+
+    return (
+        dx * arrow_length // max_abs,
+        dy * arrow_length // max_abs,
+    )
+
+
 def sprite_system(world, surface, render_alpha):
     draw_list = []
+    debug_draw_list = []
     offset_x, offset_y = world.camera_offset
 
     for entity in world.sprite:
@@ -945,26 +1178,73 @@ def sprite_system(world, surface, render_alpha):
 
         screen_x, screen_y = cpos_to_screen(pos, world.tile_size)
 
-        # Debug
-        tile = world.transform[entity].tile
-        tile_center_cpos = tile_center(tile)
-        tile_screen_x, tile_screen_y = cpos_to_screen(tile_center_cpos, world.tile_size)
-        pygame.draw.circle(surface, "black",(tile_screen_x + offset_x, tile_screen_y + offset_y), 4)
         sprite_offset = get_sprite_offset(sprite["image"], sprite["anchor"])
-        pygame.draw.circle(surface, "red", (screen_x + offset_x, screen_y + offset_y), 4)
-        # End Debug
 
-        sprite_offset = get_sprite_offset(sprite["image"], sprite["anchor"])
         draw_list.append((
             screen_y + sprite.get("z", 0),
             sprite["image"],
             (
                 screen_x + offset_x + sprite_offset.x,
-                screen_y + offset_y + sprite_offset.y
-            )
+                screen_y + offset_y + sprite_offset.y,
+            ),
         ))
+
+        debug_draw_list.append((entity, screen_x, screen_y))
 
     draw_list.sort(key=lambda x: x[0])
 
     for _, image, pos in draw_list:
         surface.blit(image, pos)
+
+    # Debug overlay after sprites, so it stays visible.
+    for entity, screen_x, screen_y in debug_draw_list:
+        transform = world.transform[entity]
+
+        tile_center_cpos = tile_center(transform.tile)
+        tile_screen_x, tile_screen_y = cpos_to_screen(
+            tile_center_cpos,
+            world.tile_size,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "black",
+            (
+                tile_screen_x + offset_x,
+                tile_screen_y + offset_y,
+            ),
+            4,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "red",
+            (
+                screen_x + offset_x,
+                screen_y + offset_y,
+            ),
+            4,
+        )
+
+        if entity in world.facing:
+            facing = world.facing[entity]
+
+            arrow_dx, arrow_dy = facing_to_screen_delta(
+                facing,
+                world.tile_size,
+                arrow_length=32,
+            )
+
+            pygame.draw.line(
+                surface,
+                "black",
+                (
+                    screen_x + offset_x,
+                    screen_y + offset_y,
+                ),
+                (
+                    screen_x + offset_x + arrow_dx,
+                    screen_y + offset_y + arrow_dy,
+                ),
+                2,
+            )

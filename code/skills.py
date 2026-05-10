@@ -121,6 +121,7 @@ SKILL_DEFS = {
         "name": "Dash",
         "cooldown_ticks": 40,
         "trigger_mode": "held_repeat",
+        "blocked_by_motion_tags": {"dash"},
         "required_components": {"transform", "motion_state", "facing"},
         "required_params": {
             "duration",
@@ -128,8 +129,8 @@ SKILL_DEFS = {
             "influence_mode",
         },
         "params": {
-            "duration": 8,
-            "distance": TILE_UNITS * 5,
+            "duration": 12,
+            "distance": TILE_UNITS * 7,
             "influence_mode": "ignore_all",
         },
         "handler": execute_dash,
@@ -140,6 +141,7 @@ SKILL_DEFS = {
         "name": "Test Projectile",
         "cooldown_ticks": 12,
         "trigger_mode": "held_repeat",
+        "blocked_by_motion_tags": {"dash"},
         "required_components": {"transform", "facing"},
         "required_params": {
             "spawn_distance",
@@ -159,6 +161,7 @@ SKILL_DEFS = {
         "name": "Spiral Projectile",
         "cooldown_ticks": 30,
         "trigger_mode": "held_repeat",
+        "blocked_by_motion_tags": {"dash"},
         "required_components": {"transform"},
         "required_params": {
             "projectile_lifetime",
@@ -178,6 +181,7 @@ SKILL_DEFS = {
         "name": "Magnet Orb",
         "cooldown_ticks": 60,
         "trigger_mode": "held_repeat",
+        "blocked_by_motion_tags": {"dash"},
         "required_components": {"transform", "facing"},
         "required_params": {
             "spawn_distance",
@@ -199,6 +203,7 @@ SKILL_DEFS = {
         "name": "Teleport",
         "cooldown_ticks": 30,
         "trigger_mode": "press",
+        "blocked_by_motion_tags": {"dash"},
         "required_components": {"transform", "motion_state"},
         "required_params": {
             "target_mode",
@@ -236,6 +241,7 @@ def validate_skill_defs():
             "name",
             "cooldown_ticks",
             "trigger_mode",
+            "blocked_by_motion_tags",
             "required_components",
             "required_params",
             "params",
@@ -248,6 +254,11 @@ def validate_skill_defs():
             raise ValueError(
                 f"Skill '{skill_id}' is missing top-level fields: "
                 f"{sorted(missing_top_level)}"
+            )
+
+        if not isinstance(skill_def["blocked_by_motion_tags"], set):
+            raise ValueError(
+                f"Skill '{skill_id}' blocked_by_motion_tags must be a set"
             )
 
         valid_trigger_modes = {"press", "held_repeat"}

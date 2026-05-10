@@ -42,7 +42,7 @@ class Game:
         self.toggle = True
         self.vsync_enabled = True
         self.fps_caps = [30, 180, 0]  # 0 = uncapped. Later add values that match common monitor refresh rates. Along with tooltip explaining in Video Settings Menu.
-        self.fps_cap_index = 1  # starts at 60
+        self.fps_cap_index = 0
         self.fps_cap = self.fps_caps[self.fps_cap_index]
         self.debug_font = pygame.font.Font(None, 18)
         # Debug screen resize and mouse canonical position

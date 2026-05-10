@@ -46,6 +46,7 @@ class World:
         self.facing = {}
         self.events = []
         self.move_intent = {}
+        self.buffered_move_intent = {}
         self.intent = {}
         self.input_controlled = {}
         self.skills = {}
@@ -119,6 +120,7 @@ class World:
         self.facing.pop(eid, None)
         self.motion_state.pop(eid, None)
         self.move_intent.pop(eid, None)
+        self.buffered_move_intent.pop(eid, None)
         self.locomotion.pop(eid, None)
         self.projectile.pop(eid, None)
         self.sprite.pop(eid, None)
