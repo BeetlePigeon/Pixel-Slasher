@@ -1,14 +1,16 @@
 import pygame
-import math
-from settings import TILE_UNITS, MAX_COLLISION_STEP
-from skills import SKILL_HANDLERS
+from skills import SKILL_DEFS
+from camera_utils import internal_screen_to_world_tile
 from support import (
+    TILE_UNITS,
     Vec2i,
     sign,
     tile_center,
     tile_from_cpos,
+    interp_cpos,
     iso_to_screen,
     cpos_to_screen,
+    screen_to_cpos,
     scale_vec,
     clamp_vec_axis,
     lerp_cpos,
@@ -16,6 +18,23 @@ from support import (
     SettleToGridController,
 )
 
+
+def emit_event(world, event_type, **data):
+    world.events.append({
+        "type": event_type,
+        **data,
+    })
+
+def snapshot_system(world):
+    world.snapshot["cpos"].clear()
+    world.snapshot["tile"].clear()
+
+    for entity in sorted(world.transform):
+        transform = world.transform[entity]
+        transform.prev_cpos = transform.cpos
+
+        world.snapshot["cpos"][entity] = transform.cpos
+        world.snapshot["tile"][entity] = transform.tile
 
 def intent_system(world, intents):
     world.move_intent.clear()
@@ -91,14 +110,14 @@ def sample_wind_delta(world, emitter):
     return emitter["delta"]
 
 def sample_magnet_delta(world, emitter_entity, emitter, target_entity):
-    emitter_transform = world.transform.get(emitter_entity)
-    target_transform = world.transform.get(target_entity)
+    emitter_cpos = world.snapshot["cpos"].get(emitter_entity)
+    target_cpos = world.snapshot["cpos"].get(target_entity)
 
-    if emitter_transform is None or target_transform is None:
+    if emitter_cpos is None or target_cpos is None:
         return Vec2i(0, 0)
 
-    dx = emitter_transform.cpos.x - target_transform.cpos.x
-    dy = emitter_transform.cpos.y - target_transform.cpos.y
+    dx = emitter_cpos.x - target_cpos.x
+    dy = emitter_cpos.y - target_cpos.y
 
     # Simple square radius check for now.
     radius = emitter["radius"]
@@ -180,18 +199,28 @@ def clear_motion_controller(motion_state):
 def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
     return a.x == b.x and a.y == b.y
 
-def num_collision_substeps(delta: Vec2i) -> int:
-    max_axis = max(abs(delta.x), abs(delta.y))
-
-    if max_axis == 0:
-        return 1
-
-    return max(1, (max_axis + MAX_COLLISION_STEP - 1) // MAX_COLLISION_STEP)
-
-def substep_position(start: Vec2i, delta: Vec2i, step: int, total_steps: int) -> Vec2i:
+def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
     return Vec2i(
-        start.x + delta.x * step // total_steps,
-        start.y + delta.y * step // total_steps,
+        start.x + delta.x * axis_distance // axis_abs_delta,
+        start.y + delta.y * axis_distance // axis_abs_delta,
+    )
+
+def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
+    return Vec2i(
+        boundary_cpos.x - step_x,
+        boundary_cpos.y,
+    )
+
+def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
+    return Vec2i(
+        boundary_cpos.x,
+        boundary_cpos.y - step_y,
+    )
+
+def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> Vec2i:
+    return Vec2i(
+        boundary_cpos.x - step_x,
+        boundary_cpos.y - step_y,
     )
 
 def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
@@ -285,26 +314,174 @@ def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: 
     return "allow", chosen_cpos
 
 def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
-    steps = num_collision_substeps(delta)
+    end_cpos = start_cpos + delta
 
-    previous_cpos = start_cpos
+    current_tile = tile_from_cpos(start_cpos)
+    target_tile = tile_from_cpos(end_cpos)
 
-    for step in range(1, steps + 1):
-        candidate_cpos = substep_position(start_cpos, delta, step, steps)
-        candidate_tile = tile_from_cpos(candidate_cpos)
-
+    if current_tile == target_tile:
         collision_result = handle_static_tile_collision(
             world,
             entity,
-            candidate_tile,
+            target_tile,
         )
 
         if collision_result != "allow":
-            return collision_result, previous_cpos
+            return collision_result, start_cpos
 
-        previous_cpos = candidate_cpos
+        return "allow", end_cpos
 
-    return "allow", start_cpos + delta
+    dx = delta.x
+    dy = delta.y
+
+    step_x = sign(dx)
+    step_y = sign(dy)
+
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+
+    # Distance along x/y, in canonical units, until the first tile boundary crossing.
+    if step_x > 0:
+        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
+        next_cross_x = next_x_boundary - start_cpos.x
+    elif step_x < 0:
+        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_cross_x = start_cpos.x - next_x_boundary
+    else:
+        next_cross_x = None
+
+    if step_y > 0:
+        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
+        next_cross_y = next_y_boundary - start_cpos.y
+    elif step_y < 0:
+        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_cross_y = start_cpos.y - next_y_boundary
+    else:
+        next_cross_y = None
+
+    while current_tile != target_tile:
+        if next_cross_x is None:
+            step_axis = "y"
+        elif next_cross_y is None:
+            step_axis = "x"
+        else:
+            # Compare:
+            #     next_cross_x / abs_dx
+            # vs.
+            #     next_cross_y / abs_dy
+            #
+            # without floats.
+            left = next_cross_x * abs_dy
+            right = next_cross_y * abs_dx
+
+            if left < right:
+                step_axis = "x"
+            elif right < left:
+                step_axis = "y"
+            else:
+                step_axis = "corner"
+
+        if step_axis == "x":
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_x,
+                abs_dx,
+            )
+
+            current_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y,
+            )
+
+            collision_result = handle_static_tile_collision(
+                world,
+                entity,
+                current_tile,
+            )
+
+            if collision_result != "allow":
+                return collision_result, safe_before_x_cross(
+                    boundary_cpos,
+                    step_x,
+                )
+
+            next_cross_x += TILE_UNITS
+
+        elif step_axis == "y":
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_y,
+                abs_dy,
+            )
+
+            current_tile = Vec2i(
+                current_tile.x,
+                current_tile.y + step_y,
+            )
+
+            collision_result = handle_static_tile_collision(
+                world,
+                entity,
+                current_tile,
+            )
+
+            if collision_result != "allow":
+                return collision_result, safe_before_y_cross(
+                    boundary_cpos,
+                    step_y,
+                )
+
+            next_cross_y += TILE_UNITS
+
+        else:
+            # Exact corner crossing. Be conservative and check the two side-adjacent
+            # tiles as well as the diagonal tile.
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_x,
+                abs_dx,
+            )
+
+            side_x_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y,
+            )
+
+            side_y_tile = Vec2i(
+                current_tile.x,
+                current_tile.y + step_y,
+            )
+
+            diagonal_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y + step_y,
+            )
+
+            safe_cpos = safe_before_corner_cross(
+                boundary_cpos,
+                step_x,
+                step_y,
+            )
+
+            for candidate_tile in (side_x_tile, side_y_tile, diagonal_tile):
+                collision_result = handle_static_tile_collision(
+                    world,
+                    entity,
+                    candidate_tile,
+                )
+
+                if collision_result != "allow":
+                    return collision_result, safe_cpos
+
+            current_tile = diagonal_tile
+
+            next_cross_x += TILE_UNITS
+            next_cross_y += TILE_UNITS
+
+    return "allow", end_cpos
 
 def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
     # Only grid-positioned actors should settle.
@@ -377,6 +554,14 @@ def movement_system(world):
             )
 
             if collision_result == "destroy":
+                emit_event(
+                    world,
+                    "entity_destroyed_by_static_collision",
+                    entity=entity,
+                    cpos=transform.cpos,
+                    tile=transform.tile,
+                )
+
                 world.entities.destroy(entity)
                 continue
 
@@ -413,18 +598,63 @@ def movement_system(world):
                 clear_motion_controller(motion_state)
                 start_settle_to_grid_if_needed(world, entity, transform, motion_state)
 
+def skill_trigger_matches_intent(skill_def, intent):
+    trigger_mode = skill_def["trigger_mode"]
+    intent_type = intent["type"]
+
+    if trigger_mode == "press":
+        return intent_type == "skill_pressed"
+
+    if trigger_mode == "held_repeat":
+        return intent_type == "skill_held"
+
+    return False
+
+def entity_has_component(world, entity, component_name):
+    component_map = getattr(world, component_name)
+    return entity in component_map
+
+def entity_meets_skill_requirements(world, entity, skill_def):
+    required_components = skill_def.get("required_components", set())
+
+    for component_name in required_components:
+        if not entity_has_component(world, entity, component_name):
+            return False
+
+    return True
+
+def build_resolved_skill(world, caster, skill_def):
+    resolved = dict(skill_def)
+
+    if "params" in skill_def:
+        resolved["params"] = dict(skill_def["params"])
+
+    return resolved
+
 def skill_intent_resolution_system(world, intents):
     world.resolved_skill_intents.clear()
 
     for entity, entity_intents in intents.items():
         for intent in entity_intents:
-            if intent["type"] != "skill_pressed":
+            if intent["type"] not in {
+                "skill_pressed",
+                "skill_held",
+                "skill_released",
+            }:
                 continue
 
             slot = intent["slot"]
-            skill = world.skills.get((entity, slot))
+            skill_id = world.skills.get((entity, slot))
 
-            if not skill:
+            if not skill_id:
+                continue
+
+            skill_def = SKILL_DEFS.get(skill_id)
+
+            if skill_def is None:
+                continue
+
+            if not skill_trigger_matches_intent(skill_def, intent):
                 continue
 
             cooldown_key = (entity, slot)
@@ -433,16 +663,17 @@ def skill_intent_resolution_system(world, intents):
             if world.tick < ready_tick:
                 continue
 
-            skill_id = skill["id"]
-            handler = SKILL_HANDLERS.get(skill_id)
-
-            if handler is None:
+            if not entity_meets_skill_requirements(world, entity, skill_def):
                 continue
+
+            resolved_skill = build_resolved_skill(world, entity, skill_def)
+            handler = resolved_skill["handler"]
 
             world.resolved_skill_intents.append({
                 "caster": entity,
                 "slot": slot,
-                "skill": skill,
+                "skill_id": skill_id,
+                "skill_def": resolved_skill,
                 "intent": intent,
                 "handler": handler,
             })
@@ -454,14 +685,14 @@ def skill_execution_system(world):
     ):
         caster = resolved["caster"]
         slot = resolved["slot"]
-        skill = resolved["skill"]
+        skill_def = resolved["skill_def"]
         intent = resolved["intent"]
         handler = resolved["handler"]
 
-        executed = handler(world, caster, intent, skill)
+        executed = handler(world, caster, intent, skill_def)
 
         if executed:
-            cooldown_ticks = skill.get("cooldown_ticks", 0)
+            cooldown_ticks = skill_def.get("cooldown_ticks", 0)
             world.skill_cooldown[(caster, slot)] = world.tick + cooldown_ticks
 
 def lifetime_system(world):
@@ -472,6 +703,19 @@ def lifetime_system(world):
 
         if lifetime["remaining_ticks"] <= 0:
             world.entities.destroy(entity)
+
+def event_system(world):
+    for event in world.events:
+        event_type = event["type"]
+
+        if event_type == "entity_destroyed_by_static_collision":
+            start_camera_shake(
+                world,
+                duration_ticks=8,
+                strength=2,
+            )
+
+    world.events.clear()
 
 def sample_camera_shake(camera):
     ticks_left = camera["shake_ticks"]
@@ -573,8 +817,12 @@ def camera_update_system(world):
     if target_cpos is None:
         return
 
+    if camera["current_cpos"] is not None:
+        camera["prev_cpos"] = camera["current_cpos"]
+
     if camera["current_cpos"] is None:
         camera["current_cpos"] = target_cpos
+        camera["prev_cpos"] = target_cpos
         return
 
     transition_mode = camera.get("transition_mode", "snap")
@@ -609,15 +857,26 @@ def camera_update_system(world):
             duration,
         )
 
-def camera_system(world, surface):
+def camera_system(world, surface, render_alpha):
     camera = world.camera
-    target_cpos = camera.get("current_cpos")
 
-    if target_cpos is None:
+    current_cpos = camera.get("current_cpos")
+    prev_cpos = camera.get("prev_cpos", current_cpos)
+
+    if current_cpos is None:
         return
 
+    if prev_cpos is None:
+        prev_cpos = current_cpos
+
+    visual_camera_cpos = interp_cpos(
+        prev_cpos,
+        current_cpos,
+        render_alpha,
+    )
+
     target_screen_x, target_screen_y = cpos_to_screen(
-        target_cpos,
+        visual_camera_cpos,
         world.tile_size,
     )
 
@@ -627,12 +886,18 @@ def camera_system(world, surface):
     screen_offset = camera.get("screen_offset", Vec2i(0, 0))
     shake_offset = sample_camera_shake(camera)
 
-    world.camera_offset = (
-        surface_center_x - target_screen_x + screen_offset.x + shake_offset.x,
-        surface_center_y - target_screen_y + screen_offset.y + shake_offset.y,
+    base_offset = (
+        surface_center_x - target_screen_x + screen_offset.x,
+        surface_center_y - target_screen_y + screen_offset.y,
     )
 
-def render_tiles(world, surface):
+    world.camera_base_offset = base_offset
+
+    world.camera_offset = (
+        base_offset[0] + shake_offset.x,
+        base_offset[1] + shake_offset.y,
+    )
+def render_tiles(world, surface, render_alpha=0.0):
     offset_x, offset_y = world.camera_offset
 
     for y, row in enumerate(world.tilemap):
@@ -661,7 +926,7 @@ def get_sprite_offset(image, anchor):
 
     raise ValueError(f"Unknown anchor: {anchor}")
 
-def sprite_system(world, surface):
+def sprite_system(world, surface, render_alpha):
     draw_list = []
     offset_x, offset_y = world.camera_offset
 
@@ -669,7 +934,13 @@ def sprite_system(world, surface):
         if entity not in world.transform:
             continue
 
-        pos = world.transform[entity].cpos
+        transform = world.transform[entity]
+        pos = interp_cpos(
+            transform.prev_cpos,
+            transform.cpos,
+            render_alpha,
+        )
+
         sprite = world.sprite[entity]
 
         screen_x, screen_y = cpos_to_screen(pos, world.tile_size)

@@ -1,4 +1,3 @@
-import pygame
 from systems import *
 
 
@@ -20,7 +19,7 @@ class State:
     def update(self, dt, input_state):
         pass
 
-    def draw(self, surface):
+    def draw(self, surface, render_alpha):
         pass
 
 
@@ -28,46 +27,65 @@ class StateGameplay(State):
     def __init__(self, game):
         super().__init__(game)
 
+    def get_skill_trigger_mode(self, entity, slot):
+        skill_id = self.game.world.skills.get((entity, slot))
+
+        if not skill_id:
+            return "press"
+
+        skill_def = SKILL_DEFS.get(skill_id)
+
+        if skill_def is None:
+            return "press"
+
+        return skill_def["trigger_mode"]
+
+    def is_mouse_button_held(self, input_state, button):
+        index = button - 1
+
+        if index < 0 or index >= len(input_state.mouse_buttons):
+            return False
+
+        return input_state.mouse_buttons[index]
+
     def build_player_intents(self, input_state):
         intents = []
+        dx = 0
+        dy = 0
+
         keys = input_state.keys
+        right = keys[pygame.K_d]
+        left = keys[pygame.K_a]
+        up = keys[pygame.K_w]
+        down = keys[pygame.K_s]
 
-        screen_dx = 0
-        screen_dy = 0
-
-        if keys[pygame.K_d]:
-            screen_dx += 1
-        if keys[pygame.K_a]:
-            screen_dx -= 1
-        if keys[pygame.K_s]:
-            screen_dy += 1
-        if keys[pygame.K_w]:
-            screen_dy -= 1
-
-        screen_dx = max(-1, min(1, screen_dx))
-        screen_dy = max(-1, min(1, screen_dy))
+        screen_dx = max(-1, min(1, right - left))
+        screen_dy = max(-1, min(1, down - up))
 
         SCREEN_TO_TILE_DIR = {
-            (0, -1): (-1, -1),  # W     = visual up
-            (0, 1): (1, 1),  # S     = visual down
-            (-1, 0): (-1, 1),  # A     = visual left
-            (1, 0): (1, -1),  # D     = visual right
+            # visual right / left / up / down
+            (1, 0): (1, -1),
+            (-1, 0): (-1, 1),
+            (0, -1): (-1, -1),
+            (0, 1): (1, 1),
 
-            (-1, -1): (-1, 0),  # W+A   = visual up-left
-            (1, -1): (0, -1),  # W+D   = visual up-right
-            (-1, 1): (0, 1),  # S+A   = visual down-left
-            (1, 1): (1, 0),  # S+D   = visual down-right
+            # visual diagonals
+            (1, -1): (0, -1),
+            (1, 1): (1, 0),
+            (-1, -1): (-1, 0),
+            (-1, 1): (0, 1),
         }
 
         if (screen_dx, screen_dy) in SCREEN_TO_TILE_DIR:
             tile_dx, tile_dy = SCREEN_TO_TILE_DIR[(screen_dx, screen_dy)]
+
             intents.append({
                 "type": "move",
-                "direction": (tile_dx, tile_dy)
+                "direction": (tile_dx, tile_dy),
             })
 
         # -------------------------
-        # KEYBOARD SKILLS (1–4)
+        # KEYBOARD SKILLS
         # -------------------------
         KEY_TO_SLOT = {
             pygame.K_1: 1,
@@ -79,13 +97,28 @@ class StateGameplay(State):
 
         for key, slot in KEY_TO_SLOT.items():
             if key in input_state.keys_pressed:
-                intents.append({"type": "skill_pressed", "slot": slot})
+                intents.append({
+                    "type": "skill_pressed",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
+
+            if input_state.keys[key]:
+                intents.append({
+                    "type": "skill_held",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
 
             if key in input_state.keys_released:
-                intents.append({"type": "skill_released", "slot": slot})
+                intents.append({
+                    "type": "skill_released",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
 
         # -------------------------
-        # MOUSE SKILLS (LMB/RMB)
+        # MOUSE SKILLS
         # -------------------------
         MOUSE_TO_SLOT = {
             1: "LMB",
@@ -94,10 +127,25 @@ class StateGameplay(State):
 
         for button, slot in MOUSE_TO_SLOT.items():
             if button in input_state.mouse_pressed:
-                intents.append({"type": "skill_pressed", "slot": slot})
+                intents.append({
+                    "type": "skill_pressed",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
+
+            if self.is_mouse_button_held(input_state, button):
+                intents.append({
+                    "type": "skill_held",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
 
             if button in input_state.mouse_released:
-                intents.append({"type": "skill_released", "slot": slot})
+                intents.append({
+                    "type": "skill_released",
+                    "slot": slot,
+                    "mouse_pos": input_state.mouse_pos,
+                })
 
         return intents, input_state.mouse_pos
 
@@ -133,6 +181,7 @@ class StateGameplay(State):
 
 
         # Update Systems
+        snapshot_system(self.game.world)
         intent_system(self.game.world, intents)
         skill_intent_resolution_system(self.game.world, intents)
         skill_execution_system(self.game.world)
@@ -142,11 +191,12 @@ class StateGameplay(State):
         lifetime_system(self.game.world)
         camera_update_system(self.game.world)
         camera_shake_system(self.game.world)
+        event_system(self.game.world)
 
         # Cleanup Entities
         self.game.entities.cleanup(self.game.world)
 
-    def draw(self, surface):
-        camera_system(self.game.world, surface)
-        render_tiles(self.game.world, surface)
-        sprite_system(self.game.world, surface)
+    def draw(self, surface, render_alpha):
+        camera_system(self.game.world, surface, render_alpha)
+        render_tiles(self.game.world, surface, render_alpha)
+        sprite_system(self.game.world, surface, render_alpha)

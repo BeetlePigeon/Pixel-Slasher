@@ -35,7 +35,13 @@ def can_spawn_at(world, cpos, static_tiles="reject"):
     raise ValueError(f"Unknown spawn collision policy: {static_tiles}")
 
 
-def spawn_test_projectile(world, cpos, direction):
+def spawn_test_projectile(
+    world,
+    cpos,
+    direction,
+    speed,
+    lifetime_ticks,
+):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
 
@@ -46,13 +52,14 @@ def spawn_test_projectile(world, cpos, direction):
     world.transform[eid] = Transform(
         tile=tile_from_cpos(cpos),
         cpos=cpos,
+        prev_cpos=cpos,
         position_mode="free",
     )
 
     world.motion_state[eid] = {
         "controller": LinearProjectileController(
             direction=direction,
-            speed=TILE_UNITS // 8,
+            speed=speed,
         ),
         "last_delta": Vec2i(0, 0),
         "influence_mode": "normal",
@@ -72,7 +79,7 @@ def spawn_test_projectile(world, cpos, direction):
     }
 
     world.lifetime[eid] = {
-        "remaining_ticks": 120,
+        "remaining_ticks": lifetime_ticks,
     }
 
     world.sprite[eid] = {
@@ -83,7 +90,13 @@ def spawn_test_projectile(world, cpos, direction):
 
     return eid
 
-def spawn_spiral_projectile(world, cpos):
+def spawn_spiral_projectile(
+    world,
+    cpos,
+    lifetime_ticks,
+    radius_per_tick,
+    angle_step_fp,
+):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
 
@@ -94,6 +107,7 @@ def spawn_spiral_projectile(world, cpos):
     world.transform[eid] = Transform(
         tile=tile_from_cpos(cpos),
         cpos=cpos,
+        prev_cpos=cpos,
         position_mode="free",
     )
 
@@ -101,8 +115,8 @@ def spawn_spiral_projectile(world, cpos):
         "controller": SpiralProjectileController(
             origin=cpos,
             age=0,
-            radius_per_tick=TILE_UNITS // 32,
-            angle_step_fp=ANGLE_SCALE // 8,
+            radius_per_tick=radius_per_tick,
+            angle_step_fp=angle_step_fp,
         ),
         "last_delta": Vec2i(0, 0),
         "influence_mode": "ignore_all",
@@ -122,7 +136,7 @@ def spawn_spiral_projectile(world, cpos):
     }
 
     world.lifetime[eid] = {
-        "remaining_ticks": 180,
+        "remaining_ticks": lifetime_ticks,
     }
 
     world.sprite[eid] = {
@@ -133,7 +147,13 @@ def spawn_spiral_projectile(world, cpos):
 
     return eid
 
-def create_magnet_emitter(world, cpos):
+def spawn_magnet_orb(
+    world,
+    cpos,
+    radius,
+    strength,
+    lifetime_ticks,
+):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
 
@@ -144,17 +164,18 @@ def create_magnet_emitter(world, cpos):
     world.transform[eid] = Transform(
         tile=tile_from_cpos(cpos),
         cpos=cpos,
+        prev_cpos=cpos,
         position_mode="free",
     )
 
     world.influence_emitter[eid] = {
         "type": "magnet",
-        "radius": TILE_UNITS * 10,
-        "strength": TILE_UNITS // 24,
+        "radius": radius,
+        "strength": strength,
     }
 
     world.lifetime[eid] = {
-        "remaining_ticks": 1800,
+        "remaining_ticks": lifetime_ticks,
     }
 
     world.sprite[eid] = {
