@@ -15,6 +15,12 @@ class World:
         self.game = game
         self.entities = entities
         self.tick = 0
+        self.control_scheme = "modern"      # "modern" -> WoW Style | "traditional" -> D2 Style
+        self.gameplay_settings = {
+            "modern_movement_skill_aim_source": "facing",       # "facing" -> Uses player facing direction | "mouse" -> Uses mouse direction
+            "movement_skill_aim_resolution": 16,
+            "projectile_aim_resolution": 128,
+        }
 
         ## Camera
         self.camera_base_offset = (0, 0)
@@ -47,11 +53,13 @@ class World:
         self.events = []
         self.move_intent = {}
         self.buffered_move_intent = {}
+        self.move_target = {}
         self.intent = {}
         self.input_controlled = {}
         self.skills = {}
         self.active_skill = {}
         self.skill_cooldown = {}
+        self.placement_blocker = set()
         self.resolved_skill_intents = []
         self.sprite = {}
         self.locomotion = {}
@@ -87,7 +95,7 @@ class World:
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ]
         self.static_collision_tiles = self.build_static_collision_tiles()
-        self.create_wind_field_emitter()
+#        self.create_wind_field_emitter()
 
         ## Initialize entities
         # Spawn player
@@ -121,6 +129,7 @@ class World:
         self.motion_state.pop(eid, None)
         self.move_intent.pop(eid, None)
         self.buffered_move_intent.pop(eid, None)
+        self.move_target.pop(eid, None)
         self.locomotion.pop(eid, None)
         self.projectile.pop(eid, None)
         self.sprite.pop(eid, None)
@@ -129,6 +138,7 @@ class World:
         self.influence_emitter.pop(eid, None)
         self.influence_receiver.pop(eid, None)
         self.influence_delta.pop(eid, None)
+        self.placement_blocker.discard(eid)
         for key in list(self.skill_cooldown):
             if key[0] == eid:
                 self.skill_cooldown.pop(key, None)
@@ -157,7 +167,17 @@ class World:
         self.facing[eid] = Vec2i(1, -1)
         self.movement_collision[eid] = {
             "static_tiles": "slide",
+
+            # Default/fallback ratio.
             "slide_min_tangent_ratio": (1, 2),
+
+            # Direct grid movement: WASD / buffered WASD.
+            "grid_slide_min_tangent_ratio": (1, 2),
+
+            # Traditional click-to-move target movement.
+            "mouse_slide_min_tangent_ratio": (3, 2),
+
+            "corner_cutting": "allow_if_one_side_open",
         }
         self.motion_state[eid] = {
             "controller": None,
@@ -168,6 +188,7 @@ class World:
             "step_duration": 18,
             "can_move_8way": True,
         }
+        self.placement_blocker.add(eid)
         self.skills[(eid, "TEST_PROJECTILE")] = "test_projectile"
         self.skills[(eid, 1)] = "teleport"
         self.skills[(eid, 2)] = "spiral_projectile"

@@ -1,7 +1,18 @@
-from support import scale_dir, ANGLE_SCALE, DashController
-from settings import TILE_UNITS
+from placement_utils import find_nearest_valid_placement_tile
+from support import (
+    ANGLE_SCALE,
+    TILE_UNITS,
+    DashController,
+    Vec2i,
+    sign,
+    quantize_vector_to_lut_direction,
+    scale_normalized_dir,
+    normalize_vector_to_dir_scale,
+    tile_center,
+)
 from camera_utils import (
     internal_screen_to_world_tile,
+    internal_screen_to_world_cpos,
     snap_camera_to_entity_now,
 )
 from motion_ops import teleport_entity_to_tile
@@ -12,42 +23,238 @@ from spawners import (
     spawn_magnet_orb,
 )
 
-def execute_dash(world, caster, intent, skill_def):
-    direction = world.facing[caster]
-    motion_state = world.motion_state[caster]
 
+def vector_from_caster_tile_to_mouse_tile(world, caster, intent):
+    mouse_pos = intent.get("mouse_pos")
+
+    if mouse_pos is None:
+        return None
+
+    caster_tile = world.transform[caster].tile
+    mouse_tile = internal_screen_to_world_tile(world, mouse_pos)
+
+    caster_tile_cpos = tile_center(caster_tile)
+    mouse_tile_cpos = tile_center(mouse_tile)
+
+    vector = mouse_tile_cpos - caster_tile_cpos
+
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    return vector
+
+
+def resolve_setting_ref(world, value):
+    if isinstance(value, str) and value.startswith("setting:"):
+        setting_name = value.split(":", 1)[1]
+
+        if setting_name not in world.gameplay_settings:
+            raise ValueError(
+                f"Unknown gameplay setting reference: {value}"
+            )
+
+        return world.gameplay_settings[setting_name]
+
+    return value
+
+
+def tile_direction_to_aim_vector(direction: Vec2i):
+    # Convert existing 8-way facing direction into the same normalized-vector
+    # format used by aimed skills.
+    from support import DIRECTION_VECTORS
+
+    return DIRECTION_VECTORS[direction]
+
+
+def vector_from_caster_to_mouse(world, caster, intent):
+    mouse_pos = intent.get("mouse_pos")
+
+    if mouse_pos is None:
+        return None
+
+    caster_cpos = world.transform[caster].cpos
+    target_cpos = internal_screen_to_world_cpos(world, mouse_pos)
+
+    vector = target_cpos - caster_cpos
+
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    return vector
+
+
+def get_skill_aim_config(world, skill_def):
+    aim_config = skill_def.get("aim")
+
+    if aim_config is None:
+        raise ValueError(
+            f"Skill '{skill_def['id']}' does not define aim config"
+        )
+
+    if world.control_scheme == "traditional":
+        raw_source = aim_config["traditional_source"]
+    else:
+        raw_source = aim_config["modern_source"]
+
+    raw_resolution = aim_config["resolution"]
+
+    source = resolve_setting_ref(world, raw_source)
+    resolution = resolve_setting_ref(world, raw_resolution)
+
+    return source, resolution
+
+
+def resolve_skill_aim_vector(world, caster, intent, skill_def):
+    source, resolution = get_skill_aim_config(world, skill_def)
+
+    if source == "facing":
+        return tile_direction_to_aim_vector(world.facing[caster])
+
+    if source == "mouse_tile":
+        vector = vector_from_caster_tile_to_mouse_tile(
+            world,
+            caster,
+            intent,
+        )
+
+        if vector is None:
+            return tile_direction_to_aim_vector(world.facing[caster])
+
+        aim_vector = normalize_vector_to_dir_scale(vector)
+
+        if aim_vector is None:
+            return tile_direction_to_aim_vector(world.facing[caster])
+
+        return aim_vector
+
+    if source == "mouse":
+        vector = vector_from_caster_to_mouse(world, caster, intent)
+
+        if vector is None:
+            return tile_direction_to_aim_vector(world.facing[caster])
+
+        aim_vector = quantize_vector_to_lut_direction(
+            vector,
+            resolution,
+        )
+
+        if aim_vector is None:
+            return tile_direction_to_aim_vector(world.facing[caster])
+
+        return aim_vector
+
+    raise ValueError(f"Unknown skill aim source: {source}")
+
+
+def direction_from_cpos_to_cpos(start_cpos, target_cpos):
+    direction = Vec2i(
+        sign(target_cpos.x - start_cpos.x),
+        sign(target_cpos.y - start_cpos.y),
+    )
+
+    if direction.x == 0 and direction.y == 0:
+        return None
+
+    return direction
+
+
+def direction_toward_mouse(world, caster, intent):
+    mouse_pos = intent.get("mouse_pos")
+
+    if mouse_pos is None:
+        return None
+
+    caster_cpos = world.transform[caster].cpos
+    target_cpos = internal_screen_to_world_cpos(world, mouse_pos)
+
+    return direction_from_cpos_to_cpos(
+        caster_cpos,
+        target_cpos,
+    )
+
+
+def get_skill_aim_source(world, skill_def):
+    params = skill_def["params"]
+
+    if world.control_scheme == "traditional":
+        raw_aim_source = params["traditional_aim_source"]
+    else:
+        raw_aim_source = params["modern_aim_source"]
+
+    return resolve_setting_ref(world, raw_aim_source)
+
+
+def resolve_skill_aim_direction(world, caster, intent, skill_def):
+    aim_source = get_skill_aim_source(world, skill_def)
+
+    if aim_source == "facing":
+        return world.facing[caster]
+
+    if aim_source == "mouse":
+        direction = direction_toward_mouse(world, caster, intent)
+
+        if direction is not None:
+            return direction
+
+        return world.facing[caster]
+
+    raise ValueError(f"Unknown skill aim source: {aim_source}")
+
+
+def execute_dash(world, caster, intent, skill_def):
+    aim_vector = resolve_skill_aim_vector(
+        world,
+        caster,
+        intent,
+        skill_def,
+    )
+
+    motion_state = world.motion_state[caster]
     params = skill_def["params"]
 
     motion_state["controller"] = DashController(
-        direction=direction,
+        aim_vector=aim_vector,
         age=0,
         duration=params["duration"],
         distance=params["distance"],
+        slide_min_tangent_ratio=params["slide_min_tangent_ratio"],
     )
 
     motion_state["influence_mode"] = params["influence_mode"]
 
     return True
 
+
 def execute_test_projectile(world, caster, intent, skill_def):
     caster_cpos = world.transform[caster].cpos
-    direction = world.facing[caster]
 
-    params = skill_def.get("params", {})
-    spawn_distance = params.get("spawn_distance", TILE_UNITS // 4)
+    aim_vector = resolve_skill_aim_vector(
+        world,
+        caster,
+        intent,
+        skill_def,
+    )
 
-    spawn_offset = scale_dir(direction, spawn_distance)
+    params = skill_def["params"]
+    spawn_distance = params["spawn_distance"]
+
+    spawn_offset = scale_normalized_dir(
+        aim_vector,
+        spawn_distance,
+    )
+
     spawn_cpos = caster_cpos + spawn_offset
 
     eid = spawn_test_projectile(
         world,
         spawn_cpos,
-        direction,
+        aim_vector,
         speed=params["projectile_speed"],
         lifetime_ticks=params["projectile_lifetime"],
     )
 
     return eid is not None
+
 
 def execute_spiral_projectile(world, caster, intent, skill_def):
     caster_cpos = world.transform[caster].cpos
@@ -65,14 +272,33 @@ def execute_spiral_projectile(world, caster, intent, skill_def):
     return eid is not None
 
 def execute_magnet_orb(world, caster, intent, skill_def):
-    caster_cpos = world.transform[caster].cpos
-    direction = world.facing[caster]
+    mouse_pos = intent.get("mouse_pos")
 
-    params = skill_def.get("params", {})
+    if mouse_pos is None:
+        return False
 
-    spawn_distance = params.get("spawn_distance", TILE_UNITS * 2)
-    spawn_offset = scale_dir(direction, spawn_distance)
-    spawn_cpos = caster_cpos + spawn_offset
+    params = skill_def["params"]
+
+    target_tile = internal_screen_to_world_tile(
+        world,
+        mouse_pos,
+    )
+
+    caster_tile = world.transform[caster].tile
+
+    spawn_tile = find_nearest_valid_placement_tile(
+        world,
+        target_tile=target_tile,
+        search_radius=params["placement_search_radius"],
+        max_miss_tiles=params["placement_max_miss_tiles"],
+        bias_tile=caster_tile,
+        bias_mode="toward",
+    )
+
+    if spawn_tile is None:
+        return False
+
+    spawn_cpos = tile_center(spawn_tile)
 
     eid = spawn_magnet_orb(
         world,
@@ -83,6 +309,7 @@ def execute_magnet_orb(world, caster, intent, skill_def):
     )
 
     return eid is not None
+
 
 def execute_teleport(world, caster, intent, skill_def):
     params = skill_def["params"]
@@ -127,26 +354,41 @@ SKILL_DEFS = {
             "duration",
             "distance",
             "influence_mode",
+            "slide_min_tangent_ratio",
+        },
+        "allowed_param_values": {
+            "influence_mode": {"normal", "ignore_all"},
+        },
+        "aim": {
+            "traditional_source": "mouse",
+            "modern_source": "setting:modern_movement_skill_aim_source",
+            "resolution": "setting:movement_skill_aim_resolution",
         },
         "params": {
-            "duration": 12,
+            "duration": 18,
             "distance": TILE_UNITS * 7,
             "influence_mode": "ignore_all",
+            "slide_min_tangent_ratio": (1, 3),
         },
         "handler": execute_dash,
     },
 
-    "test_projectile": {
+        "test_projectile": {
         "id": "test_projectile",
         "name": "Test Projectile",
         "cooldown_ticks": 12,
         "trigger_mode": "held_repeat",
         "blocked_by_motion_tags": {"dash"},
-        "required_components": {"transform", "facing"},
+        "required_components": {"transform"},
         "required_params": {
             "spawn_distance",
             "projectile_speed",
             "projectile_lifetime",
+        },
+        "aim": {
+            "traditional_source": "mouse_tile",
+            "modern_source": "mouse_tile",
+            "resolution": "tile_center",
         },
         "params": {
             "spawn_distance": TILE_UNITS // 4,
@@ -162,6 +404,7 @@ SKILL_DEFS = {
         "cooldown_ticks": 30,
         "trigger_mode": "held_repeat",
         "blocked_by_motion_tags": {"dash"},
+        "clears_move_target_on_success": True,
         "required_components": {"transform"},
         "required_params": {
             "projectile_lifetime",
@@ -182,15 +425,15 @@ SKILL_DEFS = {
         "cooldown_ticks": 60,
         "trigger_mode": "held_repeat",
         "blocked_by_motion_tags": {"dash"},
-        "required_components": {"transform", "facing"},
+        "required_components": {"transform"},
         "required_params": {
-            "spawn_distance",
+            "placement_search_radius",
             "radius",
             "strength",
             "lifetime",
         },
         "params": {
-            "spawn_distance": TILE_UNITS,
+            "placement_search_radius": 2,
             "radius": TILE_UNITS * 10,
             "strength": TILE_UNITS // 24,
             "lifetime": 600,
@@ -204,6 +447,7 @@ SKILL_DEFS = {
         "cooldown_ticks": 30,
         "trigger_mode": "press",
         "blocked_by_motion_tags": {"dash"},
+        "clears_move_target_on_success": True,
         "required_components": {"transform", "motion_state"},
         "required_params": {
             "target_mode",

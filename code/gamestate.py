@@ -1,4 +1,6 @@
+from dataclasses import replace
 from systems import *
+from camera_utils import internal_screen_to_world_cpos
 
 
 class State:
@@ -26,6 +28,17 @@ class State:
 class StateGameplay(State):
     def __init__(self, game):
         super().__init__(game)
+        self.ui_captured_mouse_buttons = set()
+
+
+    def toggle_control_scheme(self):
+        world = self.game.world
+
+        if world.control_scheme == "modern":
+            world.control_scheme = "traditional"
+        else:
+            world.control_scheme = "modern"
+
 
     def get_skill_trigger_mode(self, entity, slot):
         skill_id = self.game.world.skills.get((entity, slot))
@@ -40,6 +53,56 @@ class StateGameplay(State):
 
         return skill_def["trigger_mode"]
 
+
+    def build_gameplay_input_state(self, input_state):
+        mouse_over_ui = self.mouse_over_gameplay_ui(input_state.mouse_pos)
+
+        consumed_buttons = set()
+
+        # If a button is pressed while over UI, UI captures it until release.
+        for button in input_state.mouse_pressed:
+            if mouse_over_ui:
+                self.ui_captured_mouse_buttons.add(button)
+
+        consumed_buttons.update(self.ui_captured_mouse_buttons)
+
+        # Held buttons should also be suppressed while currently over UI.
+        # This handles cases where the cursor is over UI while already holding.
+        if mouse_over_ui:
+            for button in range(1, len(input_state.mouse_buttons) + 1):
+                if self.is_mouse_button_held(input_state, button):
+                    consumed_buttons.add(button)
+
+        filtered_mouse_pressed = {
+            button
+            for button in input_state.mouse_pressed
+            if button not in consumed_buttons
+        }
+
+        filtered_mouse_released = {
+            button
+            for button in input_state.mouse_released
+            if button not in consumed_buttons
+        }
+
+        filtered_mouse_buttons = tuple(
+            False if (index + 1) in consumed_buttons else held
+            for index, held in enumerate(input_state.mouse_buttons)
+        )
+
+        # Release ends UI capture after filtering, so the release does not leak
+        # into gameplay on the same tick.
+        for button in input_state.mouse_released:
+            self.ui_captured_mouse_buttons.discard(button)
+
+        return replace(
+            input_state,
+            mouse_buttons=filtered_mouse_buttons,
+            mouse_pressed=filtered_mouse_pressed,
+            mouse_released=filtered_mouse_released,
+        )
+
+
     def is_mouse_button_held(self, input_state, button):
         index = button - 1
 
@@ -48,12 +111,10 @@ class StateGameplay(State):
 
         return input_state.mouse_buttons[index]
 
-    def build_player_intents(self, input_state):
-        intents = []
-        dx = 0
-        dy = 0
 
+    def append_wasd_move_intent(self, intents, input_state):
         keys = input_state.keys
+
         right = keys[pygame.K_d]
         left = keys[pygame.K_a]
         up = keys[pygame.K_w]
@@ -84,9 +145,7 @@ class StateGameplay(State):
                 "direction": (tile_dx, tile_dy),
             })
 
-        # -------------------------
-        # KEYBOARD SKILLS
-        # -------------------------
+    def append_keyboard_skill_intents(self, intents, input_state):
         KEY_TO_SLOT = {
             pygame.K_1: 1,
             pygame.K_2: 2,
@@ -117,15 +176,8 @@ class StateGameplay(State):
                     "mouse_pos": input_state.mouse_pos,
                 })
 
-        # -------------------------
-        # MOUSE SKILLS
-        # -------------------------
-        MOUSE_TO_SLOT = {
-            1: "LMB",
-            3: "RMB",
-        }
-
-        for button, slot in MOUSE_TO_SLOT.items():
+    def append_mouse_skill_intents(self, intents, input_state, mouse_to_slot):
+        for button, slot in mouse_to_slot.items():
             if button in input_state.mouse_pressed:
                 intents.append({
                     "type": "skill_pressed",
@@ -147,7 +199,70 @@ class StateGameplay(State):
                     "mouse_pos": input_state.mouse_pos,
                 })
 
+
+    def build_player_intents(self, input_state):
+        gameplay_input_state = self.build_gameplay_input_state(input_state)
+
+        control_scheme = self.game.world.control_scheme
+
+        if control_scheme == "traditional":
+            return self.build_traditional_player_intents(gameplay_input_state)
+
+        return self.build_modern_player_intents(gameplay_input_state)
+
+
+    def build_traditional_player_intents(self, input_state):
+        intents = []
+
+        # Traditional controls:
+        # LMB on ground means move toward clicked tile.
+        if 1 in input_state.mouse_pressed or self.is_mouse_button_held(input_state, 1):
+            target_cpos = internal_screen_to_world_cpos(
+                self.game.world,
+                input_state.mouse_pos,
+            )
+
+            target_tile = tile_from_cpos(target_cpos)
+
+            intents.append({
+                "type": "move_to_tile",
+                "target_tile": target_tile,
+                "target_cpos": target_cpos,
+                "mouse_pos": input_state.mouse_pos,
+            })
+
+        self.append_keyboard_skill_intents(intents, input_state)
+
+        # In traditional mode, LMB is reserved for movement/context action.
+        # RMB remains a skill slot.
+        self.append_mouse_skill_intents(
+            intents,
+            input_state,
+            {
+                3: "RMB",
+            },
+        )
+
         return intents, input_state.mouse_pos
+
+
+    def build_modern_player_intents(self, input_state):
+        intents = []
+
+        self.append_wasd_move_intent(intents, input_state)
+        self.append_keyboard_skill_intents(intents, input_state)
+
+        self.append_mouse_skill_intents(
+            intents,
+            input_state,
+            {
+                1: "LMB",
+                3: "RMB",
+            },
+        )
+
+        return intents, input_state.mouse_pos
+
 
     def update(self, dt, input_state):
         self.game.world.tick += 1
@@ -161,6 +276,19 @@ class StateGameplay(State):
         pass  # add intents to the intents dict created under Player Intents
 
         # Debug camera
+        if pygame.K_F8 in input_state.keys_pressed:
+            self.toggle_control_scheme()
+
+        if pygame.K_F9 in input_state.keys_pressed:
+            settings = self.game.world.gameplay_settings
+
+            current = settings["modern_movement_skill_aim_source"]
+
+            if current == "facing":
+                settings["modern_movement_skill_aim_source"] = "mouse"
+            else:
+                settings["modern_movement_skill_aim_source"] = "facing"
+
         if pygame.K_LSHIFT in input_state.keys_pressed:
             camera = self.game.world.camera
 
@@ -196,7 +324,28 @@ class StateGameplay(State):
         # Cleanup Entities
         self.game.entities.cleanup(self.game.world)
 
+
     def draw(self, surface, render_alpha):
         camera_system(self.game.world, surface, render_alpha)
         render_tiles(self.game.world, surface, render_alpha)
         sprite_system(self.game.world, surface, render_alpha)
+
+        for rect in self.get_gameplay_ui_rects():
+            pygame.draw.rect(surface, "gray", rect)
+            pygame.draw.rect(surface, "white", rect, 1)
+
+
+    def get_gameplay_ui_rects(self):
+        # Temporary debug UI region.
+        # Later this should come from a real UI system/widget tree.
+        return [
+            pygame.Rect(8, 8, 32, 32),
+        ]
+
+
+    def mouse_over_gameplay_ui(self, mouse_pos):
+        for rect in self.get_gameplay_ui_rects():
+            if rect.collidepoint(mouse_pos):
+                return True
+
+        return False

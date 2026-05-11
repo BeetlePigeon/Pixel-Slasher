@@ -24,6 +24,19 @@ def teleport_entity_to_tile(world, entity, target_tile):
         motion_state["influence_mode"] = "normal"
         motion_state["last_delta"] = target_cpos - transform.cpos
 
+        # Prevent movement_arbiter_system from starting a new voluntary
+        # grid move later in this same tick using stale move_intent.
+        motion_state["suppress_move_start_tick"] = world.tick
+
+    # Clear pending movement requests for this tick.
+    world.move_intent.pop(entity, None)
+
+    if hasattr(world, "buffered_move_intent"):
+        world.buffered_move_intent.pop(entity, None)
+
+    if hasattr(world, "move_target"):
+        world.move_target.pop(entity, None)
+
     transform.tile = target_tile
     transform.cpos = target_cpos
 

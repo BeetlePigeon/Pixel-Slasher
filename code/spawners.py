@@ -38,7 +38,7 @@ def can_spawn_at(world, cpos, static_tiles="reject"):
 def spawn_test_projectile(
     world,
     cpos,
-    direction,
+    aim_vector,
     speed,
     lifetime_ticks,
 ):
@@ -58,7 +58,7 @@ def spawn_test_projectile(
 
     world.motion_state[eid] = {
         "controller": LinearProjectileController(
-            direction=direction,
+            aim_vector=aim_vector,
             speed=speed,
         ),
         "last_delta": Vec2i(0, 0),

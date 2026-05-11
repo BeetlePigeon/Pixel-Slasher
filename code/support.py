@@ -33,6 +33,7 @@ class Transform:
 CIRCLE_LUT_SIZE = 64
 DIR_SCALE = 4096
 ANGLE_SCALE = 256
+AIM_LUT_SIZES = (8, 16, 32, 64, 128, 256)
 
 # Tile-space direction vectors normalized for equal movement speed.
 DIRECTION_VECTORS = {
@@ -58,6 +59,7 @@ SPIRAL_DIRS = [
     Vec2i(1, 1),
 ]
 
+
 def sign(value: int) -> int:
     if value > 0:
         return 1
@@ -65,8 +67,10 @@ def sign(value: int) -> int:
         return -1
     return 0
 
+
 def clamp(value: int, min_value: int, max_value: int) -> int:
     return max(min_value, min(value, max_value))
+
 
 def scale_vec(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
     # Scale vector by rational frac:
@@ -78,11 +82,13 @@ def scale_vec(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
         vec.y * numerator // denominator,
     )
 
+
 def interp_cpos(prev: Vec2i, current: Vec2i, alpha: float) -> Vec2i:
     return Vec2i(
         round(prev.x + (current.x - prev.x) * alpha),
         round(prev.y + (current.y - prev.y) * alpha),
     )
+
 
 def scale_normalized_dir(direction: Vec2i, distance: int) -> Vec2i:
     return Vec2i(
@@ -90,11 +96,28 @@ def scale_normalized_dir(direction: Vec2i, distance: int) -> Vec2i:
         direction.y * distance // DIR_SCALE,
     )
 
+
+def normalize_vector_to_dir_scale(vector: Vec2i):
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    length = math.isqrt(vector.x * vector.x + vector.y * vector.y)
+
+    if length == 0:
+        return None
+
+    return Vec2i(
+        vector.x * DIR_SCALE // length,
+        vector.y * DIR_SCALE // length,
+    )
+
+
 def clamp_vec_axis(vec: Vec2i, max_abs: int) -> Vec2i:
     return Vec2i(
         clamp(vec.x, -max_abs, max_abs),
         clamp(vec.y, -max_abs, max_abs),
     )
+
 
 def tile_center(tile: Vec2i) -> Vec2i:
     return Vec2i(
@@ -102,16 +125,19 @@ def tile_center(tile: Vec2i) -> Vec2i:
         tile.y * TILE_UNITS + TILE_UNITS // 2,
     )
 
+
 def tile_from_cpos(cpos: Vec2i) -> Vec2i:
     return Vec2i(
         cpos.x // TILE_UNITS,
         cpos.y // TILE_UNITS,
     )
 
+
 def iso_to_screen(x, y, tile_dimension):
     screen_x = (x - y) * (tile_dimension // 2)
     screen_y = (x + y) * (tile_dimension // 4)
     return screen_x, screen_y
+
 
 def cpos_to_screen(cpos: Vec2i, tile_dimension: int):
     screen_x = (cpos.x - cpos.y) * (tile_dimension // 2) // TILE_UNITS
@@ -122,6 +148,7 @@ def cpos_to_screen(cpos: Vec2i, tile_dimension: int):
     screen_x += tile_dimension // 2
 
     return screen_x, screen_y
+
 
 def screen_to_cpos(screen_pos, tile_dimension) -> Vec2i:
     screen_x, screen_y = screen_pos
@@ -140,8 +167,10 @@ def screen_to_cpos(screen_pos, tile_dimension) -> Vec2i:
         (b - a) // 2,
     )
 
+
 def lerp_int(a: int, b: int, n: int, d: int) -> int:
     return a + ((b - a) * n) // d
+
 
 def lerp_vec(a: Vec2i, b: Vec2i, n: int, d: int) -> Vec2i:
     return Vec2i(
@@ -149,17 +178,20 @@ def lerp_vec(a: Vec2i, b: Vec2i, n: int, d: int) -> Vec2i:
         lerp_int(a.y, b.y, n, d),
     )
 
+
 def lerp_cpos(a: Vec2i, b: Vec2i, n: int, d: int) -> Vec2i:
     return Vec2i(
         a.x + (b.x - a.x) * n // d,
         a.y + (b.y - a.y) * n // d,
     )
 
+
 def close_enough_cpos(a: Vec2i, b: Vec2i, threshold: int) -> bool:
     return (
         abs(a.x - b.x) <= threshold
         and abs(a.y - b.y) <= threshold
     )
+
 
 def smooth_lerp_axis(current: int, target: int, divisor: int) -> int:
     diff = target - current
@@ -177,11 +209,13 @@ def smooth_lerp_axis(current: int, target: int, divisor: int) -> int:
     else:
         return current - abs_step
 
+
 def smooth_lerp_cpos(current: Vec2i, target: Vec2i, divisor: int) -> Vec2i:
     return Vec2i(
         smooth_lerp_axis(current.x, target.x, divisor),
         smooth_lerp_axis(current.y, target.y, divisor),
     )
+
 
 def scale_dir(direction: Vec2i, distance: int) -> Vec2i:
     move_dir = DIRECTION_VECTORS[direction]
@@ -190,6 +224,7 @@ def scale_dir(direction: Vec2i, distance: int) -> Vec2i:
         move_dir.x * distance // DIR_SCALE,
         move_dir.y * distance // DIR_SCALE,
     )
+
 
 def build_circle_direction_lut():
     directions = []
@@ -205,6 +240,52 @@ def build_circle_direction_lut():
         )
 
     return tuple(directions)
+
+
+def build_direction_lut(size: int):
+    directions = []
+
+    for i in range(size):
+        angle = (2 * math.pi * i) / size
+
+        directions.append(
+            Vec2i(
+                round(math.cos(angle) * DIR_SCALE),
+                round(math.sin(angle) * DIR_SCALE),
+            )
+        )
+
+    return tuple(directions)
+
+
+def build_aim_direction_luts():
+    return {
+        size: build_direction_lut(size)
+        for size in AIM_LUT_SIZES
+    }
+
+
+def quantize_vector_to_lut_direction(vector: Vec2i, lut_size: int):
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    if lut_size not in AIM_DIRECTION_LUTS:
+        raise ValueError(f"Unsupported aim LUT size: {lut_size}")
+
+    directions = AIM_DIRECTION_LUTS[lut_size]
+
+    best_direction = None
+    best_dot = None
+
+    for direction in directions:
+        dot = vector.x * direction.x + vector.y * direction.y
+
+        if best_dot is None or dot > best_dot:
+            best_dot = dot
+            best_direction = direction
+
+    return best_direction
+
 
 def spiral_pos(
     origin: Vec2i,
@@ -222,6 +303,7 @@ def spiral_pos(
     offset = scale_normalized_dir(direction, radius)
 
     return origin + offset
+
 
 def _append_unique_tile(tiles, tile):
     if not tiles or tiles[-1] != tile:
@@ -327,7 +409,9 @@ def tiles_crossed_by_segment(start_cpos: Vec2i, end_cpos: Vec2i):
 
     return tiles
 
+
 CIRCLE_DIRECTION_LUT = build_circle_direction_lut()
+AIM_DIRECTION_LUTS = build_aim_direction_luts()
 
 
 @dataclass
@@ -351,15 +435,14 @@ class GridMoveController:
         return self.progress >= self.duration
 
 
-
-
 @dataclass
 class DashController:
-    direction: Vec2i
+    aim_vector: Vec2i
     age: int
     duration: int
     distance: int
-
+    slide_min_tangent_ratio: tuple
+    
     motion_tag = "dash"
 
     def sample_delta(self) -> Vec2i:
@@ -368,7 +451,7 @@ class DashController:
 
         step_distance = next_dist - prev_dist
 
-        return scale_dir(self.direction, step_distance)
+        return scale_normalized_dir(self.aim_vector, step_distance)
 
     def advance(self):
         self.age += 1
@@ -400,15 +483,13 @@ class SettleToGridController:
 
 @dataclass
 class LinearProjectileController:
-    direction: Vec2i
+    aim_vector: Vec2i
     speed: int
 
     def sample_delta(self) -> Vec2i:
-        move_dir = DIRECTION_VECTORS[self.direction]
-
-        return Vec2i(
-            move_dir.x * self.speed // DIR_SCALE,
-            move_dir.y * self.speed // DIR_SCALE,
+        return scale_normalized_dir(
+            self.aim_vector,
+            self.speed,
         )
 
     def advance(self):
@@ -416,6 +497,7 @@ class LinearProjectileController:
 
     def finished(self) -> bool:
         return False
+
 
 @dataclass
 class SpiralProjectileController:

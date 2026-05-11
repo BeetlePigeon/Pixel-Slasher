@@ -17,10 +17,13 @@ from dataclasses import replace
 # 2: Spiral Hammer
 # 3: Magnet
 # 4: Dash
+# LSHIFT: Toggle Camera Mode
 # V: Screen Shake
 # F5: Resize
 # F6: Toggle VSync
 # F7: Cycle FPS Cap
+# F8: Toggle Control Scheme
+# F9: Toggle Modern Movement Aim Source
 
 class Game:
     def __init__(self):
@@ -186,9 +189,11 @@ class Game:
             f"Receivers: {len(self.world.influence_receiver)}",
             f"Lifetime: {len(self.world.lifetime)}",
             f"Scale: {self.scale}x",
-#            f"VSync: {'on' if self.vsync_enabled else 'off'}",
+            f"VSync: {'on' if self.vsync_enabled else 'off'}",
             f"FPS cap: {'uncapped' if self.fps_cap == 0 else self.fps_cap}",
 #            f"Camera: {self.world.camera['transition_mode']}",
+            f"Controls: {self.world.control_scheme}",
+            f"Move skill aim: {self.world.gameplay_settings['modern_movement_skill_aim_source']}",
         ]
 
         y = 4

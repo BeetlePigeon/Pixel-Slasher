@@ -69,8 +69,22 @@ def intent_system(world, intents):
     world.move_intent.clear()
 
     for entity, entity_intents in intents.items():
+        found_move_intent = False
+
         for intent in entity_intents:
+            if intent["type"] == "move_to_tile":
+                set_move_target(
+                    world,
+                    entity,
+                    intent["target_tile"],
+                    intent.get("target_cpos"),
+                )
+                continue
+
             if intent["type"] != "move":
+                continue
+
+            if found_move_intent:
                 continue
 
             dx, dy = intent["direction"]
@@ -81,6 +95,9 @@ def intent_system(world, intents):
             direction = Vec2i(dx, dy)
             world.move_intent[entity] = direction
 
+            # Manual directional movement cancels click-to-move target.
+            clear_move_target(world, entity)
+
             motion_state = world.motion_state.get(entity)
 
             if motion_state is not None:
@@ -90,7 +107,16 @@ def intent_system(world, intents):
             if entity in world.facing:
                 world.facing[entity] = direction
 
-            break
+            found_move_intent = True
+
+
+def movement_start_suppressed_this_tick(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return False
+
+    return motion_state.get("suppress_move_start_tick") == world.tick
 
 
 def movement_arbiter_system(world):
@@ -98,6 +124,7 @@ def movement_arbiter_system(world):
         (
             set(world.move_intent)
             | set(world.buffered_move_intent)
+            | set(world.move_target)
         )
         & set(world.transform)
         & set(world.motion_state)
@@ -108,13 +135,31 @@ def movement_arbiter_system(world):
         transform = world.transform[entity]
         motion_state = world.motion_state[entity]
         locomotion = world.locomotion[entity]
+        slide_vector = None
+        slide_context = "grid"
+
+        if movement_start_suppressed_this_tick(world, entity):
+            continue
 
         if motion_state["controller"] is not None:
             continue
 
+        using_buffered_intent = False
+        using_move_target = False
+
         if entity in world.move_intent:
             desired_direction = world.move_intent[entity]
-            using_buffered_intent = False
+
+        elif entity in world.move_target:
+            move_target_request = get_move_target_request(world, entity)
+            using_move_target = True
+            slide_context = "mouse"
+
+            if move_target_request is None:
+                continue
+
+            desired_direction, slide_vector = move_target_request
+
         else:
             desired_direction = get_buffered_move_direction(world, entity)
             using_buffered_intent = True
@@ -126,17 +171,27 @@ def movement_arbiter_system(world):
             if desired_direction.x != 0 and desired_direction.y != 0:
                 if using_buffered_intent:
                     clear_buffered_move_intent(world, entity)
+
+                if using_move_target:
+                    clear_move_target(world, entity)
+
                 continue
 
         resolved_direction = resolve_grid_move_direction(
             world,
             entity,
             desired_direction,
+            slide_vector,
+            slide_context
         )
 
         if resolved_direction is None:
             if using_buffered_intent:
                 clear_buffered_move_intent(world, entity)
+
+            if using_move_target:
+                clear_move_target(world, entity)
+
             continue
 
         current_tile = transform.tile
@@ -300,8 +355,38 @@ def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> 
     )
 
 
-def get_entity_slide_ratio(world, entity):
+def get_active_controller(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return None
+
+    return motion_state.get("controller")
+
+
+def get_movement_slide_ratio(world, entity, slide_context="default"):
+    controller = get_active_controller(world, entity)
+
+    if controller is not None:
+        controller_ratio = getattr(controller, "slide_min_tangent_ratio", None)
+
+        if controller_ratio is not None:
+            return controller_ratio
+
     policy = world.movement_collision.get(entity, {})
+
+    if slide_context == "grid":
+        return policy.get(
+            "grid_slide_min_tangent_ratio",
+            policy.get("slide_min_tangent_ratio", (1, 2)),
+        )
+
+    if slide_context == "mouse":
+        return policy.get(
+            "mouse_slide_min_tangent_ratio",
+            policy.get("slide_min_tangent_ratio", (1, 2)),
+        )
+
     return policy.get("slide_min_tangent_ratio", (1, 2))
 
 
@@ -310,11 +395,20 @@ def entity_allows_grid_slide(world, entity):
     return policy.get("static_tiles") == "slide"
 
 
-def resolve_grid_move_direction(world, entity, desired_direction: Vec2i):
+def resolve_grid_move_direction(
+    world,
+    entity,
+    desired_direction: Vec2i,
+    slide_vector=None,
+    slide_context="grid",
+):
     transform = world.transform[entity]
     current_tile = transform.tile
 
     desired_tile = current_tile + desired_direction
+
+    if slide_vector is None:
+        slide_vector = desired_direction
 
     # If desired movement is open, take it directly.
     if not is_tile_blocked(world, desired_tile):
@@ -329,7 +423,11 @@ def resolve_grid_move_direction(world, entity, desired_direction: Vec2i):
     if desired_direction.x == 0 or desired_direction.y == 0:
         return None
 
-    ratio = get_entity_slide_ratio(world, entity)
+    ratio = get_movement_slide_ratio(
+        world,
+        entity,
+        slide_context=slide_context,
+    )
 
     candidates = []
 
@@ -338,8 +436,8 @@ def resolve_grid_move_direction(world, entity, desired_direction: Vec2i):
     x_tile = current_tile + x_direction
 
     if not is_tile_blocked(world, x_tile):
-        tangent = desired_direction.x
-        normal = desired_direction.y
+        tangent = slide_vector.x
+        normal = slide_vector.y
 
         if passes_slide_threshold(tangent, normal, ratio):
             candidates.append((
@@ -353,8 +451,8 @@ def resolve_grid_move_direction(world, entity, desired_direction: Vec2i):
     y_tile = current_tile + y_direction
 
     if not is_tile_blocked(world, y_tile):
-        tangent = desired_direction.y
-        normal = desired_direction.x
+        tangent = slide_vector.y
+        normal = slide_vector.x
 
         if passes_slide_threshold(tangent, normal, ratio):
             candidates.append((
@@ -420,8 +518,7 @@ def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i)
 
 
 def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
-    policy = world.movement_collision.get(entity, {})
-    ratio = policy.get("slide_min_tangent_ratio", (1, 2))
+    ratio = get_movement_slide_ratio(world, entity)
 
     options = []
 
@@ -623,15 +720,16 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
                 step_y,
             )
 
-            for candidate_tile in (side_x_tile, side_y_tile, diagonal_tile):
-                collision_result = handle_static_tile_collision(
-                    world,
-                    entity,
-                    candidate_tile,
-                )
+            collision_result = resolve_corner_crossing_collision(
+                world,
+                entity,
+                side_x_tile,
+                side_y_tile,
+                diagonal_tile,
+            )
 
-                if collision_result != "allow":
-                    return collision_result, safe_cpos
+            if collision_result != "allow":
+                return collision_result, safe_cpos
 
             current_tile = diagonal_tile
 
@@ -639,6 +737,56 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
             next_cross_y += TILE_UNITS
 
     return "allow", end_cpos
+
+
+def set_move_target(world, entity, target_tile: Vec2i, target_cpos=None):
+    if target_cpos is None:
+        target_cpos = tile_center(target_tile)
+
+    world.move_target[entity] = {
+        "type": "target_tile",
+        "target_tile": target_tile,
+        "target_cpos": target_cpos,
+    }
+
+
+def clear_move_target(world, entity):
+    world.move_target.pop(entity, None)
+
+
+def direction_toward_tile(current_tile: Vec2i, target_tile: Vec2i):
+    dx = sign(target_tile.x - current_tile.x)
+    dy = sign(target_tile.y - current_tile.y)
+
+    if dx == 0 and dy == 0:
+        return None
+
+    return Vec2i(dx, dy)
+
+
+def get_move_target_request(world, entity):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return None
+
+    if target["type"] != "target_tile":
+        return None
+
+    transform = world.transform[entity]
+    current_tile = transform.tile
+    target_tile = target["target_tile"]
+
+    direction = direction_toward_tile(current_tile, target_tile)
+
+    if direction is None:
+        clear_move_target(world, entity)
+        return None
+
+    target_cpos = target.get("target_cpos", tile_center(target_tile))
+    slide_vector = target_cpos - transform.cpos
+
+    return direction, slide_vector
 
 
 def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
@@ -668,6 +816,68 @@ def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bo
     motion_state["influence_mode"] = "normal"
 
     return True
+
+
+def get_corner_cutting_policy(world, entity):
+    policy = world.movement_collision.get(entity, {})
+    return policy.get("corner_cutting", "strict")
+
+
+def resolve_corner_crossing_collision(
+    world,
+    entity,
+    side_x_tile,
+    side_y_tile,
+    diagonal_tile,
+):
+    corner_policy = get_corner_cutting_policy(world, entity)
+
+    if corner_policy == "strict":
+        for candidate_tile in (side_x_tile, side_y_tile, diagonal_tile):
+            collision_result = handle_static_tile_collision(
+                world,
+                entity,
+                candidate_tile,
+            )
+
+            if collision_result != "allow":
+                return collision_result
+
+        return "allow"
+
+    if corner_policy == "allow_if_one_side_open":
+        diagonal_result = handle_static_tile_collision(
+            world,
+            entity,
+            diagonal_tile,
+        )
+
+        if diagonal_result != "allow":
+            return diagonal_result
+
+        side_x_result = handle_static_tile_collision(
+            world,
+            entity,
+            side_x_tile,
+        )
+
+        side_y_result = handle_static_tile_collision(
+            world,
+            entity,
+            side_y_tile,
+        )
+
+        if side_x_result == "allow" or side_y_result == "allow":
+            return "allow"
+
+        # Both side-adjacent tiles are blocked. Return one of the blocked
+        # results so the normal collision response can handle it.
+        if side_x_result != "allow":
+            return side_x_result
+
+        return side_y_result
+
+    raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
 
 
 def handle_static_tile_collision(world, entity, next_tile):
@@ -791,6 +1001,10 @@ def get_active_motion_tag(world, entity):
     return getattr(controller, "motion_tag", None)
 
 
+def skill_clears_move_target(skill_def):
+    return skill_def.get("clears_move_target_on_success", True)
+
+
 def skill_allowed_by_motion_state(world, entity, skill_def):
     active_motion_tag = get_active_motion_tag(world, entity)
 
@@ -819,6 +1033,7 @@ def build_resolved_skill(world, caster, skill_def):
         resolved["params"] = dict(skill_def["params"])
 
     return resolved
+
 
 def skill_intent_resolution_system(world, intents):
     world.resolved_skill_intents.clear()
@@ -887,6 +1102,9 @@ def skill_execution_system(world):
         if executed:
             cooldown_ticks = skill_def.get("cooldown_ticks", 0)
             world.skill_cooldown[(caster, slot)] = world.tick + cooldown_ticks
+
+            if skill_clears_move_target(skill_def):
+                clear_move_target(world, caster)
 
 
 def lifetime_system(world):
