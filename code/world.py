@@ -62,6 +62,7 @@ class World:
         self.placement_blocker = set()
         self.resolved_skill_intents = []
         self.sprite = {}
+        self.animation = {}
         self.locomotion = {}
         self.projectile = {}
         self.lifetime = {}
@@ -130,9 +131,10 @@ class World:
         self.move_intent.pop(eid, None)
         self.buffered_move_intent.pop(eid, None)
         self.move_target.pop(eid, None)
-        self.locomotion.pop(eid, None)
         self.projectile.pop(eid, None)
         self.sprite.pop(eid, None)
+        self.animation.pop(eid, None)
+        self.locomotion.pop(eid, None)
         self.lifetime.pop(eid, None)
         self.movement_collision.pop(eid, None)
         self.influence_emitter.pop(eid, None)
@@ -185,7 +187,7 @@ class World:
             "influence_mode": "normal",
         }
         self.locomotion[eid] = {
-            "step_duration": 18,
+            "step_duration": 10,
             "can_move_8way": True,
         }
         self.placement_blocker.add(eid)
@@ -200,5 +202,11 @@ class World:
             "anchor": "bottom_center",
             "z": 0
         }
-
+        self.animation[eid] = {
+            "set": "player",
+            "state": "idle",
+            "direction": "right",
+            "frame": 0,
+            "timer": 0,
+        }
         return eid

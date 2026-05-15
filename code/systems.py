@@ -1,6 +1,11 @@
 import pygame
 from skills import SKILL_DEFS
-from settings import MOVE_BUFFER_TICKS
+from settings import MOVE_BUFFER_TICKS, PATH_POLICIES
+from path_utils import (
+    find_static_tile_path_to_target,
+    smooth_static_tile_path,
+    path_tiles_to_cpos_nodes,
+)
 from support import (
     TILE_UNITS,
     Vec2i,
@@ -15,6 +20,7 @@ from support import (
     lerp_cpos,
     GridMoveController,
     SettleToGridController,
+    PathFollowController,
 )
 
 
@@ -135,6 +141,19 @@ def movement_arbiter_system(world):
         transform = world.transform[entity]
         motion_state = world.motion_state[entity]
         locomotion = world.locomotion[entity]
+
+        controller = motion_state["controller"]
+
+        if isinstance(controller, PathFollowController):
+            if refresh_path_follow_controller_if_needed(
+                    world,
+                    entity,
+                    controller,
+            ):
+                continue
+
+            continue
+
         slide_vector = None
         slide_context = "grid"
 
@@ -151,14 +170,16 @@ def movement_arbiter_system(world):
             desired_direction = world.move_intent[entity]
 
         elif entity in world.move_target:
-            move_target_request = get_move_target_request(world, entity)
-            using_move_target = True
-            slide_context = "mouse"
+            target = world.move_target[entity]
 
-            if move_target_request is None:
+            if start_path_follow_controller(
+                    world,
+                    entity,
+                    target,
+            ):
                 continue
 
-            desired_direction, slide_vector = move_target_request
+            continue
 
         else:
             desired_direction = get_buffered_move_direction(world, entity)
@@ -739,7 +760,13 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
     return "allow", end_cpos
 
 
-def set_move_target(world, entity, target_tile: Vec2i, target_cpos=None):
+def set_move_target(
+    world,
+    entity,
+    target_tile: Vec2i,
+    target_cpos=None,
+    path_policy="traditional_click_move",
+):
     if target_cpos is None:
         target_cpos = tile_center(target_tile)
 
@@ -747,6 +774,7 @@ def set_move_target(world, entity, target_tile: Vec2i, target_cpos=None):
         "type": "target_tile",
         "target_tile": target_tile,
         "target_cpos": target_cpos,
+        "path_policy": path_policy,
     }
 
 
@@ -894,6 +922,132 @@ def handle_static_tile_collision(world, entity, next_tile):
     return behavior
 
 
+def get_path_policy(world, target):
+    policy_name = target.get(
+        "path_policy",
+        "traditional_click_move",
+    )
+
+    return PATH_POLICIES[policy_name]
+
+
+def get_path_follow_speed(locomotion):
+    step_duration = max(1, locomotion["step_duration"])
+    return TILE_UNITS // step_duration
+
+
+def build_path_follow_nodes(world, entity, target):
+    transform = world.transform[entity]
+    locomotion = world.locomotion[entity]
+
+    current_tile = transform.tile
+    target_tile = target["target_tile"]
+
+    if current_tile == target_tile:
+        return []
+
+    path_policy = get_path_policy(world, target)
+
+    path_tiles = find_static_tile_path_to_target(
+        world,
+        entity=entity,
+        start_tile=current_tile,
+        target_tile=target_tile,
+        can_move_8way=locomotion.get("can_move_8way", True),
+        max_expansions=path_policy["max_expansions"],
+        max_path_length=path_policy["max_path_length"],
+        target_snap_radius=path_policy["target_snap_radius"],
+    )
+
+    if path_tiles is None:
+        return None
+
+    smoothed_tiles = smooth_static_tile_path(
+        world,
+        entity,
+        current_tile,
+        path_tiles,
+    )
+
+    return path_tiles_to_cpos_nodes(smoothed_tiles)
+
+
+def start_path_follow_controller(world, entity, target):
+    nodes = build_path_follow_nodes(
+        world,
+        entity,
+        target,
+    )
+
+    if nodes is None:
+        clear_move_target(world, entity)
+        return False
+
+    if not nodes:
+        clear_move_target(world, entity)
+        return False
+
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    motion_state["controller"] = PathFollowController(
+        nodes=nodes,
+        current_index=0,
+        speed=get_path_follow_speed(locomotion),
+        created_tick=world.tick,
+        target_tile=target["target_tile"],
+    )
+
+    motion_state["controller_source"] = "move_target"
+
+    return True
+
+
+def should_refresh_path_follow_controller(world, entity, controller):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return False
+
+    if target["type"] != "target_tile":
+        return False
+
+    if target["target_tile"] == controller.target_tile:
+        return False
+
+    path_policy = get_path_policy(world, target)
+    refresh_ticks = path_policy.get("refresh_ticks", 15)
+
+    return world.tick - controller.created_tick >= refresh_ticks
+
+
+def refresh_path_follow_controller_if_needed(world, entity, controller):
+    if not should_refresh_path_follow_controller(
+        world,
+        entity,
+        controller,
+    ):
+        return False
+
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return False
+
+    return start_path_follow_controller(
+        world,
+        entity,
+        target,
+    )
+
+
+def sample_controller_delta(controller, current_cpos):
+    if hasattr(controller, "sample_delta_from"):
+        return controller.sample_delta_from(current_cpos)
+
+    return controller.sample_delta()
+
+
 def movement_system(world):
     entities = (
         set(world.transform)
@@ -908,7 +1062,10 @@ def movement_system(world):
         base_delta = Vec2i(0, 0)
 
         if controller is not None:
-            base_delta = controller.sample_delta()
+            base_delta = sample_controller_delta(
+                controller,
+                transform.cpos,
+            )
 
         influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
         delta = base_delta + influence_delta

@@ -194,6 +194,7 @@ class Game:
 #            f"Camera: {self.world.camera['transition_mode']}",
             f"Controls: {self.world.control_scheme}",
             f"Move skill aim: {self.world.gameplay_settings['modern_movement_skill_aim_source']}",
+            f"Animations: {len(self.world.animation)}",
         ]
 
         y = 4

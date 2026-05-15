@@ -428,12 +428,14 @@ SKILL_DEFS = {
         "required_components": {"transform"},
         "required_params": {
             "placement_search_radius",
+            "placement_max_miss_tiles",
             "radius",
             "strength",
             "lifetime",
         },
         "params": {
             "placement_search_radius": 2,
+            "placement_max_miss_tiles": 2,
             "radius": TILE_UNITS * 10,
             "strength": TILE_UNITS // 24,
             "lifetime": 600,

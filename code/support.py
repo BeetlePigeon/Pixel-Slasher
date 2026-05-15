@@ -415,6 +415,62 @@ AIM_DIRECTION_LUTS = build_aim_direction_luts()
 
 
 @dataclass
+class PathFollowController:
+    nodes: list
+    current_index: int
+    speed: int
+    created_tick: int
+    target_tile: Vec2i
+
+    motion_tag = "path_follow"
+
+    def sample_delta_from(self, current_cpos: Vec2i) -> Vec2i:
+        remaining_distance = self.speed
+        next_cpos = current_cpos
+        next_index = self.current_index
+
+        while remaining_distance > 0 and next_index < len(self.nodes):
+            target_cpos = self.nodes[next_index]
+            to_target = target_cpos - next_cpos
+
+            distance = math.isqrt(
+                to_target.x * to_target.x
+                + to_target.y * to_target.y
+            )
+
+            if distance == 0:
+                next_index += 1
+                continue
+
+            if distance <= remaining_distance:
+                next_cpos = target_cpos
+                remaining_distance -= distance
+                next_index += 1
+                continue
+
+            step = scale_normalized_dir(
+                normalize_vector_to_dir_scale(to_target),
+                remaining_distance,
+            )
+
+            next_cpos = next_cpos + step
+            remaining_distance = 0
+
+        self._pending_index = next_index
+        return next_cpos - current_cpos
+
+    def advance(self):
+        self.current_index = getattr(
+            self,
+            "_pending_index",
+            self.current_index,
+        )
+
+    def finished(self) -> bool:
+        return self.current_index >= len(self.nodes)
+
+
+@dataclass
 class GridMoveController:
     start: Vec2i
     end: Vec2i
@@ -529,4 +585,3 @@ class SpiralProjectileController:
 
     def finished(self) -> bool:
         return False
-
