@@ -177,7 +177,7 @@ class World:
             "grid_slide_min_tangent_ratio": (1, 2),
 
             # Traditional click-to-move target movement.
-            "mouse_slide_min_tangent_ratio": (3, 2),
+            "mouse_slide_min_tangent_ratio": (5, 2),
 
             "corner_cutting": "allow_if_one_side_open",
         }

@@ -782,41 +782,6 @@ def clear_move_target(world, entity):
     world.move_target.pop(entity, None)
 
 
-def direction_toward_tile(current_tile: Vec2i, target_tile: Vec2i):
-    dx = sign(target_tile.x - current_tile.x)
-    dy = sign(target_tile.y - current_tile.y)
-
-    if dx == 0 and dy == 0:
-        return None
-
-    return Vec2i(dx, dy)
-
-
-def get_move_target_request(world, entity):
-    target = world.move_target.get(entity)
-
-    if target is None:
-        return None
-
-    if target["type"] != "target_tile":
-        return None
-
-    transform = world.transform[entity]
-    current_tile = transform.tile
-    target_tile = target["target_tile"]
-
-    direction = direction_toward_tile(current_tile, target_tile)
-
-    if direction is None:
-        clear_move_target(world, entity)
-        return None
-
-    target_cpos = target.get("target_cpos", tile_center(target_tile))
-    slide_vector = target_cpos - transform.cpos
-
-    return direction, slide_vector
-
-
 def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
     # Only grid-positioned actors should settle.
     if transform.position_mode != "grid":
@@ -940,7 +905,7 @@ def build_path_follow_nodes(world, entity, target):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
 
-    current_tile = transform.tile
+    current_tile = get_navigation_start_tile(world, entity)
     target_tile = target["target_tile"]
 
     if current_tile == target_tile:
@@ -1048,6 +1013,27 @@ def sample_controller_delta(controller, current_cpos):
     return controller.sample_delta()
 
 
+def is_path_follow_controller(controller):
+    return isinstance(controller, PathFollowController)
+
+
+def get_navigation_start_tile(world, entity):
+    transform = world.transform[entity]
+
+    return tile_from_cpos(transform.cpos)
+
+
+def path_follow_movement_was_modified(
+    controller,
+    requested_cpos,
+    resolved_cpos,
+):
+    if not is_path_follow_controller(controller):
+        return False
+
+    return resolved_cpos != requested_cpos
+
+
 def movement_system(world):
     entities = (
         set(world.transform)
@@ -1073,6 +1059,7 @@ def movement_system(world):
         start_cpos = transform.cpos
 
         if delta.x != 0 or delta.y != 0:
+            requested_cpos = start_cpos + delta
             collision_result, resolved_cpos = resolve_static_tile_movement(
                 world,
                 entity,
@@ -1102,7 +1089,18 @@ def movement_system(world):
 
                 if controller is not None:
                     clear_motion_controller(motion_state)
-                    start_settle_to_grid_if_needed(world, entity, transform, motion_state)
+
+                    # Path-follow should replan from its actual cpos-derived tile.
+                    # Do not immediately settle, because the move_target still exists.
+                    if is_path_follow_controller(controller):
+                        continue
+
+                    start_settle_to_grid_if_needed(
+                        world,
+                        entity,
+                        transform,
+                        motion_state,
+                    )
 
                 continue
 
@@ -1112,6 +1110,14 @@ def movement_system(world):
                 transform.tile = tile_from_cpos(transform.cpos)
 
             motion_state["last_delta"] = transform.cpos - start_cpos
+
+            if path_follow_movement_was_modified(
+                    controller,
+                    requested_cpos,
+                    resolved_cpos,
+            ):
+                clear_motion_controller(motion_state)
+                continue
 
         if controller is not None:
             controller.advance()

@@ -22,7 +22,7 @@ PATH_POLICIES = {
 
         # While LMB is held, allow the active path to refresh periodically.
         # 15 ticks = 0.25 seconds at 60 sim FPS.
-        "refresh_ticks": 30,
+        "refresh_ticks": 10,
     },
 }
 
