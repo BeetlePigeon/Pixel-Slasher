@@ -1,6 +1,11 @@
 import pygame
 from skills import SKILL_DEFS
 from settings import MOVE_BUFFER_TICKS, PATH_POLICIES
+from action_ops import (
+    MOVEMENT_CANCELING_ACTION_TAGS,
+    tags_block_voluntary_movement,
+    start_action_state,
+)
 from path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
@@ -41,6 +46,65 @@ def snapshot_system(world):
 
         world.snapshot["cpos"][entity] = transform.cpos
         world.snapshot["tile"][entity] = transform.tile
+
+
+def entity_can_start_voluntary_movement(world, entity):
+    active_action_tags = get_active_action_tags(world, entity)
+
+    return not tags_block_voluntary_movement(active_action_tags)
+
+
+def execute_action_event(world, entity, action_state, event):
+    handler = event.get("handler")
+
+    if handler is None:
+        return
+
+    intent = event.get("intent", {})
+    skill_def = event.get("skill_def")
+
+    handler(
+        world,
+        entity,
+        intent,
+        skill_def,
+    )
+
+
+def action_state_system(world):
+    expired_entities = []
+
+    for entity, action_state in list(world.action_state.items()):
+        action_state["age"] += 1
+
+        events = action_state.get("events", [])
+
+        for event in events:
+            if event.get("fired", False):
+                continue
+
+            tick = event["tick"]
+
+            if action_state["age"] < tick:
+                continue
+
+            execute_action_event(
+                world,
+                entity,
+                action_state,
+                event,
+            )
+
+            event["fired"] = True
+
+        duration = action_state.get("duration")
+
+        if duration is not None:
+            if action_state["age"] >= duration:
+                expired_entities.append(entity)
+
+    for entity in expired_entities:
+        world.action_state.pop(entity, None)
 
 
 def buffer_move_intent(world, entity, direction: Vec2i):
@@ -142,6 +206,10 @@ def movement_arbiter_system(world):
         motion_state = world.motion_state[entity]
         locomotion = world.locomotion[entity]
 
+        if not entity_can_start_voluntary_movement(world, entity):
+            cancel_voluntary_movement(world, entity)
+            continue
+
         controller = motion_state["controller"]
 
         if isinstance(controller, PathFollowController):
@@ -230,6 +298,11 @@ def movement_arbiter_system(world):
             progress=0,
             duration=locomotion["step_duration"],
         )
+
+        if using_buffered_intent:
+            motion_state["controller_source"] = "buffered_move"
+        else:
+            motion_state["controller_source"] = "move_intent"
 
         if entity in world.facing:
             world.facing[entity] = resolved_direction
@@ -342,6 +415,41 @@ def influence_system(world):
 def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
+    motion_state.pop("controller_source", None)
+
+
+def cancel_active_path_follow_if_needed(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return
+
+    controller = motion_state.get("controller")
+
+    if not isinstance(controller, PathFollowController):
+        return
+
+    if motion_state.get("controller_source") != "move_target":
+        return
+
+    transform = world.transform.get(entity)
+
+    clear_motion_controller(motion_state)
+
+    if transform is not None:
+        start_settle_to_grid_if_needed(
+            world,
+            entity,
+            transform,
+            motion_state,
+        )
+
+
+def cancel_voluntary_movement(world, entity):
+    world.move_intent.pop(entity, None)
+    clear_buffered_move_intent(world, entity)
+    clear_move_target(world, entity)
+    cancel_active_path_follow_if_needed(world, entity)
 
 
 def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
@@ -383,6 +491,36 @@ def get_active_controller(world, entity):
         return None
 
     return motion_state.get("controller")
+
+
+def get_active_action_tags(world, entity):
+    action_state = world.action_state.get(entity)
+
+    if action_state is None:
+        return set()
+
+    tags = action_state.get("tags")
+
+    if tags is not None:
+        return set(tags)
+
+    action_type = action_state.get("type")
+
+    if action_type is None:
+        return set()
+
+    return {action_type}
+
+
+def skill_allowed_by_action_state(world, entity, skill_def):
+    active_action_tags = get_active_action_tags(world, entity)
+
+    if not active_action_tags:
+        return True
+
+    blocked_tags = skill_def.get("blocked_by_action_tags", set())
+
+    return active_action_tags.isdisjoint(blocked_tags)
 
 
 def get_movement_slide_ratio(world, entity, slide_context="default"):
@@ -1132,6 +1270,7 @@ def movement_system(world):
                 start_settle_to_grid_if_needed(world, entity, transform, motion_state)
 
 
+
 def skill_trigger_matches_intent(skill_def, intent):
     trigger_mode = skill_def["trigger_mode"]
     intent_type = intent["type"]
@@ -1162,10 +1301,6 @@ def get_active_motion_tag(world, entity):
         return None
 
     return getattr(controller, "motion_tag", None)
-
-
-def skill_clears_move_target(skill_def):
-    return skill_def.get("clears_move_target_on_success", True)
 
 
 def skill_allowed_by_motion_state(world, entity, skill_def):
@@ -1236,6 +1371,9 @@ def skill_intent_resolution_system(world, intents):
             if not skill_allowed_by_motion_state(world, entity, skill_def):
                 continue
 
+            if not skill_allowed_by_action_state(world, entity, skill_def):
+                continue
+
             resolved_skill = build_resolved_skill(world, entity, skill_def)
             handler = resolved_skill["handler"]
 
@@ -1265,9 +1403,6 @@ def skill_execution_system(world):
         if executed:
             cooldown_ticks = skill_def.get("cooldown_ticks", 0)
             world.skill_cooldown[(caster, slot)] = world.tick + cooldown_ticks
-
-            if skill_clears_move_target(skill_def):
-                clear_move_target(world, caster)
 
 
 def lifetime_system(world):
@@ -1580,23 +1715,36 @@ def sprite_system(world, surface, render_alpha):
     # Debug overlay after sprites, so it stays visible.
     for entity, screen_x, screen_y in debug_draw_list:
         transform = world.transform[entity]
-
-        tile_center_cpos = tile_center(transform.tile)
-        tile_screen_x, tile_screen_y = cpos_to_screen(
-            tile_center_cpos,
+        committed_tile = transform.tile
+        current_tile = tile_from_cpos(transform.cpos)
+        committed_tile_center_cpos = tile_center(transform.tile)
+        current_tile_center_cpos = tile_center(current_tile)
+        committed_tile_screen_x, committed_tile_screen_y = cpos_to_screen(
+            committed_tile_center_cpos,
             world.tile_size,
         )
-
+        current_tile_screen_x, current_tile_screen_y = cpos_to_screen(
+            current_tile_center_cpos,
+            world.tile_size,
+        )
+        pygame.draw.circle(
+            surface,
+            "blue",
+            (
+                committed_tile_screen_x + offset_x,
+                committed_tile_screen_y + offset_y,
+            ),
+            4,
+        )
         pygame.draw.circle(
             surface,
             "black",
             (
-                tile_screen_x + offset_x,
-                tile_screen_y + offset_y,
+                current_tile_screen_x + offset_x,
+                current_tile_screen_y + offset_y,
             ),
             4,
         )
-
         pygame.draw.circle(
             surface,
             "red",

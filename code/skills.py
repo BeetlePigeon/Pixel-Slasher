@@ -15,6 +15,7 @@ from camera_utils import (
     internal_screen_to_world_cpos,
     snap_camera_to_entity_now,
 )
+from action_ops import start_action_state
 from motion_ops import teleport_entity_to_tile
 from teleport_utils import resolve_path_tolerant_teleport_tile
 from spawners import (
@@ -23,6 +24,35 @@ from spawners import (
     spawn_magnet_orb,
 )
 
+
+def execute_cast_skill(world, caster, intent, skill_def):
+    cast = skill_def["cast"]
+
+    events = []
+
+    for event_def in cast.get("events", []):
+        events.append({
+            "tick": event_def["tick"],
+            "handler": event_def["handler"],
+            "intent": dict(intent),
+            "skill_def": skill_def,
+            "fired": False,
+        })
+
+    start_action_state(
+        world,
+        caster,
+        {
+            "type": "cast",
+            "skill_id": skill_def["id"],
+            "tags": set(cast["tags"]),
+            "age": 0,
+            "duration": cast["duration"],
+            "events": events,
+        },
+    )
+
+    return True
 
 def vector_from_caster_tile_to_mouse_tile(world, caster, intent):
     mouse_pos = intent.get("mouse_pos")
@@ -341,6 +371,42 @@ def execute_teleport(world, caster, intent, skill_def):
 
     return True
 
+
+def execute_test_cast_lock(world, caster, intent, skill_def):
+    def debug_action_event(world, caster, intent, skill_def):
+        print("DEBUG ACTION EVENT FIRED", world.tick)
+        return True
+
+    params = skill_def["params"]
+
+    start_action_state(
+        world,
+        caster,
+        {
+            "type": "cast",
+            "skill_id": skill_def["id"],
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "age": 0,
+            "duration": params["duration"],
+            "events": [
+                {
+                    "tick": 20,
+                    "handler": debug_action_event,
+                    "intent": dict(intent),
+                    "skill_def": skill_def,
+                    "fired": False,
+                },
+            ],
+        },
+    )
+
+    return True
+
+
 SKILL_DEFS = {
 
     "dash": {
@@ -376,9 +442,16 @@ SKILL_DEFS = {
         "test_projectile": {
         "id": "test_projectile",
         "name": "Test Projectile",
-        "cooldown_ticks": 12,
+        "cooldown_ticks": 0,
         "trigger_mode": "held_repeat",
         "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
         "required_components": {"transform"},
         "required_params": {
             "spawn_distance",
@@ -390,12 +463,26 @@ SKILL_DEFS = {
             "modern_source": "mouse_tile",
             "resolution": "tile_center",
         },
+        "cast": {
+            "duration": 20,
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "events": [
+                {
+                    "tick": 10,
+                    "handler": execute_test_projectile,
+                },
+            ],
+        },
         "params": {
             "spawn_distance": TILE_UNITS // 4,
             "projectile_speed": TILE_UNITS // 8,
             "projectile_lifetime": 120,
         },
-        "handler": execute_test_projectile,
+        "handler": execute_cast_skill,
     },
 
     "spiral_projectile": {
@@ -447,8 +534,15 @@ SKILL_DEFS = {
         "id": "teleport",
         "name": "Teleport",
         "cooldown_ticks": 30,
-        "trigger_mode": "press",
+        "trigger_mode": "held_repeat",
         "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
         "clears_move_target_on_success": True,
         "required_components": {"transform", "motion_state"},
         "required_params": {
@@ -471,7 +565,28 @@ SKILL_DEFS = {
         },
         "handler": execute_teleport,
     },
-
+    "test_cast_lock": {
+        "id": "test_cast_lock",
+        "name": "Test Cast Lock",
+        "cooldown_ticks": 90,
+        "trigger_mode": "press",
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "required_components": {"transform"},
+        "required_params": {
+            "duration",
+        },
+        "params": {
+            "duration": 120,
+        },
+        "handler": execute_test_cast_lock,
+    },
 }
 
 def validate_skill_defs():

@@ -4,7 +4,7 @@ import pygame
 import time
 from settings import *
 from gamestate import StateGameplay
-from inputhandler import Input, InputState
+from inputhandler import Input
 from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
@@ -14,7 +14,7 @@ from dataclasses import replace
 
 # Debug controls:
 # 1: Teleport
-# 2: Spiral Hammer
+# 2: Test Lock skill (overwrites Spiral Hammer)
 # 3: Magnet
 # 4: Dash
 # LSHIFT: Toggle Camera Mode
@@ -191,10 +191,11 @@ class Game:
             f"Scale: {self.scale}x",
             f"VSync: {'on' if self.vsync_enabled else 'off'}",
             f"FPS cap: {'uncapped' if self.fps_cap == 0 else self.fps_cap}",
-#            f"Camera: {self.world.camera['transition_mode']}",
+            f"Camera: {self.world.camera['transition_mode']}",
             f"Controls: {self.world.control_scheme}",
             f"Move skill aim: {self.world.gameplay_settings['modern_movement_skill_aim_source']}",
             f"Animations: {len(self.world.animation)}",
+            f"Action State: {self.world.action_state}",
         ]
 
         y = 4
