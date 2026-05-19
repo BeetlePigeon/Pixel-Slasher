@@ -17,12 +17,15 @@ MOVE_BUFFER_TICKS = 8
 PATH_POLICIES = {
     "traditional_click_move": {
         "max_expansions": 1000,
-        "max_path_length": 40,
+        "max_path_length": 30,
+        "smooth_max_path_length": 20,
         "target_snap_radius": 2,
-
         # While LMB is held, allow the active path to refresh periodically.
         # 15 ticks = 0.25 seconds at 60 sim FPS.
         "refresh_ticks": 10,
+        # If a path query fails, don't retry the same start/target immediately
+        # while the mouse is still held.
+        "failed_retry_ticks": 30,
     },
 }
 

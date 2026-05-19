@@ -20,6 +20,18 @@ DIAGONAL_DIRS = (
 ALL_DIRS_8WAY = CARDINAL_DIRS + DIAGONAL_DIRS
 
 
+class PathSearchBudget:
+    def __init__(self, max_expansions):
+        self.remaining = max_expansions
+
+    def consume(self) -> bool:
+        if self.remaining <= 0:
+            return False
+
+        self.remaining -= 1
+        return True
+
+
 def chebyshev_tile_distance(a: Vec2i, b: Vec2i) -> int:
     return max(
         abs(a.x - b.x),
@@ -152,7 +164,7 @@ def find_static_tile_path(
     start_tile: Vec2i,
     goal_tile: Vec2i,
     can_move_8way: bool,
-    max_expansions: int,
+    search_budget: PathSearchBudget,
     max_path_length,
 ):
     if start_tile == goal_tile:
@@ -160,6 +172,12 @@ def find_static_tile_path(
 
     if not tile_is_navigable_for_entity(world, entity, goal_tile):
         return None
+
+    if max_path_length is not None:
+        # Chebyshev distance is a lower bound for 8-way movement.
+        # If even the best possible direct path is too long, do not search.
+        if chebyshev_tile_distance(start_tile, goal_tile) > max_path_length:
+            return None
 
     frontier = []
     push_counter = 0
@@ -181,15 +199,14 @@ def find_static_tile_path(
         start_tile: 0,
     }
 
-    expansions = 0
-
     while frontier:
         _, current_cost, _, _, _, current_tile = heapq.heappop(frontier)
 
-        expansions += 1
-
-        if expansions > max_expansions:
+        if not search_budget.consume():
             return None
+
+        if max_path_length is not None and current_cost >= max_path_length:
+            continue
 
         if current_tile == goal_tile:
             path = reconstruct_path(
@@ -310,6 +327,8 @@ def find_static_tile_path_to_target(
     max_path_length,
     target_snap_radius: int,
 ):
+    search_budget = PathSearchBudget(max_expansions)
+
     for candidate_goal in iter_target_snap_candidates(
         world,
         entity,
@@ -317,13 +336,16 @@ def find_static_tile_path_to_target(
         start_tile,
         target_snap_radius,
     ):
+        if search_budget.remaining <= 0:
+            return None
+
         path = find_static_tile_path(
             world,
             entity=entity,
             start_tile=start_tile,
             goal_tile=candidate_goal,
             can_move_8way=can_move_8way,
-            max_expansions=max_expansions,
+            search_budget=search_budget,
             max_path_length=max_path_length,
         )
 

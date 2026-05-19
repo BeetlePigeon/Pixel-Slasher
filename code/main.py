@@ -13,8 +13,9 @@ from world import World
 from dataclasses import replace
 
 # Debug controls:
+# SPACE: Test Projectile
 # 1: Teleport
-# 2: Test Lock skill (overwrites Spiral Hammer)
+# 2: Burst Projectile
 # 3: Magnet
 # 4: Dash
 # LSHIFT: Toggle Camera Mode
@@ -196,6 +197,7 @@ class Game:
             f"Move skill aim: {self.world.gameplay_settings['modern_movement_skill_aim_source']}",
             f"Animations: {len(self.world.animation)}",
             f"Action State: {self.world.action_state}",
+            f"Ticks: {self.world.tick}",
         ]
 
         y = 4

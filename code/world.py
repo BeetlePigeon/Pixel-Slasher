@@ -15,6 +15,7 @@ class World:
         self.game = game
         self.entities = entities
         self.tick = 0
+        self.failed_path_queries = {}
         self.control_scheme = "modern"      # "modern" -> WoW Style | "traditional" -> D2 Style
         self.gameplay_settings = {
             "modern_movement_skill_aim_source": "facing",       # "facing" -> Uses player facing direction | "mouse" -> Uses mouse direction
@@ -222,7 +223,9 @@ class World:
         self.skills[(eid, "TEST_PROJECTILE")] = "test_projectile"
         self.skills[(eid, 1)] = "teleport"
 #        self.skills[(eid, 2)] = "spiral_projectile"
-        self.skills[(eid, 2)] = "test_cast_lock"
+#        self.skills[(eid, 2)] = "test_cast_lock"
+        self.skills[(eid, 2)] = "burst_projectile"
+#        self.skills[(eid, 2)] = "triple_bomb_projectile"
         self.skills[(eid, 3)] = "magnet_orb"
         self.skills[(eid, 4)] = "dash"
         player_image = self.game.assets.images["player"]

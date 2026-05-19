@@ -418,6 +418,38 @@ def clear_motion_controller(motion_state):
     motion_state.pop("controller_source", None)
 
 
+def make_path_query_key(entity, start_tile, target_tile, path_policy_name):
+    return (
+        entity,
+        start_tile.x,
+        start_tile.y,
+        target_tile.x,
+        target_tile.y,
+        path_policy_name,
+    )
+
+
+def path_query_failed_recently(world, query_key):
+    retry_tick = world.failed_path_queries.get(query_key)
+
+    if retry_tick is None:
+        return False
+
+    if world.tick < retry_tick:
+        return True
+
+    world.failed_path_queries.pop(query_key, None)
+    return False
+
+
+def remember_failed_path_query(world, query_key, retry_ticks):
+    world.failed_path_queries[query_key] = world.tick + retry_ticks
+
+
+def clear_failed_path_query(world, query_key):
+    world.failed_path_queries.pop(query_key, None)
+
+
 def cancel_active_path_follow_if_needed(world, entity):
     motion_state = world.motion_state.get(entity)
 
@@ -521,6 +553,31 @@ def skill_allowed_by_action_state(world, entity, skill_def):
     blocked_tags = skill_def.get("blocked_by_action_tags", set())
 
     return active_action_tags.isdisjoint(blocked_tags)
+
+
+def action_state_has_any_tags(action_state, tags):
+    return not set(action_state.get("tags", set())).isdisjoint(tags)
+
+
+def cancel_action_state(world, entity):
+    world.action_state.pop(entity, None)
+
+
+def skill_cancels_active_action_state(world, entity, skill_def):
+    action_state = world.action_state.get(entity)
+
+    if action_state is None:
+        return False
+
+    cancel_tags = skill_def.get("cancels_action_tags", set())
+
+    if not cancel_tags:
+        return False
+
+    return action_state_has_any_tags(
+        action_state,
+        cancel_tags,
+    )
 
 
 def get_movement_slide_ratio(world, entity, slide_context="default"):
@@ -1049,7 +1106,21 @@ def build_path_follow_nodes(world, entity, target):
     if current_tile == target_tile:
         return []
 
-    path_policy = get_path_policy(world, target)
+    path_policy_name = target.get(
+        "path_policy",
+        "traditional_click_move",
+    )
+    path_policy = PATH_POLICIES[path_policy_name]
+
+    query_key = make_path_query_key(
+        entity,
+        current_tile,
+        target_tile,
+        path_policy_name,
+    )
+
+    if path_query_failed_recently(world, query_key):
+        return None
 
     path_tiles = find_static_tile_path_to_target(
         world,
@@ -1063,14 +1134,25 @@ def build_path_follow_nodes(world, entity, target):
     )
 
     if path_tiles is None:
+        remember_failed_path_query(
+            world,
+            query_key,
+            path_policy.get("failed_retry_ticks", 45),
+        )
         return None
 
-    smoothed_tiles = smooth_static_tile_path(
-        world,
-        entity,
-        current_tile,
-        path_tiles,
-    )
+    clear_failed_path_query(world, query_key)
+    smooth_max = path_policy.get("smooth_max_path_length", 20)
+
+    if smooth_max is not None and len(path_tiles) > smooth_max:
+        smoothed_tiles = path_tiles
+    else:
+        smoothed_tiles = smooth_static_tile_path(
+            world,
+            entity,
+            current_tile,
+            path_tiles,
+        )
 
     return path_tiles_to_cpos_nodes(smoothed_tiles)
 
@@ -1397,6 +1479,9 @@ def skill_execution_system(world):
         skill_def = resolved["skill_def"]
         intent = resolved["intent"]
         handler = resolved["handler"]
+
+        if skill_cancels_active_action_state(world, caster, skill_def):
+            cancel_action_state(world, caster)
 
         executed = handler(world, caster, intent, skill_def)
 

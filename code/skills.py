@@ -239,6 +239,15 @@ def execute_dash(world, caster, intent, skill_def):
         skill_def,
     )
 
+    if aim_vector is None:
+        return False
+
+    # Local import avoids circular import:
+    # systems.py imports SKILL_DEFS from skills.py.
+    from systems import cancel_voluntary_movement
+
+    cancel_voluntary_movement(world, caster)
+
     motion_state = world.motion_state[caster]
     params = skill_def["params"]
 
@@ -250,6 +259,7 @@ def execute_dash(world, caster, intent, skill_def):
         slide_min_tangent_ratio=params["slide_min_tangent_ratio"],
     )
 
+    motion_state["controller_source"] = "skill_dash"
     motion_state["influence_mode"] = params["influence_mode"]
 
     return True
@@ -414,7 +424,9 @@ SKILL_DEFS = {
         "name": "Dash",
         "cooldown_ticks": 40,
         "trigger_mode": "held_repeat",
+        "blocked_by_action_tags": {},
         "blocked_by_motion_tags": {"dash"},
+        "cancels_action_tags": {"cast", "channel"},
         "required_components": {"transform", "motion_state", "facing"},
         "required_params": {
             "duration",
@@ -438,6 +450,7 @@ SKILL_DEFS = {
         },
         "handler": execute_dash,
     },
+
 
         "test_projectile": {
         "id": "test_projectile",
@@ -485,6 +498,7 @@ SKILL_DEFS = {
         "handler": execute_cast_skill,
     },
 
+
     "spiral_projectile": {
         "id": "spiral_projectile",
         "name": "Spiral Projectile",
@@ -499,12 +513,13 @@ SKILL_DEFS = {
             "angle_step_fp",
         },
         "params": {
-            "projectile_lifetime": 180,
+            "projectile_lifetime": 300,
             "radius_per_tick": TILE_UNITS // 32,
             "angle_step_fp": ANGLE_SCALE,
                        },
         "handler": execute_spiral_projectile,
     },
+
 
     "magnet_orb": {
         "id": "magnet_orb",
@@ -525,10 +540,11 @@ SKILL_DEFS = {
             "placement_max_miss_tiles": 2,
             "radius": TILE_UNITS * 10,
             "strength": TILE_UNITS // 24,
-            "lifetime": 600,
+            "lifetime": 720,
         },
         "handler": execute_magnet_orb,
     },
+
 
     "teleport": {
         "id": "teleport",
@@ -565,6 +581,8 @@ SKILL_DEFS = {
         },
         "handler": execute_teleport,
     },
+
+
     "test_cast_lock": {
         "id": "test_cast_lock",
         "name": "Test Cast Lock",
@@ -587,7 +605,133 @@ SKILL_DEFS = {
         },
         "handler": execute_test_cast_lock,
     },
+
+
+    "burst_projectile": {
+        "id": "burst_projectile",
+        "name": "Burst Projectile",
+        "cooldown_ticks": 0,
+        "trigger_mode": "press",
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "required_components": {"transform", "facing"},
+        "required_params": {
+            "spawn_distance",
+            "projectile_speed",
+            "projectile_lifetime",
+        },
+        "aim": {
+            "traditional_source": "mouse_tile",
+            "modern_source": "mouse_tile",
+            "resolution": "tile_center",
+        },
+        "cast": {
+            "duration": 200,
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "events": [
+                {
+                    "tick": 40,
+                    "handler": execute_test_projectile,
+                    "params": {
+                        "spawn_distance": TILE_UNITS // 4,
+                        "projectile_speed": TILE_UNITS // 8,
+                        "projectile_lifetime": 120,
+                    },
+                },
+                {
+                    "tick": 90,
+                    "handler": execute_test_projectile,
+                    "params": {
+                        "spawn_distance": TILE_UNITS // 4,
+                        "projectile_speed": TILE_UNITS // 8,
+                        "projectile_lifetime": 120,
+                    },
+                },
+                {
+                    "tick": 140,
+                    "handler": execute_test_projectile,
+                    "params": {
+                        "spawn_distance": TILE_UNITS // 4,
+                        "projectile_speed": TILE_UNITS // 8,
+                        "projectile_lifetime": 120,
+                    },
+                },
+            ],
+        },
+        "params": {
+            "spawn_distance": TILE_UNITS // 4,
+            "projectile_speed": TILE_UNITS // 8,
+            "projectile_lifetime": 120,
+        },
+        "handler": execute_cast_skill,
+    },
+
+
+    "triple_bomb_projectile": {
+        "id": "triple_bomb_projectile",
+        "name": "Triple Bomb Projectile",
+        "cooldown_ticks": 60,
+        "trigger_mode": "press",
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "required_components": {"transform", "facing"},
+        "required_params": {
+            "spawn_distance",
+            "projectile_speed",
+            "projectile_lifetime",
+        },
+        "aim": {
+            "traditional_source": "mouse_tile",
+            "modern_source": "mouse_tile",
+            "resolution": "tile_center",
+        },
+        "cast": {
+            "duration": 24,
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "events": [
+                {
+                    "tick": 8,
+                    "handler": execute_test_projectile,
+                },
+                {
+                    "tick": 12,
+                    "handler": execute_test_projectile,
+                },
+                {
+                    "tick": 16,
+                    "handler": execute_test_projectile,
+                },
+            ],
+        },
+        "params": {
+            "spawn_distance": TILE_UNITS // 4,
+            "projectile_speed": TILE_UNITS // 8,
+            "projectile_lifetime": 120,
+        },
+        "handler": execute_cast_skill,
+    },
 }
+
 
 def validate_skill_defs():
     for skill_id, skill_def in SKILL_DEFS.items():
