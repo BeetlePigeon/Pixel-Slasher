@@ -15,9 +15,11 @@ from dataclasses import replace
 # Debug controls:
 # SPACE: Test Projectile
 # 1: Teleport
-# 2: Spiral or Burst
+# 2: Wide Projectiles
 # 3: Magnet
 # 4: Dash
+# 5: Spiral Projectile
+# 6: Slash
 # LSHIFT: Toggle Camera Mode
 # V: Screen Shake
 # F5: Resize

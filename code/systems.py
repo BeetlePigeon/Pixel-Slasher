@@ -1762,6 +1762,26 @@ def render_tiles(world, surface, render_alpha=0.0):
                     3,
                 )
 
+    for highlight in world.debug_tile_highlights:
+        tile = highlight["tile"]
+        tile_center_cpos = tile_center(tile)
+
+        screen_x, screen_y = cpos_to_screen(
+            tile_center_cpos,
+            world.tile_size,
+        )
+
+        pygame.draw.circle(
+            surface,
+            highlight.get("color", "yellow"),
+            (
+                screen_x + offset_x,
+                screen_y + offset_y,
+            ),
+            7,
+            2,
+        )
+
 
 def get_sprite_offset(image, anchor):
     if anchor == "center":
@@ -1794,6 +1814,31 @@ def facing_to_screen_delta(facing: Vec2i, tile_size: int, arrow_length: int) -> 
         dx * arrow_length // max_abs,
         dy * arrow_length // max_abs,
     )
+
+
+def add_debug_tile_highlight(
+    world,
+    tile,
+    duration_ticks=12,
+    color="yellow",
+):
+    world.debug_tile_highlights.append({
+        "tile": tile,
+        "remaining_ticks": duration_ticks,
+        "color": color,
+    })
+
+
+def debug_tile_highlight_system(world):
+    active_highlights = []
+
+    for highlight in world.debug_tile_highlights:
+        highlight["remaining_ticks"] -= 1
+
+        if highlight["remaining_ticks"] > 0:
+            active_highlights.append(highlight)
+
+    world.debug_tile_highlights = active_highlights
 
 
 def sprite_system(world, surface, render_alpha):

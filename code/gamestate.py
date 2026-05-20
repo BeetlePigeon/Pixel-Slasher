@@ -151,6 +151,8 @@ class StateGameplay(State):
             pygame.K_2: 2,
             pygame.K_3: 3,
             pygame.K_4: 4,
+            pygame.K_5: 5,
+            pygame.K_6: 6,
             pygame.K_SPACE: "TEST_PROJECTILE",
         }
 
@@ -269,7 +271,10 @@ class StateGameplay(State):
 
         # Player Intents
         player = self.game.world.player
-        player_intents, _ = self.build_player_intents(input_state)
+        player_intents, player_mouse_pos = self.build_player_intents(input_state)
+
+        self.game.world.aim_state[player] = {"mouse_pos": player_mouse_pos}
+
         intents = {player: player_intents}
 
         # AI Intents
@@ -311,6 +316,7 @@ class StateGameplay(State):
         # Update Systems
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
+        debug_tile_highlight_system(self.game.world)
         intent_system(self.game.world, intents)
         skill_intent_resolution_system(self.game.world, intents)
         skill_execution_system(self.game.world)

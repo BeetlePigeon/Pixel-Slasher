@@ -2,6 +2,8 @@ from placement_utils import find_nearest_valid_placement_tile
 from support import (
     ANGLE_SCALE,
     TILE_UNITS,
+    AIM_DIRECTION_LUTS,
+    AIM_LUT_SIZES,
     DashController,
     Vec2i,
     sign,
@@ -16,7 +18,6 @@ from camera_utils import (
     internal_screen_to_world_cpos,
     snap_camera_to_entity_now,
 )
-from action_ops import start_action_state
 from motion_ops import teleport_entity_to_tile
 from teleport_utils import resolve_path_tolerant_teleport_tile
 from spawners import (
@@ -58,6 +59,240 @@ def resolve_setting_ref(world, value):
         return world.gameplay_settings[setting_name]
 
     return value
+
+
+def get_context_aim_timing(context):
+    return context["params"].get("aim_timing", "cast_start")
+
+
+def get_context_intent_for_aim(world, caster, context):
+    aim_timing = get_context_aim_timing(context)
+
+    if aim_timing == "cast_start":
+        return context["intent"]
+
+    if aim_timing == "live":
+        aim_state = world.aim_state.get(caster, {})
+
+        live_intent = dict(context["intent"])
+
+        if "mouse_pos" in aim_state:
+            live_intent["mouse_pos"] = aim_state["mouse_pos"]
+
+        return live_intent
+
+    raise ValueError(f"Unknown aim_timing: {aim_timing}")
+
+
+def aim_vector_to_tile_direction(aim_vector):
+    return Vec2i(
+        sign(aim_vector.x),
+        sign(aim_vector.y),
+    )
+
+
+def build_slash_fan_tiles(origin_tile, direction):
+    if direction.x == 0 and direction.y == 0:
+        return []
+
+    tiles = set()
+
+    forward_tile = Vec2i(
+        origin_tile.x + direction.x,
+        origin_tile.y + direction.y,
+    )
+
+    tiles.add(forward_tile)
+
+    if direction.x != 0 and direction.y != 0:
+        # Diagonal slash: include the two orthogonal tiles that form the corner.
+        tiles.add(Vec2i(
+            origin_tile.x + direction.x,
+            origin_tile.y,
+        ))
+        tiles.add(Vec2i(
+            origin_tile.x,
+            origin_tile.y + direction.y,
+        ))
+
+    elif direction.x != 0:
+        # Horizontal tile-space slash: include tiles above/below the forward tile.
+        tiles.add(Vec2i(
+            forward_tile.x,
+            forward_tile.y - 1,
+        ))
+        tiles.add(Vec2i(
+            forward_tile.x,
+            forward_tile.y + 1,
+        ))
+
+    else:
+        # Vertical tile-space slash: include tiles left/right of the forward tile.
+        tiles.add(Vec2i(
+            forward_tile.x - 1,
+            forward_tile.y,
+        ))
+        tiles.add(Vec2i(
+            forward_tile.x + 1,
+            forward_tile.y,
+        ))
+
+    return list(tiles)
+
+
+DEFAULT_AIM_OFFSET_RESOLUTION = 32
+
+
+def apply_aim_offset_steps(aim_vector: Vec2i, offset_steps: int, lut_size: int):
+    if offset_steps == 0:
+        return aim_vector
+
+    if lut_size not in AIM_DIRECTION_LUTS:
+        raise ValueError(f"Unsupported aim offset LUT size: {lut_size}")
+
+    directions = AIM_DIRECTION_LUTS[lut_size]
+
+    base_direction = quantize_vector_to_lut_direction(
+        aim_vector,
+        lut_size,
+    )
+
+    if base_direction is None:
+        return aim_vector
+
+    base_index = directions.index(base_direction)
+    offset_index = (base_index + offset_steps) % len(directions)
+
+    return directions[offset_index]
+
+
+ALLOWED_AIM_OFFSET_DISTANCE_SCALING = {
+    "none",
+    "tighten_with_mouse_distance",
+}
+
+
+def get_mouse_aim_distance_cpos(world, caster, intent):
+    mouse_pos = intent.get("mouse_pos")
+
+    if mouse_pos is None:
+        return None
+
+    caster_cpos = world.transform[caster].cpos
+    target_cpos = internal_screen_to_world_cpos(world, mouse_pos)
+
+    delta = target_cpos - caster_cpos
+
+    # Chebyshev-style distance. This fits the tile/grid feel.
+    return max(
+        abs(delta.x),
+        abs(delta.y),
+    )
+
+
+def scale_aim_offset_steps_by_mouse_distance(
+    world,
+    caster,
+    intent,
+    params,
+    offset_steps,
+):
+    scaling_mode = params.get("aim_offset_distance_scaling", "none")
+
+    if scaling_mode == "none":
+        return offset_steps
+
+    if scaling_mode != "tighten_with_mouse_distance":
+        raise ValueError(
+            f"Unknown aim_offset_distance_scaling: {scaling_mode}"
+        )
+
+    distance_cpos = get_mouse_aim_distance_cpos(
+        world,
+        caster,
+        intent,
+    )
+
+    if distance_cpos is None:
+        return offset_steps
+
+    near_cpos = params.get("aim_offset_near_tiles", 2) * TILE_UNITS
+    far_cpos = params.get("aim_offset_far_tiles", 12) * TILE_UNITS
+    far_percent = params.get("aim_offset_far_percent", 25)
+
+    if far_cpos <= near_cpos:
+        return offset_steps
+
+    if distance_cpos <= near_cpos:
+        scale_percent = 100
+
+    elif distance_cpos >= far_cpos:
+        scale_percent = far_percent
+
+    else:
+        progress = distance_cpos - near_cpos
+        span = far_cpos - near_cpos
+
+        scale_percent = 100 - (
+            (100 - far_percent) * progress // span
+        )
+
+    sign_value = sign(offset_steps)
+    abs_steps = abs(offset_steps)
+
+    scaled_abs_steps = (
+        abs_steps * scale_percent + 50
+    ) // 100
+
+    return sign_value * scaled_abs_steps
+
+
+def resolve_context_aim_vector(world, caster, context):
+    skill_def = context["skill_def"]
+    params = context["params"]
+
+    intent = get_context_intent_for_aim(
+        world,
+        caster,
+        context,
+    )
+
+    aim_vector = resolve_skill_aim_vector(
+        world,
+        caster,
+        intent,
+        skill_def,
+    )
+
+    if aim_vector is None:
+        return None
+
+    offset_steps = params.get("aim_offset_steps", 0)
+
+    if offset_steps == 0:
+        return aim_vector
+
+    offset_steps = scale_aim_offset_steps_by_mouse_distance(
+        world,
+        caster,
+        intent,
+        params,
+        offset_steps,
+    )
+
+    if offset_steps == 0:
+        return aim_vector
+
+    offset_resolution = params.get(
+        "aim_offset_resolution",
+        DEFAULT_AIM_OFFSET_RESOLUTION,
+    )
+
+    return apply_aim_offset_steps(
+        aim_vector,
+        offset_steps,
+        offset_resolution,
+    )
 
 
 def tile_direction_to_aim_vector(direction: Vec2i):
@@ -239,15 +474,12 @@ def execute_cast_skill(world, caster, context):
 
 
 def execute_dash(world, caster, context):
-    skill_def = context["skill_def"]
-    intent = context["intent"]
     params = context["params"]
 
-    aim_vector = resolve_skill_aim_vector(
+    aim_vector = resolve_context_aim_vector(
         world,
         caster,
-        intent,
-        skill_def,
+        context,
     )
 
     if aim_vector is None:
@@ -274,17 +506,14 @@ def execute_dash(world, caster, context):
 
 
 def execute_test_projectile(world, caster, context):
-    skill_def = context["skill_def"]
-    intent = context["intent"]
     params = context["params"]
 
     caster_cpos = world.transform[caster].cpos
 
-    aim_vector = resolve_skill_aim_vector(
+    aim_vector = resolve_context_aim_vector(
         world,
         caster,
-        intent,
-        skill_def,
+        context,
     )
 
     if aim_vector is None:
@@ -325,9 +554,8 @@ def execute_spiral_projectile(world, caster, context):
 
 
 def execute_magnet_orb(world, caster, context):
-    skill_def = context["skill_def"]
-    intent = context["intent"]
     params = context["params"]
+    intent = get_context_intent_for_aim(world, caster, context)
 
     mouse_pos = intent.get("mouse_pos")
 
@@ -365,7 +593,7 @@ def execute_magnet_orb(world, caster, context):
 
 def execute_teleport(world, caster, context):
     params = context["params"]
-    intent = context["intent"]
+    intent = get_context_intent_for_aim(world, caster, context)
 
     mouse_pos = intent.get("mouse_pos")
 
@@ -396,6 +624,42 @@ def execute_teleport(world, caster, context):
 
     return True
 
+
+def execute_debug_slash(world, caster, context):
+    from systems import add_debug_tile_highlight
+
+    aim_vector = resolve_context_aim_vector(
+        world,
+        caster,
+        context,
+    )
+
+    if aim_vector is None:
+        return False
+
+    transform = world.transform[caster]
+    origin_tile = tile_from_cpos(transform.cpos)
+
+    direction = aim_vector_to_tile_direction(aim_vector)
+
+    affected_tiles = build_slash_fan_tiles(
+        origin_tile,
+        direction,
+    )
+
+    params = context["params"]
+
+    for tile in affected_tiles:
+        add_debug_tile_highlight(
+            world,
+            tile,
+            duration_ticks=params.get("debug_highlight_ticks", 12),
+            color=params.get("debug_highlight_color", "yellow"),
+        )
+
+    return True
+
+
 REQUIRED_SKILL_FIELDS = {
     "id",
     "name",
@@ -425,6 +689,12 @@ ALLOWED_TRIGGER_MODES = {
 }
 
 
+ALLOWED_AIM_TIMINGS = {
+    "cast_start",
+    "live",
+}
+
+
 SKILL_DEFS = {
 
     "dash": {
@@ -435,7 +705,7 @@ SKILL_DEFS = {
         "trigger_mode": "held_repeat",
 
         "blocked_by_motion_tags": {"dash"},
-        "blocked_by_action_tags": {"stun", "uninterruptable", "dash_windup"},
+        "blocked_by_action_tags": {"stun", "uninterruptible", "dash_windup"},
         "cancels_action_tags": {"cast", "channel",},
 
         "required_components": {"transform", "motion_state", "facing"},
@@ -581,7 +851,7 @@ SKILL_DEFS = {
         "name": "Magnet Orb",
 
         "cooldown_ticks": 0,
-        "trigger_mode": "press",
+        "trigger_mode": "held_repeat",
 
         "blocked_by_motion_tags": {"dash"},
         "blocked_by_action_tags": {
@@ -731,21 +1001,24 @@ SKILL_DEFS = {
                     "tick": 15,
                     "handler": execute_test_projectile,
                     "params": {
-                        "projectile_speed": TILE_UNITS // 16,
+                        "projectile_speed": TILE_UNITS // 8,
+                        "aim_offset_steps": -8,
                     },
                 },
                 {
-                    "tick": 20,
-                    "handler": execute_test_projectile,
-                    "params": {
-                        "projectile_speed": TILE_UNITS // 12,
-                    },
-                },
-                {
-                    "tick": 25,
+                    "tick": 15,
                     "handler": execute_test_projectile,
                     "params": {
                         "projectile_speed": TILE_UNITS // 8,
+                        "aim_offset_steps": 0,
+                    },
+                },
+                {
+                    "tick": 15,
+                    "handler": execute_test_projectile,
+                    "params": {
+                        "projectile_speed": TILE_UNITS // 8,
+                        "aim_offset_steps": 8,
                     },
                 },
             ],
@@ -754,7 +1027,65 @@ SKILL_DEFS = {
         "params": {
             "spawn_distance": TILE_UNITS // 4,
             "projectile_speed": TILE_UNITS // 8,
-            "projectile_lifetime": 120,
+            "projectile_lifetime": 300,
+            "aim_offset_resolution": 64,
+            "aim_offset_distance_scaling": "tighten_with_mouse_distance",
+            "aim_offset_near_tiles": 2,
+            "aim_offset_far_tiles": 14,
+            "aim_offset_far_percent": 10,
+        },
+
+        "handler": execute_cast_skill,
+    },
+
+
+    "debug_slash": {
+        "id": "debug_slash",
+        "name": "Debug Slash",
+
+        "cooldown_ticks": 0,
+        "trigger_mode": "held_repeat",
+
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "cancels_action_tags": set(),
+
+        "required_components": {"transform", "facing"},
+        "required_params": {
+            "debug_highlight_ticks",
+            "debug_highlight_color",
+        },
+        "allowed_param_values": {},
+
+        "aim": {
+            "traditional_source": "mouse_tile",
+            "modern_source": "mouse_tile",
+            "resolution": "tile_center",
+        },
+        "cast": {
+            "duration": 44,
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "events": [
+                {
+                    "tick": 22,
+                    "handler": execute_debug_slash,
+                },
+            ],
+        },
+
+        "params": {
+            "debug_highlight_ticks": 12,
+            "debug_highlight_color": "yellow",
         },
 
         "handler": execute_cast_skill,
@@ -831,6 +1162,24 @@ def validate_skill_defs(skill_defs):
                 f"{sorted(missing_params)}"
             )
 
+        validate_aim_timing_param(
+            skill_id,
+            "params",
+            skill_def["params"],
+        )
+
+        validate_aim_modifier_params(
+            skill_id,
+            "params",
+            skill_def["params"],
+        )
+
+        validate_aim_offset_distance_scaling_params(
+            skill_id,
+            "params",
+            skill_def["params"],
+        )
+
         for param_name, allowed_values in skill_def["allowed_param_values"].items():
             if param_name not in skill_def["params"]:
                 raise ValueError(
@@ -883,6 +1232,70 @@ def validate_skill_aim(skill_id, aim):
         raise ValueError(
             f"Skill '{skill_id}' aim is missing fields: "
             f"{sorted(missing_aim_fields)}"
+        )
+
+
+def validate_aim_timing_param(skill_id, source_name, params):
+    if "aim_timing" not in params:
+        return
+
+    if params["aim_timing"] not in ALLOWED_AIM_TIMINGS:
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} has invalid aim_timing: "
+            f"{params['aim_timing']!r}"
+        )
+
+
+def validate_aim_modifier_params(skill_id, source_name, params):
+    if "aim_offset_steps" in params:
+        if not isinstance(params["aim_offset_steps"], int):
+            raise ValueError(
+                f"Skill '{skill_id}' {source_name} aim_offset_steps "
+                f"must be an int"
+            )
+
+    if "aim_offset_resolution" in params:
+        if params["aim_offset_resolution"] not in AIM_LUT_SIZES:
+            raise ValueError(
+                f"Skill '{skill_id}' {source_name} has invalid "
+                f"aim_offset_resolution: {params['aim_offset_resolution']!r}"
+            )
+
+
+def validate_aim_offset_distance_scaling_params(
+    skill_id,
+    source_name,
+    params,
+):
+    scaling_mode = params.get(
+        "aim_offset_distance_scaling",
+        "none",
+    )
+
+    if scaling_mode not in ALLOWED_AIM_OFFSET_DISTANCE_SCALING:
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} has invalid "
+            f"aim_offset_distance_scaling: {scaling_mode!r}"
+        )
+
+    for field_name in (
+        "aim_offset_near_tiles",
+        "aim_offset_far_tiles",
+        "aim_offset_far_percent",
+    ):
+        if field_name not in params:
+            continue
+
+        if not isinstance(params[field_name], int):
+            raise ValueError(
+                f"Skill '{skill_id}' {source_name} {field_name} "
+                f"must be an int"
+            )
+
+    if params.get("aim_offset_far_percent", 0) < 0:
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} "
+            f"aim_offset_far_percent cannot be negative"
         )
 
 
@@ -983,3 +1396,21 @@ def validate_skill_cast_event(skill_id, cast, event_index, event):
             f"Skill '{skill_id}' cast event {event_index} "
             f"params must be a dict"
         )
+
+    validate_aim_timing_param(
+        skill_id,
+        f"cast event {event_index} params",
+        event.get("params", {}),
+    )
+
+    validate_aim_modifier_params(
+        skill_id,
+        f"cast event {event_index} params",
+        event.get("params", {}),
+    )
+
+    validate_aim_offset_distance_scaling_params(
+        skill_id,
+        f"cast event {event_index} params",
+        event.get("params", {}),
+    )

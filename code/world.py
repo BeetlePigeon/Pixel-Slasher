@@ -56,6 +56,7 @@ class World:
         self.move_intent = {}
         self.buffered_move_intent = {}
         self.move_target = {}
+        self.aim_state = {}
         self.intent = {}
         self.input_controlled = {}
         self.skills = {}
@@ -72,6 +73,7 @@ class World:
         self.influence_emitter = {}
         self.influence_receiver = {}
         self.influence_delta = {}
+        self.debug_tile_highlights = []
 
         ## Tiles
         self.tile_size = TILE_DIMENSION
@@ -124,13 +126,14 @@ class World:
              1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ]
         self.static_collision_tiles = self.build_static_collision_tiles()
+
+        ## Environment
 #        self.create_wind_field_emitter()
 
-        ## Initialize entities
-        # Spawn player
+        ## Actors
         self.player = self.spawn_player()
 
-        # Focus camera on player
+        ## Focus Camera
         self.camera["target"] = self.player
         self.camera["current_cpos"] = self.transform[self.player].cpos
         self.camera["prev_cpos"] = self.transform[self.player].cpos
@@ -160,6 +163,7 @@ class World:
         self.move_intent.pop(eid, None)
         self.buffered_move_intent.pop(eid, None)
         self.move_target.pop(eid, None)
+        self.aim_state.pop(eid, None)
         self.projectile.pop(eid, None)
         self.sprite.pop(eid, None)
         self.animation.pop(eid, None)
@@ -222,10 +226,12 @@ class World:
         self.placement_blocker.add(eid)
         self.skills[(eid, "TEST_PROJECTILE")] = "test_projectile"
         self.skills[(eid, 1)] = "teleport"
-#        self.skills[(eid, 2)] = "spiral_projectile"
         self.skills[(eid, 2)] = "burst_projectile"
         self.skills[(eid, 3)] = "magnet_orb"
         self.skills[(eid, 4)] = "dash"
+        self.skills[(eid, 5)] = "spiral_projectile"
+        self.skills[(eid, 6)] = "debug_slash"
+
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {
             "image": player_image,
