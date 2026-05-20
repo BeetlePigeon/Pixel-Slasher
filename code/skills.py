@@ -627,6 +627,7 @@ def execute_teleport(world, caster, context):
 
 def execute_debug_slash(world, caster, context):
     from systems import add_debug_tile_highlight
+    from combat_ops import queue_area_damage
 
     aim_vector = resolve_context_aim_vector(
         world,
@@ -656,6 +657,14 @@ def execute_debug_slash(world, caster, context):
             duration_ticks=params.get("debug_highlight_ticks", 12),
             color=params.get("debug_highlight_color", "yellow"),
         )
+
+    hit_targets = queue_area_damage(
+        world,
+        source=caster,
+        tiles=affected_tiles,
+        amount=params["damage"],
+        skill_id=context["skill_def"]["id"],
+    )
 
     return True
 
@@ -1060,6 +1069,7 @@ SKILL_DEFS = {
         "required_params": {
             "debug_highlight_ticks",
             "debug_highlight_color",
+            "damage",
         },
         "allowed_param_values": {},
 
@@ -1086,6 +1096,7 @@ SKILL_DEFS = {
         "params": {
             "debug_highlight_ticks": 12,
             "debug_highlight_color": "yellow",
+            "damage": 1,
         },
 
         "handler": execute_cast_skill,

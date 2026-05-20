@@ -110,6 +110,54 @@ def action_state_system(world):
         world.action_state.pop(entity, None)
 
 
+def combat_damage_system(world):
+    damage_events = list(world.damage_events)
+    world.damage_events.clear()
+
+    for damage_event in damage_events:
+        target = damage_event["target"]
+
+        if target not in world.health:
+            continue
+
+        health = world.health[target]
+        amount = damage_event["amount"]
+
+        health["current"] -= amount
+
+        hit_tile = damage_event.get("hit_tile")
+
+        if hit_tile is not None:
+            add_debug_tile_highlight(
+                world,
+                hit_tile,
+                duration_ticks=10,
+                color="red",
+            )
+
+        emit_event(
+            world,
+            "entity_damaged",
+            source=damage_event.get("source"),
+            target=target,
+            amount=amount,
+            health_current=health["current"],
+            health_max=health["max"],
+            skill_id=damage_event.get("skill_id"),
+        )
+
+        if health["current"] <= 0:
+            emit_event(
+                world,
+                "entity_killed",
+                target=target,
+                source=damage_event.get("source"),
+                skill_id=damage_event.get("skill_id"),
+            )
+
+            world.entities.destroy(target)
+
+
 def buffer_move_intent(world, entity, direction: Vec2i):
     world.buffered_move_intent[entity] = {
         "type": "direction",

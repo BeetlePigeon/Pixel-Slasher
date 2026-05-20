@@ -69,10 +69,15 @@ class World:
         self.locomotion = {}
         self.projectile = {}
         self.lifetime = {}
+        self.health = {}
+        self.team = {}
+        self.hittable = {}
+        self.damage_events = []
         self.movement_collision = {}
         self.influence_emitter = {}
         self.influence_receiver = {}
         self.influence_delta = {}
+
         self.debug_tile_highlights = []
 
         ## Tiles
@@ -132,6 +137,8 @@ class World:
 
         ## Actors
         self.player = self.spawn_player()
+        self.spawn_training_dummy(Vec2i(7, 5))
+        self.spawn_training_dummy(Vec2i(7, 6))
 
         ## Focus Camera
         self.camera["target"] = self.player
@@ -169,6 +176,9 @@ class World:
         self.animation.pop(eid, None)
         self.locomotion.pop(eid, None)
         self.lifetime.pop(eid, None)
+        self.health.pop(eid, None)
+        self.team.pop(eid, None)
+        self.hittable.pop(eid, None)
         self.movement_collision.pop(eid, None)
         self.influence_emitter.pop(eid, None)
         self.influence_receiver.pop(eid, None)
@@ -211,7 +221,6 @@ class World:
 
             # Traditional click-to-move target movement.
             "mouse_slide_min_tangent_ratio": (5, 2),
-
             "corner_cutting": "allow_if_one_side_open",
         }
         self.motion_state[eid] = {
@@ -245,4 +254,67 @@ class World:
             "frame": 0,
             "timer": 0,
         }
+        self.team[eid] = "player"
+        self.health[eid] = {
+            "current": 100,
+            "max": 100,
+        }
+        self.hittable[eid] = {
+            "enabled": True,
+        }
+        return eid
+
+
+    def spawn_training_dummy(self, tile):
+        eid = self.entities.create()
+
+        cpos = tile_center(tile)
+
+        self.transform[eid] = Transform(
+            tile=tile,
+            cpos=cpos,
+            prev_cpos=cpos,
+            position_mode="grid",
+        )
+
+        self.motion_state[eid] = {
+            "controller": None,
+            "last_delta": Vec2i(0, 0),
+            "influence_mode": "normal",
+        }
+
+        self.movement_collision[eid] = {
+            "static_tiles": "slide",
+            "slide_min_tangent_ratio": (1, 2),
+            "corner_cutting": "allow_if_one_side_open",
+        }
+
+        self.team[eid] = "enemy"
+        self.health[eid] = {
+            "current": 10,
+            "max": 10,
+        }
+        self.hittable[eid] = {
+            "enabled": True,
+        }
+
+        # Reuse player art for now. Replace later with enemy/dummy art.
+        dummy_image = self.game.assets.images["player"]
+
+        self.sprite[eid] = {
+            "image": dummy_image,
+            "anchor": "bottom_center",
+            "z": 0,
+        }
+
+        self.animation[eid] = {
+            "set": "player",
+            "state": "idle",
+            "direction": "right",
+            "frame": 0,
+            "timer": 0,
+        }
+
+        self.placement_blocker.add(eid)
+
         return eid

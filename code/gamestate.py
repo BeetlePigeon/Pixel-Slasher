@@ -316,6 +316,7 @@ class StateGameplay(State):
         # Update Systems
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
+        combat_damage_system(self.game.world)
         debug_tile_highlight_system(self.game.world)
         intent_system(self.game.world, intents)
         skill_intent_resolution_system(self.game.world, intents)
