@@ -42,6 +42,7 @@ class World:
             "shake_ticks": 0,
             "shake_duration": 0,
             "shake_strength": 0,
+            "shake_max_strength": 20,
         }
         ## Components
         self.snapshot = {

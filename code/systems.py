@@ -1691,7 +1691,7 @@ def event_system(world):
         if event_type == "entity_destroyed_by_static_collision":
             start_camera_shake(
                 world,
-                duration_ticks=8,
+                duration_ticks=10,
                 strength=2,
             )
 
@@ -1781,20 +1781,39 @@ def set_camera_fixed(world, fixed_cpos, transition_mode="snap", transition_durat
 def start_camera_shake(world, duration_ticks: int, strength: int):
     camera = world.camera
 
-    camera["shake_ticks"] = duration_ticks
-    camera["shake_duration"] = duration_ticks
-    camera["shake_strength"] = strength
+    max_strength = camera.get("shake_max_strength")
+
+    camera["shake_strength"] = min(
+        max_strength,
+        camera.get("shake_strength") + strength,
+    )
+
+    camera["shake_ticks"] = max(
+        camera.get("shake_ticks"),
+        duration_ticks,
+    )
+
+    camera["shake_duration"] = max(
+        camera.get("shake_duration"),
+        duration_ticks,
+    )
 
 
 def camera_shake_system(world):
     camera = world.camera
 
-    if camera["shake_ticks"] > 0:
-        camera["shake_ticks"] -= 1
+    if camera["shake_ticks"] <= 0:
+        camera["shake_ticks"] = 0
+        camera["shake_duration"] = 0
+        camera["shake_strength"] = 0
+        return
 
-        if camera["shake_ticks"] <= 0:
-            camera["shake_duration"] = 0
-            camera["shake_strength"] = 0
+    camera["shake_ticks"] -= 1
+
+    if camera["shake_ticks"] <= 0:
+        camera["shake_ticks"] = 0
+        camera["shake_duration"] = 0
+        camera["shake_strength"] = 0
 
 
 def camera_update_system(world):
