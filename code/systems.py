@@ -58,17 +58,20 @@ def execute_action_event(world, entity, action_state, event):
     handler = event.get("handler")
 
     if handler is None:
-        return
+        return False
 
-    intent = event.get("intent", {})
-    skill_def = event.get("skill_def")
+    skill_def = action_state["skill_def"]
 
-    handler(
-        world,
-        entity,
-        intent,
-        skill_def,
+    context = build_skill_context(
+        skill_def=skill_def,
+        intent=action_state.get("intent", {}),
+        params=build_action_event_params(skill_def, event),
+        action_state=action_state,
+        event=event,
+        kind="action_event",
     )
+
+    return handler(world, entity, context)
 
 
 def action_state_system(world):
@@ -1406,6 +1409,34 @@ def entity_meets_skill_requirements(world, entity, skill_def):
     return True
 
 
+def build_skill_context(
+    skill_def,
+    intent=None,
+    params=None,
+    action_state=None,
+    event=None,
+    kind="skill_start",
+):
+    if params is None:
+        params = dict(skill_def.get("params", {}))
+
+    return {
+        "kind": kind,
+        "skill_def": skill_def,
+        "intent": dict(intent or {}),
+        "params": params,
+        "action_state": action_state,
+        "event": event,
+    }
+
+
+def build_action_event_params(skill_def, event):
+    params = dict(skill_def.get("params", {}))
+    params.update(event.get("params", {}))
+
+    return params
+
+
 def build_resolved_skill(world, caster, skill_def):
     resolved = dict(skill_def)
 
@@ -1483,7 +1514,13 @@ def skill_execution_system(world):
         if skill_cancels_active_action_state(world, caster, skill_def):
             cancel_action_state(world, caster)
 
-        executed = handler(world, caster, intent, skill_def)
+        context = build_skill_context(
+            skill_def=skill_def,
+            intent=intent,
+            kind="skill_start",
+        )
+
+        executed = handler(world, caster, context)
 
         if executed:
             cooldown_ticks = skill_def.get("cooldown_ticks", 0)

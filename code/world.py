@@ -223,9 +223,7 @@ class World:
         self.skills[(eid, "TEST_PROJECTILE")] = "test_projectile"
         self.skills[(eid, 1)] = "teleport"
 #        self.skills[(eid, 2)] = "spiral_projectile"
-#        self.skills[(eid, 2)] = "test_cast_lock"
         self.skills[(eid, 2)] = "burst_projectile"
-#        self.skills[(eid, 2)] = "triple_bomb_projectile"
         self.skills[(eid, 3)] = "magnet_orb"
         self.skills[(eid, 4)] = "dash"
         player_image = self.game.assets.images["player"]

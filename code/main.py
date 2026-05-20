@@ -8,14 +8,14 @@ from inputhandler import Input
 from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
-from skills import validate_skill_defs
+from skills import SKILL_DEFS, validate_skill_defs
 from world import World
 from dataclasses import replace
 
 # Debug controls:
 # SPACE: Test Projectile
 # 1: Teleport
-# 2: Burst Projectile
+# 2: Spiral or Burst
 # 3: Magnet
 # 4: Dash
 # LSHIFT: Toggle Camera Mode
@@ -71,7 +71,7 @@ class Game:
         self.entities = EntityManager()
 
         # Validate Game Data
-        validate_skill_defs()
+        validate_skill_defs(SKILL_DEFS)
 
         # World
         self.world = World(self, self.entities)

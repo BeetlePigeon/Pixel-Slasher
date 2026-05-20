@@ -1,13 +1,15 @@
-from support import tile_center, Vec2i, sign
+from support import tile_center, Vec2i, sign, tile_from_cpos
+
 
 
 def teleport_entity_to_tile(world, entity, target_tile):
     transform = world.transform[entity]
 
-    old_tile = transform.tile
+    old_tile = tile_from_cpos(transform.cpos)
     target_cpos = tile_center(target_tile)
 
-    # Face in the direction of the actual teleport displacement.
+    # Face in the direction of the actual teleport displacement from
+    # the actor's current cpos-derived tile, not stale committed tile.
     facing_direction = Vec2i(
         sign(target_tile.x - old_tile.x),
         sign(target_tile.y - old_tile.y),
@@ -23,12 +25,13 @@ def teleport_entity_to_tile(world, entity, target_tile):
         motion_state["controller"] = None
         motion_state["influence_mode"] = "normal"
         motion_state["last_delta"] = target_cpos - transform.cpos
+        motion_state.pop("controller_source", None)
 
         # Prevent movement_arbiter_system from starting a new voluntary
-        # grid move later in this same tick using stale move_intent.
+        # movement later in this same tick using stale move_intent.
         motion_state["suppress_move_start_tick"] = world.tick
 
-    # Clear pending movement requests for this tick.
+    # Clear pending voluntary movement requests.
     world.move_intent.pop(entity, None)
 
     if hasattr(world, "buffered_move_intent"):
