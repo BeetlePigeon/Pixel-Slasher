@@ -26,6 +26,10 @@ PATH_POLICIES = {
         # If a path query fails, don't retry the same start/target immediately
         # while the mouse is still held.
         "failed_retry_ticks": 30,
+
+        "direct_fallback_on_fail": True,
+        "direct_fallback_max_tiles": 30,
+        "direct_fallback_min_tiles": 1,
     },
 }
 

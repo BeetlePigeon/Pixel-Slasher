@@ -1,10 +1,9 @@
+import math
 import pygame
 from skills import SKILL_DEFS
 from settings import MOVE_BUFFER_TICKS, PATH_POLICIES
 from action_ops import (
-    MOVEMENT_CANCELING_ACTION_TAGS,
     tags_block_voluntary_movement,
-    start_action_state,
 )
 from path_utils import (
     find_static_tile_path_to_target,
@@ -23,6 +22,8 @@ from support import (
     scale_vec,
     clamp_vec_axis,
     lerp_cpos,
+    normalize_vector_to_dir_scale,
+    scale_normalized_dir,
     GridMoveController,
     SettleToGridController,
     PathFollowController,
@@ -1147,6 +1148,92 @@ def get_path_follow_speed(locomotion):
     return TILE_UNITS // step_duration
 
 
+def get_greedy_fallback_direction(current_tile, target_tile):
+    return Vec2i(
+        sign(target_tile.x - current_tile.x),
+        sign(target_tile.y - current_tile.y),
+    )
+
+
+def build_direct_fallback_nodes(world, entity, target, path_policy):
+    if not path_policy.get("direct_fallback_on_fail", False):
+        return None
+
+    current_tile = get_navigation_start_tile(world, entity)
+    target_tile = target["target_tile"]
+
+    if current_tile == target_tile:
+        return None
+
+    max_steps = path_policy.get(
+        "direct_fallback_max_tiles",
+        path_policy.get("max_path_length", 30),
+    )
+
+    min_steps = path_policy.get("direct_fallback_min_tiles", 1)
+
+    fallback_tiles = []
+    visited_tiles = {current_tile}
+
+    for _ in range(max_steps):
+        desired_direction = get_greedy_fallback_direction(
+            current_tile,
+            target_tile,
+        )
+
+        if desired_direction.x == 0 and desired_direction.y == 0:
+            break
+
+        # Use the full target vector as the slide preference.
+        # This makes a failed diagonal target choose the stronger useful tangent
+        # instead of aiming into the wall face.
+        slide_vector = Vec2i(
+            target_tile.x - current_tile.x,
+            target_tile.y - current_tile.y,
+        )
+
+        resolved_direction = resolve_grid_move_direction(
+            world,
+            entity,
+            desired_direction,
+            slide_vector=slide_vector,
+            slide_context="mouse",
+        )
+
+        if resolved_direction is None:
+            break
+
+        next_tile = current_tile + resolved_direction
+
+        if next_tile in visited_tiles:
+            break
+
+        # Validate the actual center-to-center segment that PathFollowController
+        # will attempt. This prevents fallback nodes that immediately snag on DDA.
+        start_cpos = tile_center(current_tile)
+        end_cpos = tile_center(next_tile)
+        delta = end_cpos - start_cpos
+
+        collision_result, _ = trace_static_tile_path(
+            world,
+            entity,
+            start_cpos,
+            delta,
+        )
+
+        if collision_result != "allow":
+            break
+
+        fallback_tiles.append(next_tile)
+        visited_tiles.add(next_tile)
+        current_tile = next_tile
+
+    if len(fallback_tiles) < min_steps:
+        return None
+
+    return path_tiles_to_cpos_nodes(fallback_tiles)
+
+
 def build_path_follow_nodes(world, entity, target):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
@@ -1171,7 +1258,12 @@ def build_path_follow_nodes(world, entity, target):
     )
 
     if path_query_failed_recently(world, query_key):
-        return None
+        return build_direct_fallback_nodes(
+            world,
+            entity,
+            target,
+            path_policy,
+        )
 
     path_tiles = find_static_tile_path_to_target(
         world,
@@ -1188,11 +1280,18 @@ def build_path_follow_nodes(world, entity, target):
         remember_failed_path_query(
             world,
             query_key,
-            path_policy.get("failed_retry_ticks", 45),
+            path_policy.get("failed_retry_ticks", 30),
         )
-        return None
+
+        return build_direct_fallback_nodes(
+            world,
+            entity,
+            target,
+            path_policy,
+        )
 
     clear_failed_path_query(world, query_key)
+
     smooth_max = path_policy.get("smooth_max_path_length", 20)
 
     if smooth_max is not None and len(path_tiles) > smooth_max:
