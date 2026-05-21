@@ -344,6 +344,7 @@ class StateGameplay(State):
                     "freeze",
                     "movement_locked",
                     "skill_locked",
+                    "settle_locked",
                 },
                 duration=90,
                 cancels_action_tags={

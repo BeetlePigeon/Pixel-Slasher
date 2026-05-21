@@ -327,12 +327,9 @@ def movement_arbiter_system(world):
                 and motion_state.get("controller_source") == "move_target"
             ):
                 clear_motion_controller(motion_state)
-                start_settle_to_grid_if_needed(
-                    world,
-                    entity,
-                    world.transform[entity],
-                    motion_state,
-                )
+
+                request_settle_when_allowed(world, entity)
+                start_requested_settle_if_allowed(world, entity)
 
             else:
                 if refresh_path_follow_controller_if_needed(
@@ -511,6 +508,41 @@ def influence_system(world):
         world.influence_delta[entity] = total
 
 
+def get_motion_controller_tag(controller):
+    if controller is None:
+        return None
+
+    return getattr(controller, "motion_tag", None)
+
+
+def cancel_motion_by_tags_for_status(world, entity, motion_tags):
+    if not motion_tags:
+        return False
+
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return False
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return False
+
+    motion_tag = get_motion_controller_tag(controller)
+
+    if motion_tag not in motion_tags:
+        return False
+
+    clear_motion_controller(motion_state)
+    motion_state["last_delta"] = Vec2i(0, 0)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+    return True
+
+
 def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
@@ -571,12 +603,8 @@ def cancel_active_voluntary_motion_if_needed(world, entity):
         clear_motion_controller(motion_state)
 
         if transform is not None:
-            start_settle_to_grid_if_needed(
-                world,
-                entity,
-                transform,
-                motion_state,
-            )
+            request_settle_when_allowed(world, entity)
+            start_requested_settle_if_allowed(world, entity)
 
         return
 
@@ -589,12 +617,8 @@ def cancel_active_voluntary_motion_if_needed(world, entity):
         clear_motion_controller(motion_state)
 
         if transform is not None:
-            start_settle_to_grid_if_needed(
-                world,
-                entity,
-                transform,
-                motion_state,
-            )
+            request_settle_when_allowed(world, entity)
+            start_requested_settle_if_allowed(world, entity)
 
         return
 
@@ -1148,11 +1172,11 @@ def settle_after_influence_if_needed(world, entity, transform, motion_state):
 
     motion_state.pop("settle_after_influence", None)
 
-    return start_settle_to_grid_if_needed(
+    request_settle_when_allowed(world, entity)
+
+    return start_requested_settle_if_allowed(
         world,
         entity,
-        transform,
-        motion_state,
     )
 
 
@@ -1171,6 +1195,11 @@ def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bo
     transform.tile = target_tile
 
     if is_at_cpos(transform.cpos, target_cpos):
+        motion_state.pop("settle_when_allowed", None)
+        return False
+
+    if not entity_can_auto_settle(world, entity):
+        motion_state["settle_when_allowed"] = True
         return False
 
     motion_state["controller"] = SettleToGridController(
@@ -1181,8 +1210,73 @@ def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bo
     )
 
     motion_state["influence_mode"] = "normal"
+    motion_state["controller_source"] = "settle"
 
     return True
+
+
+SETTLE_LOCKED_TAG = "settle_locked"
+
+
+def entity_can_auto_settle(world, entity):
+    active_tags = get_active_action_tags(world, entity)
+
+    return SETTLE_LOCKED_TAG not in active_tags
+
+
+def request_settle_when_allowed(world, entity):
+    transform = world.transform.get(entity)
+    motion_state = world.motion_state.get(entity)
+
+    if transform is None or motion_state is None:
+        return False
+
+    if transform.position_mode != "grid":
+        return False
+
+    if entity not in world.locomotion:
+        return False
+
+    target_tile = tile_from_cpos(transform.cpos)
+    target_cpos = tile_center(target_tile)
+
+    transform.tile = target_tile
+
+    if is_at_cpos(transform.cpos, target_cpos):
+        motion_state.pop("settle_when_allowed", None)
+        return False
+
+    motion_state["settle_when_allowed"] = True
+    return True
+
+
+def start_requested_settle_if_allowed(world, entity):
+    transform = world.transform.get(entity)
+    motion_state = world.motion_state.get(entity)
+
+    if transform is None or motion_state is None:
+        return False
+
+    if not motion_state.get("settle_when_allowed", False):
+        return False
+
+    if motion_state.get("controller") is not None:
+        return False
+
+    if not entity_can_auto_settle(world, entity):
+        return False
+
+    started = start_settle_to_grid_if_needed(
+        world,
+        entity,
+        transform,
+        motion_state,
+    )
+
+    if started:
+        motion_state.pop("settle_when_allowed", None)
+
+    return started
 
 
 def get_corner_cutting_policy(world, entity):
@@ -1628,17 +1722,12 @@ def update_directional_continuous_controller(
 
 
 def stop_directional_continuous_controller(world, entity):
-    transform = world.transform[entity]
     motion_state = world.motion_state[entity]
 
     clear_motion_controller(motion_state)
 
-    start_settle_to_grid_if_needed(
-        world,
-        entity,
-        transform,
-        motion_state,
-    )
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
 
 
 def start_path_follow_controller(world, entity, target):
@@ -1809,16 +1898,12 @@ def movement_system(world):
                     clear_motion_controller(motion_state)
 
                     # Path-follow should replan from its actual cpos-derived tile.
-                    # Do not immediately settle, because the move_target still exists.
+                    # Do not immediately attempt to settle, because the move_target still exists.
                     if is_path_follow_controller(controller):
                         continue
 
-                    start_settle_to_grid_if_needed(
-                        world,
-                        entity,
-                        transform,
-                        motion_state,
-                    )
+                    request_settle_when_allowed(world, entity)
+                    start_requested_settle_if_allowed(world, entity)
 
                 continue
 
@@ -1854,6 +1939,11 @@ def movement_system(world):
                     motion_state,
                 )
 
+                start_requested_settle_if_allowed(
+                    world,
+                    entity,
+                )
+
         if controller is not None:
             controller.advance()
 
@@ -1864,12 +1954,9 @@ def movement_system(world):
                 transform.tile = tile_from_cpos(transform.cpos)
 
                 clear_motion_controller(motion_state)
-                start_settle_to_grid_if_needed(
-                    world,
-                    entity,
-                    transform,
-                    motion_state,
-                )
+
+                request_settle_when_allowed(world, entity)
+                start_requested_settle_if_allowed(world, entity)
 
 
 
