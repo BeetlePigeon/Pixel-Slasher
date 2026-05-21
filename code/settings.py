@@ -14,6 +14,11 @@ MAX_COLLISION_STEP = TILE_UNITS // 4
 TILE_DIMENSION = 32     # Width/Height in pixels
 MOVE_BUFFER_TICKS = 8
 
+DIRECTIONAL_MOVEMENT_MODE = "continuous"
+#DIRECTIONAL_MOVEMENT_MODE = "node_follow"
+# Alternative for rollback:
+#DIRECTIONAL_MOVEMENT_MODE = "grid_move"
+
 PATH_POLICIES = {
     "traditional_click_move": {
         "max_expansions": 1000,

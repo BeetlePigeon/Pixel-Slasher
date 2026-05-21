@@ -229,6 +229,14 @@ class World:
             "last_delta": Vec2i(0, 0),
             "influence_mode": "normal",
         }
+        self.influence_receiver[eid] = {
+            "accepts": {"wind", "magnet",},
+            "scales": {
+                "wind": (1, 1),
+                "magnet": (1, 1),
+            },
+            "max_delta": TILE_UNITS // 16,
+        }
         self.locomotion[eid] = {
             "step_duration": 10,
             "can_move_8way": True,
@@ -277,17 +285,23 @@ class World:
             prev_cpos=cpos,
             position_mode="grid",
         )
-
+        self.movement_collision[eid] = {
+            "static_tiles": "slide",
+            "slide_min_tangent_ratio": (1, 2),
+            "corner_cutting": "allow_if_one_side_open",
+        }
         self.motion_state[eid] = {
             "controller": None,
             "last_delta": Vec2i(0, 0),
             "influence_mode": "normal",
         }
-
-        self.movement_collision[eid] = {
-            "static_tiles": "slide",
-            "slide_min_tangent_ratio": (1, 2),
-            "corner_cutting": "allow_if_one_side_open",
+        self.influence_receiver[eid] = {
+            "accepts": {"wind", "magnet"},
+            "scales": {
+                "wind": (1, 1),
+                "magnet": (1, 1),
+            },
+            "max_delta": TILE_UNITS // 16,
         }
 
         self.team[eid] = "enemy"

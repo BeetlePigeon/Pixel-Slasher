@@ -1,7 +1,6 @@
-import math
 import pygame
 from skills import SKILL_DEFS
-from settings import MOVE_BUFFER_TICKS, PATH_POLICIES
+from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE
 from action_ops import (
     tags_block_voluntary_movement,
 )
@@ -27,6 +26,7 @@ from support import (
     GridMoveController,
     SettleToGridController,
     PathFollowController,
+    DirectionalMoveController,
 )
 
 
@@ -242,11 +242,21 @@ def movement_start_suppressed_this_tick(world, entity):
 
 
 def movement_arbiter_system(world):
+    active_directional_entities = {
+        entity
+        for entity, motion_state in world.motion_state.items()
+        if isinstance(
+            motion_state.get("controller"),
+            DirectionalMoveController,
+        )
+    }
+
     entities = (
         (
             set(world.move_intent)
             | set(world.buffered_move_intent)
             | set(world.move_target)
+            | active_directional_entities
         )
         & set(world.transform)
         & set(world.motion_state)
@@ -254,9 +264,7 @@ def movement_arbiter_system(world):
     )
 
     for entity in sorted(entities):
-        transform = world.transform[entity]
         motion_state = world.motion_state[entity]
-        locomotion = world.locomotion[entity]
 
         if not entity_can_start_voluntary_movement(world, entity):
             cancel_voluntary_movement(world, entity)
@@ -264,18 +272,54 @@ def movement_arbiter_system(world):
 
         controller = motion_state["controller"]
 
-        if isinstance(controller, PathFollowController):
-            if refresh_path_follow_controller_if_needed(
+        if isinstance(controller, DirectionalMoveController):
+            if entity in world.move_intent:
+                updated = update_directional_continuous_controller(
                     world,
                     entity,
                     controller,
-            ):
+                    world.move_intent[entity],
+                )
+
+                if not updated:
+                    stop_directional_continuous_controller(
+                        world,
+                        entity,
+                    )
+
                 continue
 
+            # No directional input this tick: stop continuous movement
+            # and let the grid actor settle.
+            stop_directional_continuous_controller(
+                world,
+                entity,
+            )
             continue
 
-        slide_vector = None
-        slide_context = "grid"
+        if isinstance(controller, PathFollowController):
+            # Manual directional movement should interrupt active click path.
+            if (
+                entity in world.move_intent
+                and motion_state.get("controller_source") == "move_target"
+            ):
+                clear_motion_controller(motion_state)
+                start_settle_to_grid_if_needed(
+                    world,
+                    entity,
+                    world.transform[entity],
+                    motion_state,
+                )
+
+            else:
+                if refresh_path_follow_controller_if_needed(
+                    world,
+                    entity,
+                    controller,
+                ):
+                    continue
+
+                continue
 
         if movement_start_suppressed_this_tick(world, entity):
             continue
@@ -283,84 +327,64 @@ def movement_arbiter_system(world):
         if motion_state["controller"] is not None:
             continue
 
-        using_buffered_intent = False
-        using_move_target = False
-
         if entity in world.move_intent:
             desired_direction = world.move_intent[entity]
 
-        elif entity in world.move_target:
+            if DIRECTIONAL_MOVEMENT_MODE == "continuous":
+                start_directional_continuous_controller(
+                    world,
+                    entity,
+                    desired_direction,
+                )
+                continue
+
+            started = start_directional_movement_controller(
+                world,
+                entity,
+                desired_direction,
+                using_buffered_intent=False,
+            )
+
+            if not started:
+                continue
+
+            continue
+
+        if entity in world.move_target:
             target = world.move_target[entity]
 
             if start_path_follow_controller(
-                    world,
-                    entity,
-                    target,
+                world,
+                entity,
+                target,
             ):
                 continue
 
             continue
 
-        else:
-            desired_direction = get_buffered_move_direction(world, entity)
-            using_buffered_intent = True
+        # Buffered directional movement is useful for tile/node stepping,
+        # but should not drive continuous movement after input release.
+        if DIRECTIONAL_MOVEMENT_MODE == "continuous":
+            clear_buffered_move_intent(world, entity)
+            continue
 
-            if desired_direction is None:
-                continue
+        desired_direction = get_buffered_move_direction(world, entity)
 
-        if not locomotion["can_move_8way"]:
-            if desired_direction.x != 0 and desired_direction.y != 0:
-                if using_buffered_intent:
-                    clear_buffered_move_intent(world, entity)
+        if desired_direction is None:
+            continue
 
-                if using_move_target:
-                    clear_move_target(world, entity)
-
-                continue
-
-        resolved_direction = resolve_grid_move_direction(
+        started = start_directional_movement_controller(
             world,
             entity,
             desired_direction,
-            slide_vector,
-            slide_context
+            using_buffered_intent=True,
         )
 
-        if resolved_direction is None:
-            if using_buffered_intent:
-                clear_buffered_move_intent(world, entity)
-
-            if using_move_target:
-                clear_move_target(world, entity)
-
+        if not started:
+            clear_buffered_move_intent(world, entity)
             continue
 
-        current_tile = transform.tile
-        target_tile = Vec2i(
-            current_tile.x + resolved_direction.x,
-            current_tile.y + resolved_direction.y,
-        )
-
-        start = tile_center(current_tile)
-        end = tile_center(target_tile)
-
-        motion_state["controller"] = GridMoveController(
-            start=start,
-            end=end,
-            progress=0,
-            duration=locomotion["step_duration"],
-        )
-
-        if using_buffered_intent:
-            motion_state["controller_source"] = "buffered_move"
-        else:
-            motion_state["controller_source"] = "move_intent"
-
-        if entity in world.facing:
-            world.facing[entity] = resolved_direction
-
-        if using_buffered_intent:
-            clear_buffered_move_intent(world, entity)
+        clear_buffered_move_intent(world, entity)
 
 
 def sample_wind_delta(world, emitter):
@@ -502,7 +526,7 @@ def clear_failed_path_query(world, query_key):
     world.failed_path_queries.pop(query_key, None)
 
 
-def cancel_active_path_follow_if_needed(world, entity):
+def cancel_active_voluntary_motion_if_needed(world, entity):
     motion_state = world.motion_state.get(entity)
 
     if motion_state is None:
@@ -510,30 +534,53 @@ def cancel_active_path_follow_if_needed(world, entity):
 
     controller = motion_state.get("controller")
 
-    if not isinstance(controller, PathFollowController):
+    if controller is None:
         return
 
-    if motion_state.get("controller_source") != "move_target":
+    controller_source = motion_state.get("controller_source")
+
+    if (
+        isinstance(controller, PathFollowController)
+        and controller_source == "move_target"
+    ):
+        transform = world.transform.get(entity)
+
+        clear_motion_controller(motion_state)
+
+        if transform is not None:
+            start_settle_to_grid_if_needed(
+                world,
+                entity,
+                transform,
+                motion_state,
+            )
+
         return
 
-    transform = world.transform.get(entity)
+    if (
+        isinstance(controller, DirectionalMoveController)
+        and controller_source in {"move_intent", "buffered_move"}
+    ):
+        transform = world.transform.get(entity)
 
-    clear_motion_controller(motion_state)
+        clear_motion_controller(motion_state)
 
-    if transform is not None:
-        start_settle_to_grid_if_needed(
-            world,
-            entity,
-            transform,
-            motion_state,
-        )
+        if transform is not None:
+            start_settle_to_grid_if_needed(
+                world,
+                entity,
+                transform,
+                motion_state,
+            )
+
+        return
 
 
 def cancel_voluntary_movement(world, entity):
     world.move_intent.pop(entity, None)
     clear_buffered_move_intent(world, entity)
     clear_move_target(world, entity)
-    cancel_active_path_follow_if_needed(world, entity)
+    cancel_active_voluntary_motion_if_needed(world, entity)
 
 
 def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
@@ -663,16 +710,14 @@ def entity_allows_grid_slide(world, entity):
     return policy.get("static_tiles") == "slide"
 
 
-def resolve_grid_move_direction(
+def resolve_grid_move_direction_from_tile(
     world,
     entity,
+    current_tile: Vec2i,
     desired_direction: Vec2i,
     slide_vector=None,
     slide_context="grid",
 ):
-    transform = world.transform[entity]
-    current_tile = transform.tile
-
     desired_tile = current_tile + desired_direction
 
     if slide_vector is None:
@@ -710,7 +755,7 @@ def resolve_grid_move_direction(
         if passes_slide_threshold(tangent, normal, ratio):
             candidates.append((
                 abs(tangent),
-                0,  # deterministic priority: x before y on tie
+                0,
                 x_direction,
             ))
 
@@ -725,7 +770,7 @@ def resolve_grid_move_direction(
         if passes_slide_threshold(tangent, normal, ratio):
             candidates.append((
                 abs(tangent),
-                1,  # y after x on tie
+                1,
                 y_direction,
             ))
 
@@ -734,12 +779,31 @@ def resolve_grid_move_direction(
 
     candidates.sort(
         key=lambda item: (
-            -item[0],  # preserve strongest tangent component
-            item[1],   # deterministic tie-break
+            -item[0],
+            item[1],
         )
     )
 
     return candidates[0][2]
+
+
+def resolve_grid_move_direction(
+    world,
+    entity,
+    desired_direction: Vec2i,
+    slide_vector=None,
+    slide_context="grid",
+):
+    transform = world.transform[entity]
+
+    return resolve_grid_move_direction_from_tile(
+        world,
+        entity,
+        transform.tile,
+        desired_direction,
+        slide_vector=slide_vector,
+        slide_context=slide_context,
+    )
 
 
 def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
@@ -752,6 +816,10 @@ def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
         return False
 
     return tangent_abs * den >= normal_abs * num
+
+
+def vec_is_nonzero(vec: Vec2i) -> bool:
+    return vec.x != 0 or vec.y != 0
 
 
 def is_tile_blocked(world, tile: Vec2i) -> bool:
@@ -1027,6 +1095,37 @@ def set_move_target(
 
 def clear_move_target(world, entity):
     world.move_target.pop(entity, None)
+
+
+def mark_settle_after_influence_if_needed(
+    transform,
+    motion_state,
+    influence_active,
+):
+    if not influence_active:
+        return
+
+    if transform.position_mode != "grid":
+        return
+
+    motion_state["settle_after_influence"] = True
+
+
+def settle_after_influence_if_needed(world, entity, transform, motion_state):
+    if not motion_state.get("settle_after_influence", False):
+        return False
+
+    if motion_state.get("controller") is not None:
+        return False
+
+    motion_state.pop("settle_after_influence", None)
+
+    return start_settle_to_grid_if_needed(
+        world,
+        entity,
+        transform,
+        motion_state,
+    )
 
 
 def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bool:
@@ -1307,6 +1406,213 @@ def build_path_follow_nodes(world, entity, target):
     return path_tiles_to_cpos_nodes(smoothed_tiles)
 
 
+def start_directional_node_follow_controller(
+    world,
+    entity,
+    desired_direction,
+    using_buffered_intent=False,
+):
+    transform = world.transform[entity]
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    if not locomotion["can_move_8way"]:
+        if desired_direction.x != 0 and desired_direction.y != 0:
+            return False
+
+    current_tile = tile_from_cpos(transform.cpos)
+
+    resolved_direction = resolve_grid_move_direction_from_tile(
+        world,
+        entity,
+        current_tile,
+        desired_direction,
+        slide_vector=desired_direction,
+        slide_context="grid",
+    )
+
+    if resolved_direction is None:
+        return False
+
+    target_tile = current_tile + resolved_direction
+    target_cpos = tile_center(target_tile)
+
+    motion_state["controller"] = PathFollowController(
+        nodes=[target_cpos],
+        current_index=0,
+        speed=get_path_follow_speed(locomotion),
+        created_tick=world.tick,
+        target_tile=target_tile,
+    )
+
+    if using_buffered_intent:
+        motion_state["controller_source"] = "buffered_move"
+    else:
+        motion_state["controller_source"] = "move_intent"
+
+    if entity in world.facing:
+        world.facing[entity] = resolved_direction
+
+    return True
+
+
+def start_directional_grid_move_controller(
+    world,
+    entity,
+    desired_direction,
+    using_buffered_intent=False,
+):
+    transform = world.transform[entity]
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    if not locomotion["can_move_8way"]:
+        if desired_direction.x != 0 and desired_direction.y != 0:
+            return False
+
+    resolved_direction = resolve_grid_move_direction(
+        world,
+        entity,
+        desired_direction,
+        slide_vector=None,
+        slide_context="grid",
+    )
+
+    if resolved_direction is None:
+        return False
+
+    current_tile = transform.tile
+
+    target_tile = Vec2i(
+        current_tile.x + resolved_direction.x,
+        current_tile.y + resolved_direction.y,
+    )
+
+    start = tile_center(current_tile)
+    end = tile_center(target_tile)
+
+    motion_state["controller"] = GridMoveController(
+        start=start,
+        end=end,
+        progress=0,
+        duration=locomotion["step_duration"],
+    )
+
+    if using_buffered_intent:
+        motion_state["controller_source"] = "buffered_move"
+    else:
+        motion_state["controller_source"] = "move_intent"
+
+    if entity in world.facing:
+        world.facing[entity] = resolved_direction
+
+    return True
+
+
+def start_directional_movement_controller(
+    world,
+    entity,
+    desired_direction,
+    using_buffered_intent=False,
+):
+    if DIRECTIONAL_MOVEMENT_MODE == "node_follow":
+        return start_directional_node_follow_controller(
+            world,
+            entity,
+            desired_direction,
+            using_buffered_intent=using_buffered_intent,
+        )
+
+    if DIRECTIONAL_MOVEMENT_MODE == "grid_move":
+        return start_directional_grid_move_controller(
+            world,
+            entity,
+            desired_direction,
+            using_buffered_intent=using_buffered_intent,
+        )
+
+    raise ValueError(
+        f"Unknown DIRECTIONAL_MOVEMENT_MODE: {DIRECTIONAL_MOVEMENT_MODE}"
+    )
+
+
+def is_directional_move_controller(controller):
+    return isinstance(controller, DirectionalMoveController)
+
+
+def start_directional_continuous_controller(
+    world,
+    entity,
+    desired_direction,
+):
+    transform = world.transform[entity]
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    if not locomotion["can_move_8way"]:
+        if desired_direction.x != 0 and desired_direction.y != 0:
+            return False
+
+    aim_vector = normalize_vector_to_dir_scale(desired_direction)
+
+    if aim_vector is None:
+        return False
+
+    motion_state["controller"] = DirectionalMoveController(
+        aim_vector=aim_vector,
+        raw_direction=desired_direction,
+        speed=get_path_follow_speed(locomotion),
+    )
+
+    motion_state["controller_source"] = "move_intent"
+
+    if entity in world.facing:
+        world.facing[entity] = desired_direction
+
+    return True
+
+
+def update_directional_continuous_controller(
+    world,
+    entity,
+    controller,
+    desired_direction,
+):
+    locomotion = world.locomotion[entity]
+
+    if not locomotion["can_move_8way"]:
+        if desired_direction.x != 0 and desired_direction.y != 0:
+            return False
+
+    aim_vector = normalize_vector_to_dir_scale(desired_direction)
+
+    if aim_vector is None:
+        return False
+
+    controller.aim_vector = aim_vector
+    controller.raw_direction = desired_direction
+    controller.speed = get_path_follow_speed(locomotion)
+
+    if entity in world.facing:
+        world.facing[entity] = desired_direction
+
+    return True
+
+
+def stop_directional_continuous_controller(world, entity):
+    transform = world.transform[entity]
+    motion_state = world.motion_state[entity]
+
+    clear_motion_controller(motion_state)
+
+    start_settle_to_grid_if_needed(
+        world,
+        entity,
+        transform,
+        motion_state,
+    )
+
+
 def start_path_follow_controller(world, entity, target):
     nodes = build_path_follow_nodes(
         world,
@@ -1424,12 +1730,14 @@ def movement_system(world):
             )
 
         influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
-        delta = base_delta + influence_delta
+        influence_active = vec_is_nonzero(influence_delta)
 
+        delta = base_delta + influence_delta
         start_cpos = transform.cpos
 
-        if delta.x != 0 or delta.y != 0:
+        if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
+
             collision_result, resolved_cpos = resolve_static_tile_movement(
                 world,
                 entity,
@@ -1452,12 +1760,24 @@ def movement_system(world):
             if collision_result == "block":
                 transform.cpos = resolved_cpos
 
-                if transform.position_mode == "free":
+                if transform.position_mode == "free" or influence_active:
                     transform.tile = tile_from_cpos(transform.cpos)
+
+                mark_settle_after_influence_if_needed(
+                    transform,
+                    motion_state,
+                    influence_active,
+                )
 
                 motion_state["last_delta"] = transform.cpos - start_cpos
 
                 if controller is not None:
+                    # Directional movement is allowed to keep trying while input is held.
+                    # If the player is pushing into a wall, do not clear/restart the
+                    # controller every tick.
+                    if is_directional_move_controller(controller):
+                        continue
+
                     clear_motion_controller(motion_state)
 
                     # Path-follow should replan from its actual cpos-derived tile.
@@ -1476,8 +1796,14 @@ def movement_system(world):
 
             transform.cpos = resolved_cpos
 
-            if transform.position_mode == "free":
+            if transform.position_mode == "free" or influence_active:
                 transform.tile = tile_from_cpos(transform.cpos)
+
+            mark_settle_after_influence_if_needed(
+                transform,
+                motion_state,
+                influence_active,
+            )
 
             motion_state["last_delta"] = transform.cpos - start_cpos
 
@@ -1489,6 +1815,17 @@ def movement_system(world):
                 clear_motion_controller(motion_state)
                 continue
 
+        else:
+            motion_state["last_delta"] = Vec2i(0, 0)
+
+            if controller is None:
+                settle_after_influence_if_needed(
+                    world,
+                    entity,
+                    transform,
+                    motion_state,
+                )
+
         if controller is not None:
             controller.advance()
 
@@ -1499,7 +1836,12 @@ def movement_system(world):
                 transform.tile = tile_from_cpos(transform.cpos)
 
                 clear_motion_controller(motion_state)
-                start_settle_to_grid_if_needed(world, entity, transform, motion_state)
+                start_settle_to_grid_if_needed(
+                    world,
+                    entity,
+                    transform,
+                    motion_state,
+                )
 
 
 

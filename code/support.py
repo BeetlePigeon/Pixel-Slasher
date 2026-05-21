@@ -471,6 +471,27 @@ class PathFollowController:
 
 
 @dataclass
+class DirectionalMoveController:
+    aim_vector: Vec2i
+    raw_direction: Vec2i
+    speed: int
+
+    motion_tag = "directional_move"
+
+    def sample_delta(self) -> Vec2i:
+        return scale_normalized_dir(
+            self.aim_vector,
+            self.speed,
+        )
+
+    def advance(self):
+        pass
+
+    def finished(self) -> bool:
+        return False
+
+    
+@dataclass
 class GridMoveController:
     start: Vec2i
     end: Vec2i
