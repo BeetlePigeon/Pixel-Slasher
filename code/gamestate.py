@@ -323,6 +323,11 @@ class StateGameplay(State):
                     "skill_locked",
                 },
                 duration=90,
+                cancels_action_tags={
+                    "cast",
+                    "channel",
+                    "recovery",
+                },
             )
         # End debug
 
