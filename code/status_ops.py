@@ -7,6 +7,15 @@ def get_status_effect_tags(world, entity):
     return tags
 
 
+def get_status_pauses_action_tags(world, entity):
+    tags = set()
+
+    for status in world.status_effects.get(entity, {}).values():
+        tags.update(status.get("pauses_action_tags", set()))
+
+    return tags
+
+
 def status_effect_blocks_voluntary_movement(status_effect):
     from action_ops import tags_block_voluntary_movement
 
@@ -41,14 +50,12 @@ def status_effect_cancels_active_action(world, entity, status_effect):
 
 def apply_status_entry_policies(world, entity, status_effect):
     # 1. Movement-blocking statuses cancel voluntary movement first.
-    # This may start a settle controller for normal stun/root-like behavior.
     if status_effect_blocks_voluntary_movement(status_effect):
         from systems import cancel_voluntary_movement
 
         cancel_voluntary_movement(world, entity)
 
-    # 2. Statuses may interrupt active action timelines.
-    # This removes pending scheduled events inside the active action_state.
+    # 2. Some statuses interrupt active action timelines.
     if status_effect_cancels_active_action(
         world,
         entity,
@@ -58,12 +65,8 @@ def apply_status_entry_policies(world, entity, status_effect):
 
         cancel_action_state(world, entity)
 
-    # 3. Statuses may interrupt active motion controllers.
-    # This intentionally does not auto-settle.
-    #
-    # Running this after voluntary movement cancellation means a freeze-like
-    # status can include "settle" to cancel a settle controller that was just
-    # created by cancel_voluntary_movement().
+    # 3. Some statuses interrupt active motion controllers.
+    # This requests settling, but settle_locked may delay the actual settle.
     cancels_motion_tags = status_effect.get(
         "cancels_motion_tags",
         set(),
@@ -84,13 +87,16 @@ def build_status_effect(
     tags,
     duration,
     data=None,
+    refresh_mode="replace",
     cancels_action_tags=None,
+    pauses_action_tags=None,
     cancels_motion_tags=None,
 ):
     return {
         "id": status_id,
         "tags": set(tags),
         "cancels_action_tags": set(cancels_action_tags or set()),
+        "pauses_action_tags": set(pauses_action_tags or set()),
         "cancels_motion_tags": set(cancels_motion_tags or set()),
         "duration": duration,
         "remaining_ticks": duration,
@@ -105,6 +111,7 @@ def refresh_existing_status_effect(
     data=None,
     refresh_mode="replace",
     cancels_action_tags=None,
+    pauses_action_tags=None,
     cancels_motion_tags=None,
 ):
     if refresh_mode == "ignore":
@@ -137,6 +144,9 @@ def refresh_existing_status_effect(
     existing["cancels_action_tags"] = set(
         cancels_action_tags or set()
     )
+    existing["pauses_action_tags"] = set(
+        pauses_action_tags or set()
+    )
     existing["cancels_motion_tags"] = set(
         cancels_motion_tags or set()
     )
@@ -154,6 +164,7 @@ def apply_status_effect(
     data=None,
     refresh_mode="replace",
     cancels_action_tags=None,
+    pauses_action_tags=None,
     cancels_motion_tags=None,
 ):
     if entity not in world.status_effects:
@@ -169,6 +180,7 @@ def apply_status_effect(
             data=data,
             refresh_mode=refresh_mode,
             cancels_action_tags=cancels_action_tags,
+            pauses_action_tags=pauses_action_tags,
             cancels_motion_tags=cancels_motion_tags,
         )
 
@@ -188,7 +200,9 @@ def apply_status_effect(
         tags=tags,
         duration=duration,
         data=data,
+        refresh_mode=refresh_mode,
         cancels_action_tags=cancels_action_tags,
+        pauses_action_tags=pauses_action_tags,
         cancels_motion_tags=cancels_motion_tags,
     )
 

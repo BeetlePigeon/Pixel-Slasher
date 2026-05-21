@@ -4,7 +4,10 @@ from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE
 from action_ops import (
     tags_block_voluntary_movement,
 )
-from status_ops import get_status_effect_tags
+from status_ops import (
+    get_status_effect_tags,
+    get_status_pauses_action_tags,
+)
 from path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
@@ -76,10 +79,28 @@ def execute_action_event(world, entity, action_state, event):
     return handler(world, entity, context)
 
 
+def action_state_is_paused_by_status(world, entity, action_state):
+    pause_tags = get_status_pauses_action_tags(world, entity)
+
+    if not pause_tags:
+        return False
+
+    action_tags = set(action_state.get("tags", set()))
+
+    return not action_tags.isdisjoint(pause_tags)
+
+
 def action_state_system(world):
     expired_entities = []
 
     for entity, action_state in list(world.action_state.items()):
+        if action_state_is_paused_by_status(
+            world,
+            entity,
+            action_state,
+        ):
+            continue
+
         action_state["age"] += 1
 
         events = action_state.get("events", [])
@@ -506,41 +527,6 @@ def influence_system(world):
             total = clamp_vec_axis(total, max_delta)
 
         world.influence_delta[entity] = total
-
-
-def get_motion_controller_tag(controller):
-    if controller is None:
-        return None
-
-    return getattr(controller, "motion_tag", None)
-
-
-def cancel_motion_by_tags_for_status(world, entity, motion_tags):
-    if not motion_tags:
-        return False
-
-    motion_state = world.motion_state.get(entity)
-
-    if motion_state is None:
-        return False
-
-    controller = motion_state.get("controller")
-
-    if controller is None:
-        return False
-
-    motion_tag = get_motion_controller_tag(controller)
-
-    if motion_tag not in motion_tags:
-        return False
-
-    clear_motion_controller(motion_state)
-    motion_state["last_delta"] = Vec2i(0, 0)
-
-    request_settle_when_allowed(world, entity)
-    start_requested_settle_if_allowed(world, entity)
-
-    return True
 
 
 def clear_motion_controller(motion_state):
@@ -2008,12 +1994,6 @@ def cancel_motion_by_tags_for_status(world, entity, motion_tags):
     if motion_state is None:
         return False
 
-    # If a status cancels "settle", also clear pending influence-settle state.
-    # This prevents freeze-like statuses from cancelling a current settle only
-    # to have settle_after_influence restart settling on a later tick.
-    if "settle" in motion_tags:
-        motion_state.pop("settle_after_influence", None)
-
     controller = motion_state.get("controller")
 
     if controller is None:
@@ -2026,6 +2006,9 @@ def cancel_motion_by_tags_for_status(world, entity, motion_tags):
 
     clear_motion_controller(motion_state)
     motion_state["last_delta"] = Vec2i(0, 0)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
 
     return True
 

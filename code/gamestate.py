@@ -347,7 +347,7 @@ class StateGameplay(State):
                     "settle_locked",
                 },
                 duration=90,
-                cancels_action_tags={
+                pauses_action_tags={
                     "cast",
                     "channel",
                     "recovery",
