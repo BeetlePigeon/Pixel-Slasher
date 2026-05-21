@@ -739,7 +739,7 @@ SKILL_DEFS = {
         },
 
         "params": {
-            "duration": 15,
+            "duration": 155,
             "distance": TILE_UNITS * 7,
             "influence_mode": "ignore_all",
             "slide_min_tangent_ratio": (1, 3),

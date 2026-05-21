@@ -328,6 +328,35 @@ class StateGameplay(State):
                     "channel",
                     "recovery",
                 },
+                cancels_motion_tags={
+                    "dash",
+                    "directional_move",
+                    "path_follow",
+                },
+            )
+
+        if pygame.K_n in input_state.keys_pressed:
+            apply_status_effect(
+                self.game.world,
+                self.game.world.player,
+                "debug_freeze",
+                tags={
+                    "freeze",
+                    "movement_locked",
+                    "skill_locked",
+                },
+                duration=90,
+                cancels_action_tags={
+                    "cast",
+                    "channel",
+                    "recovery",
+                },
+                cancels_motion_tags={
+                    "dash",
+                    "directional_move",
+                    "path_follow",
+                    "settle",
+                },
             )
         # End debug
 

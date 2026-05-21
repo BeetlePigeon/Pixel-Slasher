@@ -1905,6 +1905,44 @@ def get_active_motion_tag(world, entity):
     return getattr(controller, "motion_tag", None)
 
 
+def get_motion_controller_tag(controller):
+    if controller is None:
+        return None
+
+    return getattr(controller, "motion_tag", None)
+
+
+def cancel_motion_by_tags_for_status(world, entity, motion_tags):
+    if not motion_tags:
+        return False
+
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return False
+
+    # If a status cancels "settle", also clear pending influence-settle state.
+    # This prevents freeze-like statuses from cancelling a current settle only
+    # to have settle_after_influence restart settling on a later tick.
+    if "settle" in motion_tags:
+        motion_state.pop("settle_after_influence", None)
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return False
+
+    motion_tag = get_motion_controller_tag(controller)
+
+    if motion_tag not in motion_tags:
+        return False
+
+    clear_motion_controller(motion_state)
+    motion_state["last_delta"] = Vec2i(0, 0)
+
+    return True
+
+
 def skill_allowed_by_motion_state(world, entity, skill_def):
     active_motion_tag = get_active_motion_tag(world, entity)
 
