@@ -85,7 +85,7 @@ def action_state_is_paused_by_status(world, entity, action_state):
     if not pause_tags:
         return False
 
-    action_tags = set(action_state.get("tags", set()))
+    action_tags = get_action_state_tags(action_state)
 
     return not action_tags.isdisjoint(pause_tags)
 
@@ -657,22 +657,52 @@ def get_active_controller(world, entity):
     return motion_state.get("controller")
 
 
+def get_action_phase_at_age(action_state):
+    phases = action_state.get("phases")
+
+    if not phases:
+        return None
+
+    age = action_state.get("age", 0)
+
+    for phase in phases:
+        if phase["start"] <= age < phase["end"]:
+            return phase
+
+    return None
+
+
+def get_action_state_tags(action_state):
+    if action_state is None:
+        return set()
+
+    phase = get_action_phase_at_age(action_state)
+
+    if phase is not None:
+        return set(phase.get("tags", set()))
+
+    tags = action_state.get("tags")
+
+    if tags is not None:
+        return set(tags)
+
+    action_type = action_state.get("type")
+
+    if action_type is None:
+        return set()
+
+    return {action_type}
+
+
 def get_active_action_tags(world, entity):
     active_tags = set()
 
     action_state = world.action_state.get(entity)
 
     if action_state is not None:
-        tags = action_state.get("tags")
-
-        if tags is not None:
-            active_tags.update(tags)
-
-        else:
-            action_type = action_state.get("type")
-
-            if action_type is not None:
-                active_tags.add(action_type)
+        active_tags.update(
+            get_action_state_tags(action_state)
+        )
 
     active_tags.update(
         get_status_effect_tags(world, entity)
@@ -693,7 +723,9 @@ def skill_allowed_by_action_state(world, entity, skill_def):
 
 
 def action_state_has_any_tags(action_state, tags):
-    return not set(action_state.get("tags", set())).isdisjoint(tags)
+    action_tags = get_action_state_tags(action_state)
+
+    return not action_tags.isdisjoint(tags)
 
 
 def cancel_action_state(world, entity):

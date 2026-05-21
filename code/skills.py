@@ -455,19 +455,34 @@ def execute_cast_skill(world, caster, context):
             "fired": False,
         })
 
+    phases = []
+
+    for phase_def in cast.get("phases", []):
+        phases.append({
+            "name": phase_def["name"],
+            "start": phase_def["start"],
+            "end": phase_def["end"],
+            "tags": set(phase_def["tags"]),
+        })
+
+    action_state = {
+        "type": "cast",
+        "skill_id": skill_def["id"],
+        "tags": set(cast["tags"]),
+        "age": 0,
+        "duration": cast["duration"],
+        "intent": dict(intent),
+        "skill_def": skill_def,
+        "events": events,
+    }
+
+    if phases:
+        action_state["phases"] = phases
+
     start_action_state(
         world,
         caster,
-        {
-            "type": "cast",
-            "skill_id": skill_def["id"],
-            "tags": set(cast["tags"]),
-            "age": 0,
-            "duration": cast["duration"],
-            "intent": dict(intent),
-            "skill_def": skill_def,
-            "events": events,
-        },
+        action_state,
     )
 
     return True
@@ -1085,6 +1100,37 @@ SKILL_DEFS = {
                 "movement_locked",
                 "skill_locked",
             },
+            "phases": [
+                {
+                    "name": "startup",
+                    "start": 0,
+                    "end": 18,
+                    "tags": {
+                        "cast",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "release",
+                    "start": 18,
+                    "end": 26,
+                    "tags": {
+                        "cast",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "recovery",
+                    "start": 26,
+                    "end": 44,
+                    "tags": {
+                        "recovery",
+                        "skill_locked",
+                    },
+                },
+            ],
             "events": [
                 {
                     "tick": 22,
@@ -1358,6 +1404,20 @@ def validate_skill_cast(skill_id, cast):
             event,
         )
 
+    if "phases" in cast:
+        if not isinstance(cast["phases"], list):
+            raise ValueError(
+                f"Skill '{skill_id}' cast phases must be a list"
+            )
+
+        for phase_index, phase in enumerate(cast["phases"]):
+            validate_skill_cast_phase(
+                skill_id,
+                cast,
+                phase_index,
+                phase,
+            )
+
 
 def validate_skill_cast_event(skill_id, cast, event_index, event):
     if not isinstance(event, dict):
@@ -1425,3 +1485,67 @@ def validate_skill_cast_event(skill_id, cast, event_index, event):
         f"cast event {event_index} params",
         event.get("params", {}),
     )
+
+
+def validate_skill_cast_phase(skill_id, cast, phase_index, phase):
+    if not isinstance(phase, dict):
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} must be a dict"
+        )
+
+    required_phase_fields = {
+        "name",
+        "start",
+        "end",
+        "tags",
+    }
+
+    missing_phase_fields = required_phase_fields - set(phase)
+
+    if missing_phase_fields:
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"is missing fields: {sorted(missing_phase_fields)}"
+        )
+
+    if not isinstance(phase["name"], str):
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"name must be a string"
+        )
+
+    if not isinstance(phase["start"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"start must be an int"
+        )
+
+    if not isinstance(phase["end"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"end must be an int"
+        )
+
+    if phase["start"] < 0:
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"start cannot be negative"
+        )
+
+    if phase["end"] <= phase["start"]:
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"end must be greater than start"
+        )
+
+    if phase["end"] > cast["duration"]:
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"ends after cast duration"
+        )
+
+    if not isinstance(phase["tags"], set):
+        raise ValueError(
+            f"Skill '{skill_id}' cast phase {phase_index} "
+            f"tags must be a set"
+        )
