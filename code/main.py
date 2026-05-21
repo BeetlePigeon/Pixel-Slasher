@@ -19,9 +19,10 @@ from dataclasses import replace
 # 3: Magnet
 # 4: Dash
 # 5: Spiral Projectile
-# 6: Slash
+# 6: Debug Slash
 # LSHIFT: Toggle Camera Mode
-# V: Screen Shake
+# B: Debug Stun Player
+# V: Debug Screen Shake
 # F5: Resize
 # F6: Toggle VSync
 # F7: Cycle FPS Cap
@@ -110,6 +111,7 @@ class Game:
             f"Animations: {len(self.world.animation)}",
             f"Action State: {self.world.action_state}",
             f"Ticks: {self.world.tick}",
+            f"Statuses: {self.world.status_effects.get(self.world.player, {})}",
         ]
 
         y = 4

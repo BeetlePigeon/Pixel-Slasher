@@ -4,6 +4,7 @@ from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE
 from action_ops import (
     tags_block_voluntary_movement,
 )
+from status_ops import get_status_effect_tags
 from path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
@@ -109,6 +110,28 @@ def action_state_system(world):
 
     for entity in expired_entities:
         world.action_state.pop(entity, None)
+
+
+def status_effect_system(world):
+    expired = []
+
+    for entity, statuses in list(world.status_effects.items()):
+        for status_id, status in list(statuses.items()):
+            status["remaining_ticks"] -= 1
+
+            if status["remaining_ticks"] <= 0:
+                expired.append((entity, status_id))
+
+    for entity, status_id in expired:
+        statuses = world.status_effects.get(entity)
+
+        if statuses is None:
+            continue
+
+        statuses.pop(status_id, None)
+
+        if not statuses:
+            world.status_effects.pop(entity, None)
 
 
 def combat_damage_system(world):
@@ -625,22 +648,27 @@ def get_active_controller(world, entity):
 
 
 def get_active_action_tags(world, entity):
+    active_tags = set()
+
     action_state = world.action_state.get(entity)
 
-    if action_state is None:
-        return set()
+    if action_state is not None:
+        tags = action_state.get("tags")
 
-    tags = action_state.get("tags")
+        if tags is not None:
+            active_tags.update(tags)
 
-    if tags is not None:
-        return set(tags)
+        else:
+            action_type = action_state.get("type")
 
-    action_type = action_state.get("type")
+            if action_type is not None:
+                active_tags.add(action_type)
 
-    if action_type is None:
-        return set()
+    active_tags.update(
+        get_status_effect_tags(world, entity)
+    )
 
-    return {action_type}
+    return active_tags
 
 
 def skill_allowed_by_action_state(world, entity, skill_def):

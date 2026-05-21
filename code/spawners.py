@@ -127,10 +127,10 @@ def spawn_spiral_projectile(
         "static_tiles": "destroy",
     }
     world.influence_receiver[eid] = {
-        "accepts": {"wind", "magnet"},
+        "accepts": {},
         "scales": {
             "wind": (1, 1),     # Rational fraction: (1, 1) = 1/1 = 100%, (2, 3) = 2/3 = 66.67%
-            "magnet": (3, 1),
+            "magnet": (1, 1),
         },
         "max_delta": TILE_UNITS // 8,
     }

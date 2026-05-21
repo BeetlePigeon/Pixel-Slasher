@@ -52,6 +52,7 @@ class World:
         self.transform = {}
         self.motion_state = {}
         self.action_state = {}
+        self.status_effects = {}
         self.facing = {}
         self.events = []
         self.move_intent = {}
@@ -167,7 +168,9 @@ class World:
         self.transform.pop(eid, None)
         self.motion_state.pop(eid, None)
         self.action_state.pop(eid, None)
+        self.status_effects.pop(eid, None)
         self.facing.pop(eid, None)
+
         self.move_intent.pop(eid, None)
         self.buffered_move_intent.pop(eid, None)
         self.move_target.pop(eid, None)

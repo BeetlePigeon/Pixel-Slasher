@@ -1,6 +1,7 @@
 from dataclasses import replace
 from systems import *
 from camera_utils import internal_screen_to_world_cpos
+from status_ops import apply_status_effect
 
 
 class State:
@@ -310,12 +311,26 @@ class StateGameplay(State):
                 duration_ticks=18,
                 strength=4,
             )
+
+        if pygame.K_b in input_state.keys_pressed:
+            apply_status_effect(
+                self.game.world,
+                self.game.world.player,
+                "debug_stun",
+                tags={
+                    "stun",
+                    "movement_locked",
+                    "skill_locked",
+                },
+                duration=90,
+            )
         # End debug
 
 
         # Update Systems
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
+        status_effect_system(self.game.world)
         combat_damage_system(self.game.world)
         debug_tile_highlight_system(self.game.world)
         intent_system(self.game.world, intents)
