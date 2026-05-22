@@ -154,6 +154,8 @@ class StateGameplay(State):
             pygame.K_4: 4,
             pygame.K_5: 5,
             pygame.K_6: 6,
+            pygame.K_7: 7,
+            pygame.K_8: 8,
             pygame.K_SPACE: "TEST_PROJECTILE",
         }
 

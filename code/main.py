@@ -20,6 +20,8 @@ from dataclasses import replace
 # 4: Dash
 # 5: Spiral Projectile
 # 6: Debug Slash
+# 7: Debug Channel Projectile
+# 8: Debug Channel Projectile
 # LSHIFT: Toggle Camera Mode
 # B: Debug Stun Player
 # N: Debug Freeze Player

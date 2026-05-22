@@ -59,6 +59,29 @@ def entity_can_start_voluntary_movement(world, entity):
     return not tags_block_voluntary_movement(active_action_tags)
 
 
+def execute_repeat_action_events(world, entity, action_state):
+    repeat_events = action_state.get("repeat_events", [])
+
+    for event in repeat_events:
+        start_tick = event["start_tick"]
+        interval = event["interval"]
+
+        age = action_state["age"]
+
+        if age < start_tick:
+            continue
+
+        if (age - start_tick) % interval != 0:
+            continue
+
+        execute_action_event(
+            world,
+            entity,
+            action_state,
+            event,
+        )
+
+
 def execute_action_event(world, entity, action_state, event):
     handler = event.get("handler")
 
@@ -88,6 +111,22 @@ def action_state_is_paused_by_status(world, entity, action_state):
     action_tags = get_action_state_tags(action_state)
 
     return not action_tags.isdisjoint(pause_tags)
+
+
+def request_release_active_action_for_slot(world, entity, slot):
+    action_state = world.action_state.get(entity)
+
+    if action_state is None:
+        return False
+
+    if not action_state.get("ends_on_release", False):
+        return False
+
+    if action_state.get("slot") != slot:
+        return False
+
+    action_state["release_requested"] = True
+    return True
 
 
 def action_state_system(world):
@@ -122,6 +161,21 @@ def action_state_system(world):
             )
 
             event["fired"] = True
+
+        execute_repeat_action_events(
+            world,
+            entity,
+            action_state,
+        )
+
+        min_duration = action_state.get("min_duration", 0)
+
+        if (
+            action_state.get("release_requested", False)
+            and action_state["age"] >= min_duration
+        ):
+            expired_entities.append(entity)
+            continue
 
         duration = action_state.get("duration")
 
@@ -2114,6 +2168,14 @@ def skill_intent_resolution_system(world, intents):
                 "skill_released",
             }:
                 continue
+
+            if intent["type"] == "skill_released":
+                if request_release_active_action_for_slot(
+                        world,
+                        entity,
+                        intent["slot"],
+                ):
+                    continue
 
             slot = intent["slot"]
             skill_id = world.skills.get((entity, slot))

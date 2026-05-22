@@ -438,16 +438,10 @@ def resolve_skill_aim_direction(world, caster, intent, skill_def):
     raise ValueError(f"Unknown skill aim source: {aim_source}")
 
 
-def execute_cast_skill(world, caster, context):
-    from action_ops import start_action_state
-
-    skill_def = context["skill_def"]
-    intent = context["intent"]
-    cast = skill_def["cast"]
-
+def build_action_events(action_def):
     events = []
 
-    for event_def in cast.get("events", []):
+    for event_def in action_def.get("events", []):
         events.append({
             "tick": event_def["tick"],
             "handler": event_def["handler"],
@@ -455,9 +449,27 @@ def execute_cast_skill(world, caster, context):
             "fired": False,
         })
 
+    return events
+
+
+def build_action_repeat_events(action_def):
+    repeat_events = []
+
+    for event_def in action_def.get("repeat_events", []):
+        repeat_events.append({
+            "start_tick": event_def["start_tick"],
+            "interval": event_def["interval"],
+            "handler": event_def["handler"],
+            "params": dict(event_def.get("params", {})),
+        })
+
+    return repeat_events
+
+
+def build_action_phases(action_def):
     phases = []
 
-    for phase_def in cast.get("phases", []):
+    for phase_def in action_def.get("phases", []):
         phases.append({
             "name": phase_def["name"],
             "start": phase_def["start"],
@@ -465,15 +477,37 @@ def execute_cast_skill(world, caster, context):
             "tags": set(phase_def["tags"]),
         })
 
+    return phases
+
+
+def start_skill_action(world, caster, context, action_def, action_type):
+    from action_ops import start_action_state
+
+    skill_def = context["skill_def"]
+    intent = context["intent"]
+
+    events = build_action_events(action_def)
+    repeat_events = build_action_repeat_events(action_def)
+    phases = build_action_phases(action_def)
+
     action_state = {
-        "type": "cast",
+        "type": action_type,
         "skill_id": skill_def["id"],
-        "tags": set(cast["tags"]),
+        "slot": intent.get("slot"),
+
+        "tags": set(action_def["tags"]),
         "age": 0,
-        "duration": cast["duration"],
+        "duration": action_def["duration"],
+
+        "min_duration": action_def.get("min_duration", 0),
+        "ends_on_release": action_def.get("ends_on_release", False),
+        "release_requested": False,
+
         "intent": dict(intent),
         "skill_def": skill_def,
+
         "events": events,
+        "repeat_events": repeat_events,
     }
 
     if phases:
@@ -486,6 +520,32 @@ def execute_cast_skill(world, caster, context):
     )
 
     return True
+
+
+def execute_cast_skill(world, caster, context):
+    skill_def = context["skill_def"]
+    cast = skill_def["cast"]
+
+    return start_skill_action(
+        world,
+        caster,
+        context,
+        action_def=cast,
+        action_type=cast.get("type", "cast"),
+    )
+
+
+def execute_channel_skill(world, caster, context):
+    skill_def = context["skill_def"]
+    channel = skill_def["channel"]
+
+    return start_skill_action(
+        world,
+        caster,
+        context,
+        action_def=channel,
+        action_type=channel.get("type", "channel"),
+    )
 
 
 def execute_dash(world, caster, context):
@@ -701,6 +761,7 @@ REQUIRED_SKILL_FIELDS = {
 
     "aim",
     "cast",
+    "channel",
 
     "params",
 
@@ -752,6 +813,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "duration": 155,
@@ -808,6 +870,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "spawn_distance": TILE_UNITS // 4,
@@ -859,6 +922,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "projectile_lifetime": 300,
@@ -912,6 +976,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "placement_search_radius": 2,
@@ -970,6 +1035,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "target_mode": "mouse_tile_center",
@@ -1047,6 +1113,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "spawn_distance": TILE_UNITS // 4,
@@ -1138,6 +1205,7 @@ SKILL_DEFS = {
                 },
             ],
         },
+        "channel": None,
 
         "params": {
             "debug_highlight_ticks": 12,
@@ -1146,6 +1214,91 @@ SKILL_DEFS = {
         },
 
         "handler": execute_cast_skill,
+    },
+
+
+    "debug_channel_projectile": {
+        "id": "debug_channel_projectile",
+        "name": "Debug Channel Projectile",
+
+        "cooldown_ticks": 0,
+        "trigger_mode": "held_repeat",
+
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "cancels_action_tags": set(),
+
+        "required_components": {"transform", "facing"},
+        "required_params": {
+            "spawn_distance",
+            "projectile_speed",
+            "projectile_lifetime",
+        },
+        "allowed_param_values": {},
+
+        "aim": {
+            "traditional_source": "mouse_tile",
+            "modern_source": "mouse_tile",
+            "resolution": "tile_center",
+        },
+        "cast": None,
+        "channel": {
+            "duration": 600,
+            "min_duration": 20,
+            "ends_on_release": True,
+            "tags": {
+                "channel",
+                "movement_locked",
+                "skill_locked",
+            },
+            "phases": [
+                {
+                    "name": "startup",
+                    "start": 0,
+                    "end": 20,
+                    "tags": {
+                        "channel",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "channel",
+                    "start": 20,
+                    "end": 600,
+                    "tags": {
+                        "channel",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+            ],
+            "events": [],
+            "repeat_events": [
+                {
+                    "start_tick": 20,
+                    "interval": 7,
+                    "handler": execute_test_projectile,
+                    "params": {
+                        "aim_timing": "live",
+                    },
+                },
+            ],
+        },
+
+        "params": {
+            "spawn_distance": TILE_UNITS // 4,
+            "projectile_speed": TILE_UNITS // 8,
+            "projectile_lifetime": 90,
+        },
+
+        "handler": execute_channel_skill,
     },
 }
 
@@ -1264,6 +1417,9 @@ def validate_skill_defs(skill_defs):
 
         if skill_def["cast"] is not None:
             validate_skill_cast(skill_id, skill_def["cast"])
+
+        if skill_def["channel"] is not None:
+            validate_skill_channel(skill_id, skill_def["channel"])
 
         if not callable(skill_def["handler"]):
             raise ValueError(
@@ -1417,6 +1573,186 @@ def validate_skill_cast(skill_id, cast):
                 phase_index,
                 phase,
             )
+
+
+def validate_skill_channel(skill_id, channel):
+    if not isinstance(channel, dict):
+        raise ValueError(
+            f"Skill '{skill_id}' channel must be None or a dict"
+        )
+
+    required_channel_fields = {
+        "duration",
+        "min_duration",
+        "ends_on_release",
+        "tags",
+        "events",
+        "repeat_events",
+    }
+
+    missing_channel_fields = required_channel_fields - set(channel)
+
+    if missing_channel_fields:
+        raise ValueError(
+            f"Skill '{skill_id}' channel is missing fields: "
+            f"{sorted(missing_channel_fields)}"
+        )
+
+    if not isinstance(channel["duration"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' channel duration must be an int"
+        )
+
+    if channel["duration"] <= 0:
+        raise ValueError(
+            f"Skill '{skill_id}' channel duration must be positive"
+        )
+
+    if not isinstance(channel["min_duration"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' channel min_duration must be an int"
+        )
+
+    if channel["min_duration"] < 0:
+        raise ValueError(
+            f"Skill '{skill_id}' channel min_duration cannot be negative"
+        )
+
+    if channel["min_duration"] > channel["duration"]:
+        raise ValueError(
+            f"Skill '{skill_id}' channel min_duration cannot exceed duration"
+        )
+
+    if not isinstance(channel["ends_on_release"], bool):
+        raise ValueError(
+            f"Skill '{skill_id}' channel ends_on_release must be a bool"
+        )
+
+    if not isinstance(channel["tags"], set):
+        raise ValueError(
+            f"Skill '{skill_id}' channel tags must be a set"
+        )
+
+    if not isinstance(channel["events"], list):
+        raise ValueError(
+            f"Skill '{skill_id}' channel events must be a list"
+        )
+
+    for event_index, event in enumerate(channel["events"]):
+        validate_skill_cast_event(
+            skill_id,
+            channel,
+            event_index,
+            event,
+        )
+
+    if not isinstance(channel["repeat_events"], list):
+        raise ValueError(
+            f"Skill '{skill_id}' channel repeat_events must be a list"
+        )
+
+    for event_index, event in enumerate(channel["repeat_events"]):
+        validate_skill_repeat_event(
+            skill_id,
+            channel,
+            event_index,
+            event,
+        )
+
+    if "phases" in channel:
+        if not isinstance(channel["phases"], list):
+            raise ValueError(
+                f"Skill '{skill_id}' channel phases must be a list"
+            )
+
+        for phase_index, phase in enumerate(channel["phases"]):
+            validate_skill_cast_phase(
+                skill_id,
+                channel,
+                phase_index,
+                phase,
+            )
+
+
+def validate_skill_repeat_event(skill_id, action_def, event_index, event):
+    if not isinstance(event, dict):
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} must be a dict"
+        )
+
+    required_event_fields = {
+        "start_tick",
+        "interval",
+        "handler",
+    }
+
+    missing_event_fields = required_event_fields - set(event)
+
+    if missing_event_fields:
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"is missing fields: {sorted(missing_event_fields)}"
+        )
+
+    if not isinstance(event["start_tick"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"start_tick must be an int"
+        )
+
+    if event["start_tick"] < 0:
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"start_tick cannot be negative"
+        )
+
+    if event["start_tick"] > action_def["duration"]:
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"starts after action duration"
+        )
+
+    if not isinstance(event["interval"], int):
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"interval must be an int"
+        )
+
+    if event["interval"] <= 0:
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"interval must be positive"
+        )
+
+    if not callable(event["handler"]):
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"handler is not callable"
+        )
+
+    if "params" in event and not isinstance(event["params"], dict):
+        raise ValueError(
+            f"Skill '{skill_id}' repeat event {event_index} "
+            f"params must be a dict"
+        )
+
+    validate_aim_timing_param(
+        skill_id,
+        f"repeat event {event_index} params",
+        event.get("params", {}),
+    )
+
+    validate_aim_modifier_params(
+        skill_id,
+        f"repeat event {event_index} params",
+        event.get("params", {}),
+    )
+
+    validate_aim_offset_distance_scaling_params(
+        skill_id,
+        f"repeat event {event_index} params",
+        event.get("params", {}),
+    )
 
 
 def validate_skill_cast_event(skill_id, cast, event_index, event):
