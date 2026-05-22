@@ -36,6 +36,9 @@ from dataclasses import replace
 # F7: Cycle FPS Cap
 # F8: Toggle Control Scheme
 # F9: Toggle Modern Movement Aim Source
+# F10: Zoom Camera Out
+# F11: Zoom Camera In
+
 
 class Game:
     def __init__(self):
@@ -120,6 +123,7 @@ class Game:
             f"Action State: {self.world.action_state}",
             f"Ticks: {self.world.tick}",
             f"Statuses: {self.world.status_effects.get(self.world.player, {})}",
+            f"Zoom: {self.world.camera['zoom_num']}/{self.world.camera['zoom_den']}",
         ]
 
         y = 4
@@ -265,6 +269,39 @@ class Game:
         self.set_debug_scale(new_scale)
 
 
+    def set_camera_zoom_index(self, zoom_index):
+        camera = self.world.camera
+        zoom_levels = camera["zoom_levels"]
+
+        zoom_index = max(
+            0,
+            min(len(zoom_levels) - 1, zoom_index),
+        )
+
+        camera["zoom_index"] = zoom_index
+
+        zoom_num, zoom_den = zoom_levels[zoom_index]
+
+        camera["zoom_num"] = zoom_num
+        camera["zoom_den"] = zoom_den
+
+
+    def zoom_camera_in(self):
+        camera = self.world.camera
+
+        self.set_camera_zoom_index(
+            camera["zoom_index"] + 1,
+        )
+
+
+    def zoom_camera_out(self):
+        camera = self.world.camera
+
+        self.set_camera_zoom_index(
+            camera["zoom_index"] - 1,
+        )
+
+
     def toggle_vsync(self):
         self.vsync_enabled = not self.vsync_enabled
 
@@ -386,6 +423,10 @@ class Game:
                 self.toggle_vsync()
             if pygame.K_F7 in input_state.keys_pressed:
                 self.cycle_fps_cap()
+            if pygame.K_F10 in input_state.keys_pressed:
+                self.zoom_camera_out()
+            if pygame.K_F11 in input_state.keys_pressed:
+                self.zoom_camera_in()
             # End debug
 
             self.sim_accumulator += frame_dt

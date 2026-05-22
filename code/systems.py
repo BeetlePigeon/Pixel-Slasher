@@ -2575,6 +2575,79 @@ def camera_update_system(world):
         )
 
 
+def get_camera_zoom(camera):
+    return (
+        camera.get("zoom_num", 1),
+        max(1, camera.get("zoom_den", 1)),
+    )
+
+
+def scale_length_by_camera_zoom(world, value):
+    zoom_num, zoom_den = get_camera_zoom(world.camera)
+
+    return max(1, value * zoom_num // zoom_den)
+
+
+def scale_vec_by_camera_zoom(world, vec):
+    zoom_num, zoom_den = get_camera_zoom(world.camera)
+
+    return Vec2i(
+        vec.x * zoom_num // zoom_den,
+        vec.y * zoom_num // zoom_den,
+    )
+
+
+def scale_surface_by_camera_zoom(world, surface):
+    zoom_num, zoom_den = get_camera_zoom(world.camera)
+
+    if zoom_num == zoom_den:
+        return surface
+
+    width = max(1, surface.get_width() * zoom_num // zoom_den)
+    height = max(1, surface.get_height() * zoom_num // zoom_den)
+
+    return pygame.transform.scale(
+        surface,
+        (width, height),
+    )
+
+
+def project_screen_point(world, base_screen_x, base_screen_y, include_shake=True):
+    projection = world.camera_projection
+
+    if projection is None:
+        offset_x, offset_y = world.camera_offset
+
+        return (
+            base_screen_x + offset_x,
+            base_screen_y + offset_y,
+        )
+
+    zoom_num = projection["zoom_num"]
+    zoom_den = projection["zoom_den"]
+
+    center_x, center_y = projection["surface_center"]
+    camera_screen_x, camera_screen_y = projection["camera_screen"]
+    screen_offset = projection["screen_offset"]
+
+    shake_offset = Vec2i(0, 0)
+
+    if include_shake:
+        shake_offset = world.camera_shake_offset
+
+    return (
+        center_x
+        + (base_screen_x - camera_screen_x) * zoom_num // zoom_den
+        + screen_offset.x
+        + shake_offset.x,
+
+        center_y
+        + (base_screen_y - camera_screen_y) * zoom_num // zoom_den
+        + screen_offset.y
+        + shake_offset.y,
+    )
+
+
 def camera_system(world, surface, render_alpha):
     camera = world.camera
 
@@ -2593,7 +2666,7 @@ def camera_system(world, surface, render_alpha):
         render_alpha,
     )
 
-    target_screen_x, target_screen_y = cpos_to_screen(
+    camera_screen_x, camera_screen_y = cpos_to_screen(
         visual_camera_cpos,
         world.tile_size,
     )
@@ -2604,13 +2677,26 @@ def camera_system(world, surface, render_alpha):
     screen_offset = camera.get("screen_offset", Vec2i(0, 0))
     shake_offset = sample_camera_shake(camera)
 
+    zoom_num, zoom_den = get_camera_zoom(camera)
+
+    world.camera_projection = {
+        "camera_screen": (camera_screen_x, camera_screen_y),
+        "surface_center": (surface_center_x, surface_center_y),
+        "screen_offset": screen_offset,
+        "zoom_num": zoom_num,
+        "zoom_den": zoom_den,
+    }
+
+    world.camera_shake_offset = shake_offset
+
+    # Keep these for older code/fallbacks. Mouse-to-world should use
+    # camera_projection after this patch.
     base_offset = (
-        surface_center_x - target_screen_x + screen_offset.x,
-        surface_center_y - target_screen_y + screen_offset.y,
+        surface_center_x - camera_screen_x + screen_offset.x,
+        surface_center_y - camera_screen_y + screen_offset.y,
     )
 
     world.camera_base_offset = base_offset
-
     world.camera_offset = (
         base_offset[0] + shake_offset.x,
         base_offset[1] + shake_offset.y,
@@ -2618,45 +2704,66 @@ def camera_system(world, surface, render_alpha):
 
 
 def render_tiles(world, surface, render_alpha=0.0):
-    offset_x, offset_y = world.camera_offset
+    scaled_tile_images = {}
 
     for y, row in enumerate(world.tilemap):
         for x, tile in enumerate(row):
-            screen_x, screen_y = iso_to_screen(x, y, world.tile_size)
+            base_x, base_y = iso_to_screen(x, y, world.tile_size)
+            screen_x, screen_y = project_screen_point(
+                world,
+                base_x,
+                base_y,
+            )
+
+            if tile not in scaled_tile_images:
+                scaled_tile_images[tile] = scale_surface_by_camera_zoom(
+                    world,
+                    world.tile_images[tile],
+                )
 
             surface.blit(
-                world.tile_images[tile],
-                (screen_x + offset_x, screen_y + offset_y)
+                scaled_tile_images[tile],
+                (screen_x, screen_y),
             )
+
             if (x, y) in world.static_collision_tiles:
+                circle_base_x = base_x + world.tile_size // 2
+                circle_base_y = base_y + world.tile_size // 4
+
+                circle_x, circle_y = project_screen_point(
+                    world,
+                    circle_base_x,
+                    circle_base_y,
+                )
+
                 pygame.draw.circle(
                     surface,
                     "red",
-                    (
-                        screen_x + offset_x + world.tile_size // 2,
-                        screen_y + offset_y + world.tile_size // 4,
-                    ),
-                    3,
+                    (circle_x, circle_y),
+                    scale_length_by_camera_zoom(world, 3),
                 )
 
     for highlight in world.debug_tile_highlights:
         tile = highlight["tile"]
         tile_center_cpos = tile_center(tile)
 
-        screen_x, screen_y = cpos_to_screen(
+        base_x, base_y = cpos_to_screen(
             tile_center_cpos,
             world.tile_size,
+        )
+
+        screen_x, screen_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
         )
 
         pygame.draw.circle(
             surface,
             highlight.get("color", "yellow"),
-            (
-                screen_x + offset_x,
-                screen_y + offset_y,
-            ),
-            7,
-            2,
+            (screen_x, screen_y),
+            scale_length_by_camera_zoom(world, 7),
+            scale_length_by_camera_zoom(world, 2),
         )
 
 
@@ -2734,13 +2841,15 @@ def debug_tile_highlight_system(world):
 def sprite_system(world, surface, render_alpha):
     draw_list = []
     debug_draw_list = []
-    offset_x, offset_y = world.camera_offset
+
+    scaled_sprite_cache = {}
 
     for entity in world.sprite:
         if entity not in world.transform:
             continue
 
         transform = world.transform[entity]
+
         pos = interp_cpos(
             transform.prev_cpos,
             transform.cpos,
@@ -2749,20 +2858,49 @@ def sprite_system(world, surface, render_alpha):
 
         sprite = world.sprite[entity]
 
-        screen_x, screen_y = cpos_to_screen(pos, world.tile_size)
+        base_x, base_y = cpos_to_screen(pos, world.tile_size)
 
-        sprite_offset = get_sprite_offset(sprite["image"], sprite["anchor"])
+        screen_x, screen_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
+        image = sprite["image"]
+        cache_key = id(image)
+
+        if cache_key not in scaled_sprite_cache:
+            scaled_sprite_cache[cache_key] = scale_surface_by_camera_zoom(
+                world,
+                image,
+            )
+
+        scaled_image = scaled_sprite_cache[cache_key]
+
+        sprite_offset = get_sprite_offset(
+            image,
+            sprite["anchor"],
+        )
+
+        scaled_offset = scale_vec_by_camera_zoom(
+            world,
+            sprite_offset,
+        )
 
         draw_list.append((
-            screen_y + sprite.get("z", 0),
-            sprite["image"],
+            base_y + sprite.get("z", 0),
+            scaled_image,
             (
-                screen_x + offset_x + sprite_offset.x,
-                screen_y + offset_y + sprite_offset.y,
+                screen_x + scaled_offset.x,
+                screen_y + scaled_offset.y,
             ),
         ))
 
-        debug_draw_list.append((entity, screen_x, screen_y))
+        debug_draw_list.append((
+            entity,
+            base_x,
+            base_y,
+        ))
 
     draw_list.sort(key=lambda x: x[0])
 
@@ -2770,46 +2908,64 @@ def sprite_system(world, surface, render_alpha):
         surface.blit(image, pos)
 
     # Debug overlay after sprites, so it stays visible.
-    for entity, screen_x, screen_y in debug_draw_list:
+    debug_radius = scale_length_by_camera_zoom(world, 4)
+
+    for entity, base_x, base_y in debug_draw_list:
         transform = world.transform[entity]
+
         committed_tile = transform.tile
         current_tile = tile_from_cpos(transform.cpos)
-        committed_tile_center_cpos = tile_center(transform.tile)
+
+        committed_tile_center_cpos = tile_center(committed_tile)
         current_tile_center_cpos = tile_center(current_tile)
-        committed_tile_screen_x, committed_tile_screen_y = cpos_to_screen(
+
+        committed_base_x, committed_base_y = cpos_to_screen(
             committed_tile_center_cpos,
             world.tile_size,
         )
-        current_tile_screen_x, current_tile_screen_y = cpos_to_screen(
+
+        current_base_x, current_base_y = cpos_to_screen(
             current_tile_center_cpos,
             world.tile_size,
         )
+
+        committed_x, committed_y = project_screen_point(
+            world,
+            committed_base_x,
+            committed_base_y,
+        )
+
+        current_x, current_y = project_screen_point(
+            world,
+            current_base_x,
+            current_base_y,
+        )
+
+        actor_x, actor_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
         pygame.draw.circle(
             surface,
             "blue",
-            (
-                committed_tile_screen_x + offset_x,
-                committed_tile_screen_y + offset_y,
-            ),
-            4,
+            (committed_x, committed_y),
+            debug_radius,
         )
+
         pygame.draw.circle(
             surface,
             "black",
-            (
-                current_tile_screen_x + offset_x,
-                current_tile_screen_y + offset_y,
-            ),
-            4,
+            (current_x, current_y),
+            debug_radius,
         )
+
         pygame.draw.circle(
             surface,
             "red",
-            (
-                screen_x + offset_x,
-                screen_y + offset_y,
-            ),
-            4,
+            (actor_x, actor_y),
+            debug_radius,
         )
 
         if entity in world.facing:
@@ -2821,16 +2977,16 @@ def sprite_system(world, surface, render_alpha):
                 arrow_length=32,
             )
 
+            arrow_end_x, arrow_end_y = project_screen_point(
+                world,
+                base_x + arrow_dx,
+                base_y + arrow_dy,
+            )
+
             pygame.draw.line(
                 surface,
                 "black",
-                (
-                    screen_x + offset_x,
-                    screen_y + offset_y,
-                ),
-                (
-                    screen_x + offset_x + arrow_dx,
-                    screen_y + offset_y + arrow_dy,
-                ),
-                2,
+                (actor_x, actor_y),
+                (arrow_end_x, arrow_end_y),
+                scale_length_by_camera_zoom(world, 2),
             )

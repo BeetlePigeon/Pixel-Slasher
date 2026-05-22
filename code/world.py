@@ -26,6 +26,8 @@ class World:
         ## Camera
         self.camera_base_offset = (0, 0)
         self.camera_offset = (0, 0)
+        self.camera_projection = None
+        self.camera_shake_offset = Vec2i(0, 0)
         self.camera = {
             "mode": "follow",
             "target": None,
@@ -43,6 +45,17 @@ class World:
             "shake_duration": 0,
             "shake_strength": 0,
             "shake_max_strength": 20,
+            "zoom_levels": [
+                (1, 2),
+                (3, 4),
+                (1, 1),
+                (5, 4),
+                (3, 2),
+                (2, 1),
+            ],
+            "zoom_index": 2,
+            "zoom_num": 1,
+            "zoom_den": 1,
         }
         ## Components
         self.snapshot = {
