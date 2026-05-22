@@ -123,7 +123,13 @@ class Game:
             f"Action State: {self.world.action_state}",
             f"Ticks: {self.world.tick}",
             f"Statuses: {self.world.status_effects.get(self.world.player, {})}",
-            f"Zoom: {self.world.camera['zoom_num']}/{self.world.camera['zoom_den']}",
+            (
+                f"Zoom: "
+                f"{self.world.camera['zoom_current_fp'] / 1024:.2f}x "
+                f"-> {self.world.camera['zoom_target_num']}/"
+                f"{self.world.camera['zoom_target_den']} "
+                f"({'smooth' if self.world.camera['zoom_smooth'] else 'snap'})"
+            ),
         ]
 
         y = 4
@@ -268,7 +274,6 @@ class Game:
         new_scale = self.debug_scales[self.debug_scale_index]
         self.set_debug_scale(new_scale)
 
-
     def set_camera_zoom_index(self, zoom_index):
         camera = self.world.camera
         zoom_levels = camera["zoom_levels"]
@@ -284,7 +289,14 @@ class Game:
 
         camera["zoom_num"] = zoom_num
         camera["zoom_den"] = zoom_den
+        camera["zoom_target_num"] = zoom_num
+        camera["zoom_target_den"] = zoom_den
+        camera["zoom_target_fp"] = (
+                zoom_num * 1024 // max(1, zoom_den)
+        )
 
+        if not camera.get("zoom_smooth", True):
+            camera["zoom_current_fp"] = camera["zoom_target_fp"]
 
     def zoom_camera_in(self):
         camera = self.world.camera
@@ -293,13 +305,19 @@ class Game:
             camera["zoom_index"] + 1,
         )
 
-
     def zoom_camera_out(self):
         camera = self.world.camera
 
         self.set_camera_zoom_index(
             camera["zoom_index"] - 1,
         )
+
+    def set_camera_zoom_smooth(self, enabled):
+        camera = self.world.camera
+        camera["zoom_smooth"] = enabled
+
+        if not enabled:
+            camera["zoom_current_fp"] = camera["zoom_target_fp"]
 
 
     def toggle_vsync(self):

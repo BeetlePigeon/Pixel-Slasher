@@ -2577,8 +2577,8 @@ def camera_update_system(world):
 
 def get_camera_zoom(camera):
     return (
-        camera.get("zoom_num", 1),
-        max(1, camera.get("zoom_den", 1)),
+        camera.get("zoom_current_fp", ZOOM_FP_SCALE),
+        ZOOM_FP_SCALE,
     )
 
 
@@ -2609,6 +2609,51 @@ def scale_surface_by_camera_zoom(world, surface):
     return pygame.transform.scale(
         surface,
         (width, height),
+    )
+
+
+ZOOM_FP_SCALE = 1024
+
+
+def zoom_fraction_to_fp(zoom_num, zoom_den):
+    zoom_den = max(1, zoom_den)
+
+    return max(
+        1,
+        zoom_num * ZOOM_FP_SCALE // zoom_den,
+    )
+
+
+def step_int_toward(current, target, step):
+    if current < target:
+        return min(target, current + step)
+
+    if current > target:
+        return max(target, current - step)
+
+    return current
+
+
+def update_camera_zoom(camera):
+    target_fp = camera.get(
+        "zoom_target_fp",
+        zoom_fraction_to_fp(
+            camera.get("zoom_num", 1),
+            camera.get("zoom_den", 1),
+        ),
+    )
+
+    if not camera.get("zoom_smooth", True):
+        camera["zoom_current_fp"] = target_fp
+        return
+
+    current_fp = camera.get("zoom_current_fp", target_fp)
+    step_fp = camera.get("zoom_step_fp", 64)
+
+    camera["zoom_current_fp"] = step_int_toward(
+        current_fp,
+        target_fp,
+        step_fp,
     )
 
 
@@ -2650,6 +2695,8 @@ def project_screen_point(world, base_screen_x, base_screen_y, include_shake=True
 
 def camera_system(world, surface, render_alpha):
     camera = world.camera
+
+    update_camera_zoom(camera)
 
     current_cpos = camera.get("current_cpos")
     prev_cpos = camera.get("prev_cpos", current_cpos)

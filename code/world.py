@@ -54,8 +54,21 @@ class World:
                 (2, 1),
             ],
             "zoom_index": 2,
+
+            # Target zoom selected by gameplay/settings/UI.
             "zoom_num": 1,
             "zoom_den": 1,
+            "zoom_target_num": 1,
+            "zoom_target_den": 1,
+
+            # Current visual zoom, fixed-point.
+            # 1024 = 1.0x
+            "zoom_current_fp": 1024,
+            "zoom_target_fp": 1024,
+
+            # Official camera behavior.
+            "zoom_smooth": False,
+            "zoom_step_fp": 64,
         }
         ## Components
         self.snapshot = {
