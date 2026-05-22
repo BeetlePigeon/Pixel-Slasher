@@ -3,6 +3,7 @@ from systems import *
 from camera_utils import internal_screen_to_world_cpos
 from status_ops import apply_status_effect
 from combat_ops import queue_damage_event
+from gameplay_ui import GameplayUI
 
 
 class State:
@@ -30,7 +31,7 @@ class State:
 class StateGameplay(State):
     def __init__(self, game):
         super().__init__(game)
-        self.ui_captured_mouse_buttons = set()
+        self.gameplay_ui = GameplayUI()
 
 
     def get_first_enemy_entity(self):
@@ -65,53 +66,9 @@ class StateGameplay(State):
 
         return skill_def["trigger_mode"]
 
-
     def build_gameplay_input_state(self, input_state):
-        mouse_over_ui = self.mouse_over_gameplay_ui(input_state.mouse_pos)
-
-        consumed_buttons = set()
-
-        # If a button is pressed while over UI, UI captures it until release.
-        for button in input_state.mouse_pressed:
-            if mouse_over_ui:
-                self.ui_captured_mouse_buttons.add(button)
-
-        consumed_buttons.update(self.ui_captured_mouse_buttons)
-
-        # Held buttons should also be suppressed while currently over UI.
-        # This handles cases where the cursor is over UI while already holding.
-        if mouse_over_ui:
-            for button in range(1, len(input_state.mouse_buttons) + 1):
-                if self.is_mouse_button_held(input_state, button):
-                    consumed_buttons.add(button)
-
-        filtered_mouse_pressed = {
-            button
-            for button in input_state.mouse_pressed
-            if button not in consumed_buttons
-        }
-
-        filtered_mouse_released = {
-            button
-            for button in input_state.mouse_released
-            if button not in consumed_buttons
-        }
-
-        filtered_mouse_buttons = tuple(
-            False if (index + 1) in consumed_buttons else held
-            for index, held in enumerate(input_state.mouse_buttons)
-        )
-
-        # Release ends UI capture after filtering, so the release does not leak
-        # into gameplay on the same tick.
-        for button in input_state.mouse_released:
-            self.ui_captured_mouse_buttons.discard(button)
-
-        return replace(
+        return self.gameplay_ui.filter_input_for_gameplay(
             input_state,
-            mouse_buttons=filtered_mouse_buttons,
-            mouse_pressed=filtered_mouse_pressed,
-            mouse_released=filtered_mouse_released,
         )
 
 
@@ -169,6 +126,7 @@ class StateGameplay(State):
             pygame.K_7: 7,
             pygame.K_8: 8,
             pygame.K_9: 10,
+            pygame.K_0: 11,
         }
 
         for key, slot in KEY_TO_SLOT.items():
@@ -416,23 +374,4 @@ class StateGameplay(State):
         camera_system(self.game.world, surface, render_alpha)
         render_tiles(self.game.world, surface, render_alpha)
         sprite_system(self.game.world, surface, render_alpha)
-
-        for rect in self.get_gameplay_ui_rects():
-            pygame.draw.rect(surface, "gray", rect)
-            pygame.draw.rect(surface, "white", rect, 1)
-
-
-    def get_gameplay_ui_rects(self):
-        # Temporary debug UI region.
-        # Later this should come from a real UI system/widget tree.
-        return [
-            pygame.Rect(8, 8, 32, 32),
-        ]
-
-
-    def mouse_over_gameplay_ui(self, mouse_pos):
-        for rect in self.get_gameplay_ui_rects():
-            if rect.collidepoint(mouse_pos):
-                return True
-
-        return False
+        self.gameplay_ui.draw(surface)

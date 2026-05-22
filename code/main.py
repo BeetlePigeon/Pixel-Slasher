@@ -20,11 +20,12 @@ from dataclasses import replace
 # 2: Wide Projectiles
 # 3: Magnet
 # 4: Dash
-# 5: Spiral Projectile
+# 5: *FREE*
 # 6: Debug Slash
 # 7: Debug Channel Projectile
 # 8: Debug Channel Projectile
 # 9: Meteor
+# 0: *FREE*
 # LSHIFT: Toggle Camera Mode
 # B: Debug Stun Player
 # N: Debug Freeze Player
