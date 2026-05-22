@@ -1,4 +1,7 @@
-from placement_utils import find_nearest_valid_placement_tile
+from placement_utils import (
+    find_nearest_valid_placement_tile,
+    find_nearest_valid_placement_tile_with_line_of_sight,
+)
 from support import (
     ANGLE_SCALE,
     TILE_UNITS,
@@ -731,12 +734,12 @@ def execute_magnet_orb(world, caster, context):
 
     caster_tile = world.transform[caster].tile
 
-    spawn_tile = find_nearest_valid_placement_tile(
+    spawn_tile = find_nearest_valid_placement_tile_with_line_of_sight(
         world,
         target_tile=target_tile,
         search_radius=params["placement_search_radius"],
         max_miss_tiles=params["placement_max_miss_tiles"],
-        bias_tile=caster_tile,
+        source_tile=caster_tile,
         bias_mode="toward",
     )
 
@@ -903,12 +906,12 @@ def execute_meteor_marker(world, caster, context):
     target_tile = internal_screen_to_world_tile(world, mouse_pos)
     caster_tile = tile_from_cpos(world.transform[caster].cpos)
 
-    spawn_tile = find_nearest_valid_placement_tile(
+    spawn_tile = find_nearest_valid_placement_tile_with_line_of_sight(
         world,
         target_tile=target_tile,
         search_radius=params["placement_search_radius"],
         max_miss_tiles=params["placement_max_miss_tiles"],
-        bias_tile=caster_tile,
+        source_tile=caster_tile,
         bias_mode="toward",
     )
 
@@ -1095,6 +1098,7 @@ SKILL_DEFS = {
             "projectile_lifetime",
             "radius_per_tick",
             "angle_step_fp",
+            "spawn_angle_step_offset",
         },
         "allowed_param_values": {},
 
@@ -1110,12 +1114,23 @@ SKILL_DEFS = {
                 {
                     "tick": 10,
                     "handler": execute_spiral_projectile,
-                    "spawn_angle_step_offset": 0,
+                    "params":{
+                        "spawn_angle_step_offset": 0,
+                    }
                 },
                 {
                     "tick": 10,
                     "handler": execute_spiral_projectile,
-                    "spawn_angle_step_offset": 32,
+                    "params":{
+                        "spawn_angle_step_offset": 21,
+                    }
+                },
+                {
+                    "tick": 10,
+                    "handler": execute_spiral_projectile,
+                    "params": {
+                        "spawn_angle_step_offset": 42,
+                    }
                 },
             ],
         },

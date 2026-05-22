@@ -298,13 +298,12 @@ def spiral_pos(
     radius = age * radius_per_tick
 
     angle_fp = angle_index_fp + age * angle_step_fp
-    lut_index = (angle_fp // ANGLE_SCALE) % CIRCLE_LUT_SIZE
+    lut_index = (
+        (angle_fp // ANGLE_SCALE)
+        + spawn_angle_step_offset
+    ) % CIRCLE_LUT_SIZE
 
-    print(lut_index)
-    print(spawn_angle_step_offset)
-    print(CIRCLE_DIRECTION_LUT[lut_index])
-    print(CIRCLE_DIRECTION_LUT[lut_index+spawn_angle_step_offset])
-    direction = CIRCLE_DIRECTION_LUT[lut_index + spawn_angle_step_offset]
+    direction = CIRCLE_DIRECTION_LUT[lut_index]
     offset = scale_normalized_dir(direction, radius)
 
     return origin + offset

@@ -1,4 +1,8 @@
-from support import Vec2i
+from support import (
+    Vec2i,
+    tile_center,
+    tiles_crossed_by_segment,
+)
 
 
 def chebyshev_tile_distance(a: Vec2i, b: Vec2i) -> int:
@@ -154,6 +158,68 @@ def find_nearest_valid_placement_tile(
                     candidate_tile=candidate_tile,
                     target_tile=target_tile,
                     bias_tile=bias_tile,
+                    bias_mode=bias_mode,
+                ),
+                candidate_tile,
+            ))
+
+        if candidates:
+            candidates.sort(key=lambda item: item[0])
+            return candidates[0][1]
+
+    return None
+
+
+def static_line_clear_between_tiles(world, start_tile: Vec2i, end_tile: Vec2i):
+    start_cpos = tile_center(start_tile)
+    end_cpos = tile_center(end_tile)
+
+    crossed_tiles = tiles_crossed_by_segment(
+        start_cpos,
+        end_cpos,
+    )
+
+    for tile in crossed_tiles:
+        if tile_has_static_collision(world, tile):
+            return False
+
+    return True
+
+
+def find_nearest_valid_placement_tile_with_line_of_sight(
+    world,
+    target_tile: Vec2i,
+    search_radius: int,
+    max_miss_tiles: int,
+    source_tile: Vec2i,
+    bias_mode="toward",
+    ignore_entity=None,
+):
+    max_radius = min(search_radius, max_miss_tiles)
+
+    for radius in range(max_radius + 1):
+        candidates = []
+
+        for candidate_tile in iter_tile_ring(target_tile, radius):
+            if not tile_is_valid_for_placement(
+                world,
+                candidate_tile,
+                ignore_entity=ignore_entity,
+            ):
+                continue
+
+            if not static_line_clear_between_tiles(
+                world,
+                source_tile,
+                candidate_tile,
+            ):
+                continue
+
+            candidates.append((
+                score_placement_candidate(
+                    candidate_tile=candidate_tile,
+                    target_tile=target_tile,
+                    bias_tile=source_tile,
                     bias_mode=bias_mode,
                 ),
                 candidate_tile,
