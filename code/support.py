@@ -292,6 +292,7 @@ def spiral_pos(
     age: int,
     radius_per_tick: int,
     angle_step_fp: int,
+    spawn_angle_step_offset: int,
     angle_index_fp: int,
 ) -> Vec2i:
     radius = age * radius_per_tick
@@ -299,7 +300,11 @@ def spiral_pos(
     angle_fp = angle_index_fp + age * angle_step_fp
     lut_index = (angle_fp // ANGLE_SCALE) % CIRCLE_LUT_SIZE
 
-    direction = CIRCLE_DIRECTION_LUT[lut_index]
+    print(lut_index)
+    print(spawn_angle_step_offset)
+    print(CIRCLE_DIRECTION_LUT[lut_index])
+    print(CIRCLE_DIRECTION_LUT[lut_index+spawn_angle_step_offset])
+    direction = CIRCLE_DIRECTION_LUT[lut_index + spawn_angle_step_offset]
     offset = scale_normalized_dir(direction, radius)
 
     return origin + offset
@@ -490,7 +495,7 @@ class DirectionalMoveController:
     def finished(self) -> bool:
         return False
 
-    
+
 @dataclass
 class GridMoveController:
     start: Vec2i
@@ -582,6 +587,7 @@ class SpiralProjectileController:
     age: int
     radius_per_tick: int
     angle_step_fp: int
+    spawn_angle_step_offset: int
     angle_index_fp: int = 0
 
     def sample_delta(self) -> Vec2i:
@@ -590,6 +596,7 @@ class SpiralProjectileController:
             self.age,
             self.radius_per_tick,
             self.angle_step_fp,
+            self.spawn_angle_step_offset,
             self.angle_index_fp,
         )
         next_ = spiral_pos(
@@ -597,6 +604,7 @@ class SpiralProjectileController:
             self.age + 1,
             self.radius_per_tick,
             self.angle_step_fp,
+            self.spawn_angle_step_offset,
             self.angle_index_fp,
         )
         return next_ - prev

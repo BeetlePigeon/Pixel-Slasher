@@ -269,6 +269,79 @@ def status_effect_system(world):
             world.status_effects.pop(entity, None)
 
 
+def update_meteor_marker_runtime_skill(world, entity, runtime_skill):
+    from combat_ops import queue_area_damage
+
+    transform = world.transform.get(entity)
+
+    if transform is None:
+        world.entities.destroy(entity)
+        return
+
+    center_tile = tile_from_cpos(transform.cpos)
+
+    affected_tiles = build_square_area_tiles(
+        center_tile,
+        runtime_skill["radius_tiles"],
+    )
+
+    if not runtime_skill.get("impacted", False):
+        for tile in affected_tiles:
+            add_debug_tile_highlight(
+                world,
+                tile,
+                duration_ticks=runtime_skill["telegraph_highlight_ticks"],
+                color=runtime_skill["telegraph_highlight_color"],
+            )
+
+    if (
+        not runtime_skill.get("impacted", False)
+        and runtime_skill["age"] >= runtime_skill["impact_tick"]
+    ):
+        runtime_skill["impacted"] = True
+
+        for tile in affected_tiles:
+            add_debug_tile_highlight(
+                world,
+                tile,
+                duration_ticks=runtime_skill["impact_highlight_ticks"],
+                color=runtime_skill["impact_highlight_color"],
+            )
+
+        queue_area_damage(
+            world,
+            source=runtime_skill["source"],
+            tiles=affected_tiles,
+            amount=runtime_skill["damage"],
+            skill_id=runtime_skill["skill_id"],
+        )
+
+        world.entities.destroy(entity)
+        return
+
+    if runtime_skill["age"] >= runtime_skill["duration"]:
+        world.entities.destroy(entity)
+
+
+def runtime_skill_system(world):
+    for entity, runtime_skill in list(world.runtime_skill.items()):
+        runtime_skill["age"] += 1
+
+        runtime_type = runtime_skill["type"]
+
+        if runtime_type == "meteor_marker":
+            update_meteor_marker_runtime_skill(
+                world,
+                entity,
+                runtime_skill,
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown runtime skill type: {runtime_type}"
+            )
+
+
 def combat_damage_system(world):
     damage_events = list(world.damage_events)
     world.damage_events.clear()
@@ -2631,6 +2704,19 @@ def add_debug_tile_highlight(
         "remaining_ticks": duration_ticks,
         "color": color,
     })
+
+
+def build_square_area_tiles(center_tile, radius_tiles):
+    tiles = []
+
+    for dy in range(-radius_tiles, radius_tiles + 1):
+        for dx in range(-radius_tiles, radius_tiles + 1):
+            tiles.append(Vec2i(
+                center_tile.x + dx,
+                center_tile.y + dy,
+            ))
+
+    return tiles
 
 
 def debug_tile_highlight_system(world):

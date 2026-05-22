@@ -24,6 +24,7 @@ from spawners import (
     spawn_test_projectile,
     spawn_spiral_projectile,
     spawn_magnet_orb,
+    spawn_meteor_marker,
 )
 
 
@@ -710,6 +711,7 @@ def execute_spiral_projectile(world, caster, context):
         caster_cpos,
         lifetime_ticks=params["projectile_lifetime"],
         radius_per_tick=params["radius_per_tick"],
+        spawn_angle_step_offset=params["spawn_angle_step_offset"],
         angle_step_fp=params["angle_step_fp"],
     )
 
@@ -884,6 +886,55 @@ def execute_counter_slash(world, caster, context):
     return True
 
 
+def execute_meteor_marker(world, caster, context):
+    params = context["params"]
+
+    intent = get_context_intent_for_aim(
+        world,
+        caster,
+        context,
+    )
+
+    mouse_pos = intent.get("mouse_pos")
+
+    if mouse_pos is None:
+        return False
+
+    target_tile = internal_screen_to_world_tile(world, mouse_pos)
+    caster_tile = tile_from_cpos(world.transform[caster].cpos)
+
+    spawn_tile = find_nearest_valid_placement_tile(
+        world,
+        target_tile=target_tile,
+        search_radius=params["placement_search_radius"],
+        max_miss_tiles=params["placement_max_miss_tiles"],
+        bias_tile=caster_tile,
+        bias_mode="toward",
+    )
+
+    if spawn_tile is None:
+        return False
+
+    spawn_cpos = tile_center(spawn_tile)
+
+    eid = spawn_meteor_marker(
+        world,
+        spawn_cpos,
+        source=caster,
+        skill_id=context["skill_def"]["id"],
+        radius_tiles=params["radius_tiles"],
+        damage=params["damage"],
+        impact_tick=params["impact_tick"],
+        lifetime_ticks=params["lifetime"],
+        telegraph_highlight_ticks=params["telegraph_highlight_ticks"],
+        telegraph_highlight_color=params["telegraph_highlight_color"],
+        impact_highlight_ticks=params["impact_highlight_ticks"],
+        impact_highlight_color=params["impact_highlight_color"],
+    )
+
+    return eid is not None
+
+
 REQUIRED_SKILL_FIELDS = {
     "id",
     "name",
@@ -939,7 +990,7 @@ SKILL_DEFS = {
 
         "aim": {"traditional_source": "mouse", "modern_source": "setting:modern_movement_skill_aim_source", "resolution": "setting:movement_skill_aim_resolution",},
         "cast": {
-            "duration": 6,
+            "duration": 3,
             "tags": {
                 "cast",
                 "dash_windup",
@@ -948,7 +999,7 @@ SKILL_DEFS = {
             },
             "events": [
                 {
-                    "tick": 6,
+                    "tick": 3,
                     "handler": execute_dash,
                 },
             ],
@@ -956,7 +1007,7 @@ SKILL_DEFS = {
         "channel": None,
 
         "params": {
-            "duration": 155,
+            "duration": 10,
             "distance": TILE_UNITS * 7,
             "influence_mode": "ignore_all",
             "slide_min_tangent_ratio": (1, 3),
@@ -1059,6 +1110,12 @@ SKILL_DEFS = {
                 {
                     "tick": 10,
                     "handler": execute_spiral_projectile,
+                    "spawn_angle_step_offset": 0,
+                },
+                {
+                    "tick": 10,
+                    "handler": execute_spiral_projectile,
+                    "spawn_angle_step_offset": 32,
                 },
             ],
         },
@@ -1068,6 +1125,7 @@ SKILL_DEFS = {
             "projectile_lifetime": 300,
             "radius_per_tick": TILE_UNITS // 32,
             "angle_step_fp": ANGLE_SCALE,
+            "spawn_angle_step_offset": 0,
                        },
 
         "handler": execute_cast_skill,
@@ -1470,6 +1528,7 @@ SKILL_DEFS = {
             "type": "guard_counter",
             "duration": 55,
             "tags": {
+                "cast",
                 "guard_counter",
                 "movement_locked",
                 "skill_locked",
@@ -1592,6 +1651,104 @@ SKILL_DEFS = {
             "range_tiles": 2,
             "debug_highlight_ticks": 12,
             "debug_highlight_color": "orange",
+        },
+
+        "handler": execute_cast_skill,
+    },
+
+
+    "meteor": {
+        "id": "meteor",
+        "name": "Meteor",
+
+        "cooldown_ticks": 0,
+        "trigger_mode": "held_repeat",
+
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "stun",
+            "skill_locked",
+        },
+        "cancels_action_tags": set(),
+
+        "required_components": {"transform"},
+        "required_params": {
+            "placement_search_radius",
+            "placement_max_miss_tiles",
+            "radius_tiles",
+            "damage",
+            "impact_tick",
+            "lifetime",
+            "telegraph_highlight_ticks",
+            "telegraph_highlight_color",
+            "impact_highlight_ticks",
+            "impact_highlight_color",
+        },
+        "allowed_param_values": {},
+
+        "aim": None,
+        "cast": {
+            "type": "cast",
+            "duration": 35,
+            "tags": {
+                "cast",
+                "movement_locked",
+                "skill_locked",
+            },
+            "phases": [
+                {
+                    "name": "startup",
+                    "start": 0,
+                    "end": 20,
+                    "tags": {
+                        "cast",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "release",
+                    "start": 20,
+                    "end": 30,
+                    "tags": {
+                        "cast",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "recovery",
+                    "start": 30,
+                    "end": 35,
+                    "tags": {
+                        "recovery",
+                        "skill_locked",
+                    },
+                },
+            ],
+            "events": [
+                {
+                    "tick": 24,
+                    "handler": execute_meteor_marker,
+                },
+            ],
+        },
+        "channel": None,
+
+        "params": {
+            "placement_search_radius": 2,
+            "placement_max_miss_tiles": 2,
+            "radius_tiles": 2,
+            "damage": 3,
+            "impact_tick": 75,
+            "lifetime": 90,
+            "telegraph_highlight_ticks": 4,
+            "telegraph_highlight_color": "purple",
+            "impact_highlight_ticks": 18,
+            "impact_highlight_color": "red",
         },
 
         "handler": execute_cast_skill,

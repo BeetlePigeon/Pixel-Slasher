@@ -159,6 +159,7 @@ class StateGameplay(State):
 
     def append_keyboard_skill_intents(self, intents, input_state):
         KEY_TO_SLOT = {
+            pygame.K_SPACE: 0,
             pygame.K_1: 1,
             pygame.K_2: 2,
             pygame.K_3: 3,
@@ -167,7 +168,7 @@ class StateGameplay(State):
             pygame.K_6: 6,
             pygame.K_7: 7,
             pygame.K_8: 8,
-            pygame.K_SPACE: "TEST_PROJECTILE",
+            pygame.K_9: 10,
         }
 
         for key, slot in KEY_TO_SLOT.items():
@@ -255,7 +256,7 @@ class StateGameplay(State):
             intents,
             input_state,
             {
-                3: "RMB",
+                3: 9,
             },
         )
 
@@ -393,6 +394,7 @@ class StateGameplay(State):
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
+        runtime_skill_system(self.game.world)
         combat_damage_system(self.game.world)
         debug_tile_highlight_system(self.game.world)
         intent_system(self.game.world, intents)

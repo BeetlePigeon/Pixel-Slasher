@@ -8,6 +8,7 @@ from support import (
     ANGLE_SCALE,
 )
 
+
 def is_spawn_tile_blocked(world, tile):
     if tile.y < 0 or tile.y >= len(world.tilemap):
         return True
@@ -95,6 +96,7 @@ def spawn_spiral_projectile(
     cpos,
     lifetime_ticks,
     radius_per_tick,
+    spawn_angle_step_offset,
     angle_step_fp,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
@@ -117,6 +119,7 @@ def spawn_spiral_projectile(
             age=0,
             radius_per_tick=radius_per_tick,
             angle_step_fp=angle_step_fp,
+            spawn_angle_step_offset=spawn_angle_step_offset,
         ),
         "last_delta": Vec2i(0, 0),
         "influence_mode": "ignore_all",
@@ -180,6 +183,62 @@ def spawn_magnet_orb(
 
     world.sprite[eid] = {
         "image": orb_image,
+        "anchor": "center",
+        "z": 0,
+    }
+
+    return eid
+
+
+def spawn_meteor_marker(
+    world,
+    cpos,
+    source,
+    skill_id,
+    radius_tiles,
+    damage,
+    impact_tick,
+    lifetime_ticks,
+    telegraph_highlight_ticks,
+    telegraph_highlight_color,
+    impact_highlight_ticks,
+    impact_highlight_color,
+):
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
+
+    eid = world.entities.create()
+
+    marker_image = world.game.assets.images["magnet"]
+
+    world.transform[eid] = Transform(
+        tile=tile_from_cpos(cpos),
+        cpos=cpos,
+        prev_cpos=cpos,
+        position_mode="free",
+    )
+
+    world.runtime_skill[eid] = {
+        "type": "meteor_marker",
+        "source": source,
+        "skill_id": skill_id,
+
+        "age": 0,
+        "impact_tick": impact_tick,
+        "duration": lifetime_ticks,
+        "impacted": False,
+
+        "radius_tiles": radius_tiles,
+        "damage": damage,
+
+        "telegraph_highlight_ticks": telegraph_highlight_ticks,
+        "telegraph_highlight_color": telegraph_highlight_color,
+        "impact_highlight_ticks": impact_highlight_ticks,
+        "impact_highlight_color": impact_highlight_color,
+    }
+
+    world.sprite[eid] = {
+        "image": marker_image,
         "anchor": "center",
         "z": 0,
     }

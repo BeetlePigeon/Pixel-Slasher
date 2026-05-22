@@ -72,6 +72,7 @@ class World:
         self.projectile = {}
         self.lifetime = {}
         self.health = {}
+        self.runtime_skill = {}
         self.team = {}
         self.hittable = {}
         self.damage_events = []
@@ -181,6 +182,7 @@ class World:
         self.locomotion.pop(eid, None)
         self.lifetime.pop(eid, None)
         self.health.pop(eid, None)
+        self.runtime_skill.pop(eid, None)
         self.team.pop(eid, None)
         self.hittable.pop(eid, None)
         self.movement_collision.pop(eid, None)
@@ -245,7 +247,7 @@ class World:
             "can_move_8way": True,
         }
         self.placement_blocker.add(eid)
-        self.skills[(eid, "TEST_PROJECTILE")] = "test_projectile"
+        self.skills[(eid, 0)] = "test_projectile"
         self.skills[(eid, 1)] = "teleport"
         self.skills[(eid, 2)] = "burst_projectile"
         self.skills[(eid, 3)] = "magnet_orb"
@@ -254,6 +256,8 @@ class World:
         self.skills[(eid, 6)] = "debug_slash"
         self.skills[(eid, 7)] = "debug_channel_projectile"
         self.skills[(eid, 8)] = "guard_counter"
+        self.skills[(eid, 9)] = "spiral_projectile"
+        self.skills[(eid, 10)] = "meteor"
 
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {

@@ -13,6 +13,8 @@ from world import World
 from dataclasses import replace
 
 # Debug controls:
+# WASD / L Click: Move
+# R Click: Spiral Projectile
 # SPACE: Test Projectile
 # 1: Teleport
 # 2: Wide Projectiles
