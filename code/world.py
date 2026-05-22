@@ -253,7 +253,7 @@ class World:
         self.skills[(eid, 5)] = "spiral_projectile"
         self.skills[(eid, 6)] = "debug_slash"
         self.skills[(eid, 7)] = "debug_channel_projectile"
-        self.skills[(eid, 8)] = "debug_channel_projectile"
+        self.skills[(eid, 8)] = "guard_counter"
 
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {

@@ -1,6 +1,9 @@
 import pygame
-from skills import SKILL_DEFS
 from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE
+from skills import (
+    SKILL_DEFS,
+    start_skill_action_from_def,
+)
 from action_ops import (
     tags_block_voluntary_movement,
 )
@@ -57,6 +60,63 @@ def entity_can_start_voluntary_movement(world, entity):
     active_action_tags = get_active_action_tags(world, entity)
 
     return not tags_block_voluntary_movement(active_action_tags)
+
+
+
+def entity_is_counter_ready(world, entity):
+    action_state = world.action_state.get(entity)
+
+    if action_state is None:
+        return False
+
+    return action_state_has_any_tags(
+        action_state,
+        {"counter_ready"},
+    )
+
+
+def start_counter_attack_action(world, defender, attacker):
+    skill_def = SKILL_DEFS["counter_attack"]
+    action_def = skill_def["cast"]
+
+    cancel_action_state(world, defender)
+
+    intent = {
+        "type": "reactive_counter",
+        "counter_target": attacker,
+    }
+
+    return start_skill_action_from_def(
+        world,
+        defender,
+        skill_def,
+        action_def,
+        intent=intent,
+        action_type="counter_attack",
+    )
+
+
+def try_trigger_guard_counter(world, damage_event):
+    defender = damage_event.get("target")
+    attacker = damage_event.get("source")
+
+    if defender is None or attacker is None:
+        return False
+
+    if defender not in world.transform:
+        return False
+
+    if attacker not in world.transform:
+        return False
+
+    if not entity_is_counter_ready(world, defender):
+        return False
+
+    return start_counter_attack_action(
+        world,
+        defender,
+        attacker,
+    )
 
 
 def execute_repeat_action_events(world, entity, action_state):
@@ -2265,6 +2325,12 @@ def event_system(world):
                 world,
                 duration_ticks=10,
                 strength=2,
+            )
+
+        elif event_type == "entity_damaged":
+            try_trigger_guard_counter(
+                world,
+                event,
             )
 
     world.events.clear()

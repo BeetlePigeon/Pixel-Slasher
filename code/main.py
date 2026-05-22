@@ -25,6 +25,7 @@ from dataclasses import replace
 # LSHIFT: Toggle Camera Mode
 # B: Debug Stun Player
 # N: Debug Freeze Player
+# H: Debug Make Enemy Damage Player
 # V: Debug Screen Shake
 # F5: Resize
 # F6: Toggle VSync

@@ -91,6 +91,80 @@ def aim_vector_to_tile_direction(aim_vector):
     )
 
 
+def build_ranged_slash_fan_tiles(
+    origin_tile,
+    direction,
+    range_tiles,
+):
+    tiles = set()
+
+    if direction.x == 0 and direction.y == 0:
+        return []
+
+    for step in range(1, range_tiles + 1):
+        forward_tile = Vec2i(
+            origin_tile.x + direction.x * step,
+            origin_tile.y + direction.y * step,
+        )
+
+        tiles.add(forward_tile)
+
+        if direction.x != 0 and direction.y != 0:
+            tiles.add(Vec2i(
+                origin_tile.x + direction.x * step,
+                origin_tile.y + direction.y * (step - 1),
+            ))
+
+            tiles.add(Vec2i(
+                origin_tile.x + direction.x * (step - 1),
+                origin_tile.y + direction.y * step,
+            ))
+
+        elif direction.x != 0:
+            tiles.add(Vec2i(
+                forward_tile.x,
+                forward_tile.y - 1,
+            ))
+
+            tiles.add(Vec2i(
+                forward_tile.x,
+                forward_tile.y + 1,
+            ))
+
+        else:
+            tiles.add(Vec2i(
+                forward_tile.x - 1,
+                forward_tile.y,
+            ))
+
+            tiles.add(Vec2i(
+                forward_tile.x + 1,
+                forward_tile.y,
+            ))
+
+    return list(tiles)
+
+
+def get_direction_to_entity(world, source_entity, target_entity):
+    source_transform = world.transform.get(source_entity)
+    target_transform = world.transform.get(target_entity)
+
+    if source_transform is None or target_transform is None:
+        return None
+
+    delta = target_transform.cpos - source_transform.cpos
+
+    direction = Vec2i(
+        sign(delta.x),
+        sign(delta.y),
+    )
+
+    if direction.x == 0 and direction.y == 0:
+        return None
+
+    return direction
+
+
 def build_slash_fan_tiles(origin_tile, direction):
     if direction.x == 0 and direction.y == 0:
         return []
@@ -480,32 +554,35 @@ def build_action_phases(action_def):
     return phases
 
 
-def start_skill_action(world, caster, context, action_def, action_type):
+def start_skill_action_from_def(
+    world,
+    entity,
+    skill_def,
+    action_def,
+    intent=None,
+    action_type=None,
+):
     from action_ops import start_action_state
 
-    skill_def = context["skill_def"]
-    intent = context["intent"]
+    if intent is None:
+        intent = {}
 
     events = build_action_events(action_def)
     repeat_events = build_action_repeat_events(action_def)
     phases = build_action_phases(action_def)
 
     action_state = {
-        "type": action_type,
+        "type": action_type or action_def.get("type", "cast"),
         "skill_id": skill_def["id"],
         "slot": intent.get("slot"),
-
         "tags": set(action_def["tags"]),
         "age": 0,
         "duration": action_def["duration"],
-
         "min_duration": action_def.get("min_duration", 0),
         "ends_on_release": action_def.get("ends_on_release", False),
         "release_requested": False,
-
         "intent": dict(intent),
         "skill_def": skill_def,
-
         "events": events,
         "repeat_events": repeat_events,
     }
@@ -515,11 +592,22 @@ def start_skill_action(world, caster, context, action_def, action_type):
 
     start_action_state(
         world,
-        caster,
+        entity,
         action_state,
     )
 
     return True
+
+
+def start_skill_action(world, caster, context, action_def, action_type):
+    return start_skill_action_from_def(
+        world,
+        caster,
+        context["skill_def"],
+        action_def,
+        intent=context["intent"],
+        action_type=action_type,
+    )
 
 
 def execute_cast_skill(world, caster, context):
@@ -740,6 +828,58 @@ def execute_debug_slash(world, caster, context):
         amount=params["damage"],
         skill_id=context["skill_def"]["id"],
     )
+
+    return True
+
+
+def execute_counter_slash(world, caster, context):
+    from systems import add_debug_tile_highlight
+    from combat_ops import queue_area_damage
+
+    params = context["params"]
+    intent = context["intent"]
+
+    target_entity = intent.get("counter_target")
+
+    direction = None
+
+    if target_entity is not None:
+        direction = get_direction_to_entity(
+            world,
+            caster,
+            target_entity,
+        )
+
+    if direction is None:
+        direction = world.facing.get(caster, Vec2i(1, 0))
+
+    transform = world.transform[caster]
+    origin_tile = tile_from_cpos(transform.cpos)
+
+    affected_tiles = build_ranged_slash_fan_tiles(
+        origin_tile,
+        direction,
+        params["range_tiles"],
+    )
+
+    for tile in affected_tiles:
+        add_debug_tile_highlight(
+            world,
+            tile,
+            duration_ticks=params["debug_highlight_ticks"],
+            color=params["debug_highlight_color"],
+        )
+
+    queue_area_damage(
+        world,
+        source=caster,
+        tiles=affected_tiles,
+        amount=params["damage"],
+        skill_id=context["skill_def"]["id"],
+    )
+
+    if caster in world.facing:
+        world.facing[caster] = direction
 
     return True
 
@@ -1299,6 +1439,162 @@ SKILL_DEFS = {
         },
 
         "handler": execute_channel_skill,
+    },
+
+
+    "guard_counter": {
+        "id": "guard_counter",
+        "name": "Guard Counter",
+
+        "cooldown_ticks": 0,
+        "trigger_mode": "held_repeat",
+
+        "blocked_by_motion_tags": {"dash"},
+        "blocked_by_action_tags": {
+            "cast",
+            "channel",
+            "recovery",
+            "guard_counter",
+            "counter_attack",
+            "stun",
+            "skill_locked",
+        },
+        "cancels_action_tags": set(),
+
+        "required_components": {"transform", "facing"},
+        "required_params": set(),
+        "allowed_param_values": {},
+
+        "aim": None,
+        "cast": {
+            "type": "guard_counter",
+            "duration": 55,
+            "tags": {
+                "guard_counter",
+                "movement_locked",
+                "skill_locked",
+            },
+            "phases": [
+                {
+                    "name": "startup",
+                    "start": 0,
+                    "end": 5,
+                    "tags": {
+                        "guard_counter",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "counter_ready",
+                    "start": 5,
+                    "end": 40,
+                    "tags": {
+                        "guard_counter",
+                        "counter_ready",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "recovery",
+                    "start": 40,
+                    "end": 55,
+                    "tags": {
+                        "recovery",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+            ],
+            "events": [],
+        },
+        "channel": None,
+
+        "params": {},
+
+        "handler": execute_cast_skill,
+    },
+
+
+    "counter_attack": {
+        "id": "counter_attack",
+        "name": "Counter Attack",
+
+        "cooldown_ticks": 0,
+        "trigger_mode": "press",
+
+        "blocked_by_motion_tags": set(),
+        "blocked_by_action_tags": set(),
+        "cancels_action_tags": set(),
+
+        "required_components": {"transform", "facing"},
+        "required_params": {
+            "damage",
+            "range_tiles",
+            "debug_highlight_ticks",
+            "debug_highlight_color",
+        },
+        "allowed_param_values": {},
+
+        "aim": None,
+        "cast": {
+            "type": "counter_attack",
+            "duration": 20,
+            "tags": {
+                "counter_attack",
+                "movement_locked",
+                "skill_locked",
+            },
+            "phases": [
+                {
+                    "name": "startup",
+                    "start": 0,
+                    "end": 4,
+                    "tags": {
+                        "counter_attack",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "release",
+                    "start": 4,
+                    "end": 10,
+                    "tags": {
+                        "counter_attack",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+                {
+                    "name": "recovery",
+                    "start": 10,
+                    "end": 20,
+                    "tags": {
+                        "recovery",
+                        "movement_locked",
+                        "skill_locked",
+                    },
+                },
+            ],
+            "events": [
+                {
+                    "tick": 4,
+                    "handler": execute_counter_slash,
+                },
+            ],
+        },
+        "channel": None,
+
+        "params": {
+            "damage": 2,
+            "range_tiles": 2,
+            "debug_highlight_ticks": 12,
+            "debug_highlight_color": "orange",
+        },
+
+        "handler": execute_cast_skill,
     },
 }
 

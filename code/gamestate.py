@@ -2,6 +2,7 @@ from dataclasses import replace
 from systems import *
 from camera_utils import internal_screen_to_world_cpos
 from status_ops import apply_status_effect
+from combat_ops import queue_damage_event
 
 
 class State:
@@ -30,6 +31,16 @@ class StateGameplay(State):
     def __init__(self, game):
         super().__init__(game)
         self.ui_captured_mouse_buttons = set()
+
+
+    def get_first_enemy_entity(self):
+        world = self.game.world
+
+        for entity in sorted(world.team):
+            if world.team.get(entity) == "enemy":
+                return entity
+
+        return None
 
 
     def toggle_control_scheme(self):
@@ -351,8 +362,10 @@ class StateGameplay(State):
                 duration=90,
                 pauses_action_tags={
                     "cast",
-                    "channel",
                     "recovery",
+                },
+                cancels_action_tags={
+                    "channel",
                 },
                 cancels_motion_tags={
                     "dash",
@@ -361,6 +374,18 @@ class StateGameplay(State):
                     "settle",
                 },
             )
+
+        if pygame.K_h in input_state.keys_pressed:
+            attacker = self.get_first_enemy_entity()
+
+            if attacker is not None:
+                queue_damage_event(
+                    self.game.world,
+                    source=attacker,
+                    target=self.game.world.player,
+                    amount=1,
+                    skill_id="debug_enemy_hit",
+                )
         # End debug
 
 
