@@ -2443,7 +2443,7 @@ def sample_camera_shake(camera):
 
 
 def get_camera_target_cpos(world):
-    camera = world.camera
+    camera = world.world_camera.camera
     mode = camera["mode"]
 
     if mode == "follow":
@@ -2461,7 +2461,7 @@ def get_camera_target_cpos(world):
 
 
 def set_camera_follow(world, target_entity, transition_mode="snap", transition_duration=None):
-    camera = world.camera
+    camera = world.world_camera.camera
 
     camera["mode"] = "follow"
     camera["target"] = target_entity
@@ -2477,7 +2477,7 @@ def set_camera_follow(world, target_entity, transition_mode="snap", transition_d
 
 
 def set_camera_fixed(world, fixed_cpos, transition_mode="snap", transition_duration=20):
-    camera = world.camera
+    camera = world.world_camera.camera
 
     camera["mode"] = "fixed"
     camera["fixed_cpos"] = fixed_cpos
@@ -2490,7 +2490,7 @@ def set_camera_fixed(world, fixed_cpos, transition_mode="snap", transition_durat
 
 
 def start_camera_shake(world, duration_ticks: int, strength: int):
-    camera = world.camera
+    camera = world.world_camera.camera
 
     max_strength = camera.get("shake_max_strength")
 
@@ -2511,7 +2511,7 @@ def start_camera_shake(world, duration_ticks: int, strength: int):
 
 
 def camera_shake_system(world):
-    camera = world.camera
+    camera = world.world_camera.camera
 
     if camera["shake_ticks"] <= 0:
         camera["shake_ticks"] = 0
@@ -2528,7 +2528,7 @@ def camera_shake_system(world):
 
 
 def camera_update_system(world):
-    camera = world.camera
+    camera = world.world_camera.camera
     target_cpos = get_camera_target_cpos(world)
 
     if target_cpos is None:
@@ -2583,13 +2583,13 @@ def get_camera_zoom(camera):
 
 
 def scale_length_by_camera_zoom(world, value):
-    zoom_num, zoom_den = get_camera_zoom(world.camera)
+    zoom_num, zoom_den = get_camera_zoom(world.world_camera.camera)
 
     return max(1, value * zoom_num // zoom_den)
 
 
 def scale_vec_by_camera_zoom(world, vec):
-    zoom_num, zoom_den = get_camera_zoom(world.camera)
+    zoom_num, zoom_den = get_camera_zoom(world.world_camera.camera)
 
     return Vec2i(
         vec.x * zoom_num // zoom_den,
@@ -2598,7 +2598,7 @@ def scale_vec_by_camera_zoom(world, vec):
 
 
 def scale_surface_by_camera_zoom(world, surface):
-    zoom_num, zoom_den = get_camera_zoom(world.camera)
+    zoom_num, zoom_den = get_camera_zoom(world.world_camera.camera)
 
     if zoom_num == zoom_den:
         return surface
@@ -2658,10 +2658,10 @@ def update_camera_zoom(camera):
 
 
 def project_screen_point(world, base_screen_x, base_screen_y, include_shake=True):
-    projection = world.camera_projection
+    projection = world.world_camera.camera_projection
 
     if projection is None:
-        offset_x, offset_y = world.camera_offset
+        offset_x, offset_y = world.world_camera.camera_offset
 
         return (
             base_screen_x + offset_x,
@@ -2678,7 +2678,7 @@ def project_screen_point(world, base_screen_x, base_screen_y, include_shake=True
     shake_offset = Vec2i(0, 0)
 
     if include_shake:
-        shake_offset = world.camera_shake_offset
+        shake_offset = world.world_camera.camera_shake_offset
 
     return (
         center_x
@@ -2694,7 +2694,7 @@ def project_screen_point(world, base_screen_x, base_screen_y, include_shake=True
 
 
 def camera_system(world, surface, render_alpha):
-    camera = world.camera
+    camera = world.world_camera.camera
 
     update_camera_zoom(camera)
 
@@ -2726,7 +2726,7 @@ def camera_system(world, surface, render_alpha):
 
     zoom_num, zoom_den = get_camera_zoom(camera)
 
-    world.camera_projection = {
+    world.world_camera.camera_projection = {
         "camera_screen": (camera_screen_x, camera_screen_y),
         "surface_center": (surface_center_x, surface_center_y),
         "screen_offset": screen_offset,
@@ -2734,7 +2734,7 @@ def camera_system(world, surface, render_alpha):
         "zoom_den": zoom_den,
     }
 
-    world.camera_shake_offset = shake_offset
+    world.world_camera.camera_shake_offset = shake_offset
 
     # Keep these for older code/fallbacks. Mouse-to-world should use
     # camera_projection after this patch.
@@ -2743,8 +2743,8 @@ def camera_system(world, surface, render_alpha):
         surface_center_y - camera_screen_y + screen_offset.y,
     )
 
-    world.camera_base_offset = base_offset
-    world.camera_offset = (
+    world.world_camera.camera_base_offset = base_offset
+    world.world_camera.camera_offset = (
         base_offset[0] + shake_offset.x,
         base_offset[1] + shake_offset.y,
     )

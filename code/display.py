@@ -177,7 +177,7 @@ class Display:
 
 
     def set_camera_zoom_index(self, zoom_index):
-        camera = self.game.world.camera
+        camera = self.game.world.world_camera.camera
         zoom_levels = camera["zoom_levels"]
 
         zoom_index = max(
@@ -202,7 +202,7 @@ class Display:
 
 
     def zoom_camera_in(self):
-        camera = self.game.world.camera
+        camera = self.game.world.world_camera.camera
 
         self.set_camera_zoom_index(
             camera["zoom_index"] + 1,
@@ -210,7 +210,7 @@ class Display:
 
 
     def zoom_camera_out(self):
-        camera = self.game.world.camera
+        camera = self.game.world.world_camera.camera
 
         self.set_camera_zoom_index(
             camera["zoom_index"] - 1,
@@ -218,7 +218,7 @@ class Display:
 
 
     def set_camera_zoom_smooth(self, enabled):
-        camera = self.game.world.camera
+        camera = self.game.world.world_camera.camera
         camera["zoom_smooth"] = enabled
 
         if not enabled:

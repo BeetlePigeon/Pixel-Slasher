@@ -67,7 +67,7 @@ class Debug:
             f"Windowed scale: {self.game.display.windowed_scale}x",
             f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
             f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
-            f"Camera: {self.game.world.camera['transition_mode']}",
+            f"Camera: {self.game.world.world_camera.camera['transition_mode']}",
             f"Controls: {self.game.world.control_scheme}",
             f"Move skill aim: {self.game.world.gameplay_settings['modern_movement_skill_aim_source']}",
             f"Animations: {len(self.game.world.animation)}",
@@ -76,10 +76,10 @@ class Debug:
             f"Statuses: {self.game.world.status_effects.get(self.game.world.player, {})}",
             (
                 f"Zoom: "
-                f"{self.game.world.camera['zoom_current_fp'] / 1024:.2f}x "
-                f"-> {self.game.world.camera['zoom_target_num']}/"
-                f"{self.game.world.camera['zoom_target_den']} "
-                f"({'smooth' if self.game.world.camera['zoom_smooth'] else 'snap'})"
+                f"{self.game.world.world_camera.camera['zoom_current_fp'] / 1024:.2f}x "
+                f"-> {self.game.world.world_camera.camera['zoom_target_num']}/"
+                f"{self.game.world.world_camera.camera['zoom_target_den']} "
+                f"({'smooth' if self.game.world.world_camera.camera['zoom_smooth'] else 'snap'})"
             ),
         ]
 

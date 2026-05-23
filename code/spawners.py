@@ -5,7 +5,6 @@ from support import (
     tile_from_cpos,
     LinearProjectileController,
     SpiralProjectileController,
-    ANGLE_SCALE,
 )
 
 

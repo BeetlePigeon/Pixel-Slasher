@@ -16,7 +16,7 @@ from support import (
     tile_center,
     tile_from_cpos,
 )
-from camera_utils import (
+from camera import (
     internal_screen_to_world_tile,
     internal_screen_to_world_cpos,
     snap_camera_to_entity_now,

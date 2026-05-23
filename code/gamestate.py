@@ -1,5 +1,5 @@
 from systems import *
-from camera_utils import internal_screen_to_world_cpos
+from camera import internal_screen_to_world_cpos
 from status_ops import apply_status_effect
 from combat_ops import queue_damage_event
 from gameplay_ui import GameplayUI
