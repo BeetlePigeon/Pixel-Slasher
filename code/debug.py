@@ -1,5 +1,7 @@
 import pygame
-
+from systems.camera_system import set_camera_follow, set_camera_fixed, start_camera_shake
+from status_ops import apply_status_effect
+from combat_ops import queue_damage_event
 
 # Debug controls:
 # WASD / L Click: Move
@@ -36,7 +38,29 @@ class Debug:
         self.debug_sim_ticks_history = []
         self.debug_frame_history_max = 180
 
-    def process_debug_input(self, input_state):
+
+    def get_first_enemy_entity(self):
+        world = self.game.world
+
+        for entity in sorted(world.team):
+            if world.team.get(entity) == "enemy":
+                return entity
+
+        return None
+
+
+
+    def toggle_control_scheme(self):
+        world = self.game.world
+
+        if world.control_scheme == "modern":
+            world.control_scheme = "traditional"
+        else:
+            world.control_scheme = "modern"
+
+
+
+    def process_top_level_debug_input(self, input_state):
         if pygame.K_F5 in input_state.keys_pressed:
             self.game.display.cycle_windowed_scale()
         if pygame.K_F6 in input_state.keys_pressed:
@@ -50,6 +74,99 @@ class Debug:
         if pygame.K_F11 in input_state.keys_pressed:
             self.game.display.zoom_camera_in()
 
+
+    def process_gamestate_debug_inputs(self, input_state):
+        if pygame.K_F8 in input_state.keys_pressed:
+            self.toggle_control_scheme()
+
+        if pygame.K_F9 in input_state.keys_pressed:
+            settings = self.game.world.gameplay_settings
+
+            current = settings["modern_movement_skill_aim_source"]
+
+            if current == "facing":
+                settings["modern_movement_skill_aim_source"] = "mouse"
+            else:
+                settings["modern_movement_skill_aim_source"] = "facing"
+
+        if pygame.K_LSHIFT in input_state.keys_pressed:
+            camera = self.game.world.camera
+
+            if camera["mode"] == "follow":
+                player = self.game.world.player
+                fixed_cpos = self.game.world.transform[player].cpos
+                set_camera_fixed(self.game.world, fixed_cpos, transition_mode="snap")
+            else:
+                set_camera_follow(self.game.world, self.game.world.player, transition_mode="smooth", transition_duration=26)
+
+        if pygame.K_v in input_state.keys_pressed:
+            start_camera_shake(
+                self.game.world,
+                duration_ticks=18,
+                strength=4,
+            )
+
+        if pygame.K_b in input_state.keys_pressed:
+            apply_status_effect(
+                self.game.world,
+                self.game.world.player,
+                "debug_stun",
+                tags={
+                    "stun",
+                    "movement_locked",
+                    "skill_locked",
+                },
+                duration=90,
+                cancels_action_tags={
+                    "cast",
+                    "channel",
+                    "recovery",
+                },
+                cancels_motion_tags={
+                    "dash",
+                    "directional_move",
+                    "path_follow",
+                },
+            )
+
+        if pygame.K_n in input_state.keys_pressed:
+            apply_status_effect(
+                self.game.world,
+                self.game.world.player,
+                "debug_freeze",
+                tags={
+                    "freeze",
+                    "movement_locked",
+                    "skill_locked",
+                    "settle_locked",
+                },
+                duration=90,
+                pauses_action_tags={
+                    "cast",
+                    "recovery",
+                },
+                cancels_action_tags={
+                    "channel",
+                },
+                cancels_motion_tags={
+                    "dash",
+                    "directional_move",
+                    "path_follow",
+                    "settle",
+                },
+            )
+
+        if pygame.K_h in input_state.keys_pressed:
+            attacker = self.get_first_enemy_entity()
+
+            if attacker is not None:
+                queue_damage_event(
+                    self.game.world,
+                    source=attacker,
+                    target=self.game.world.player,
+                    amount=1,
+                    skill_id="debug_enemy_hit",
+                )
 
     def draw_debug_overlay(self):
         lines = [
@@ -201,3 +318,28 @@ class Debug:
             text_surface,
             (graph_x, graph_y + graph_h + 3),
         )
+
+
+    def add_debug_tile_highlight(self,
+        world,
+        tile,
+        duration_ticks=12,
+        color="yellow",
+    ):
+        world.debug_tile_highlights.append({
+            "tile": tile,
+            "remaining_ticks": duration_ticks,
+            "color": color,
+        })
+
+
+    def debug_tile_highlight_system(self, world):
+        active_highlights = []
+
+        for highlight in world.debug_tile_highlights:
+            highlight["remaining_ticks"] -= 1
+
+            if highlight["remaining_ticks"] > 0:
+                active_highlights.append(highlight)
+
+        world.debug_tile_highlights = active_highlights

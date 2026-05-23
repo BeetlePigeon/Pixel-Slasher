@@ -1,5 +1,4 @@
 from placement_utils import (
-    find_nearest_valid_placement_tile,
     find_nearest_valid_placement_tile_with_line_of_sight,
 )
 from support import (
@@ -566,7 +565,7 @@ def start_skill_action_from_def(
     intent=None,
     action_type=None,
 ):
-    from action_ops import start_action_state
+    from systems.action_state_system import start_action_state
 
     if intent is None:
         intent = {}
@@ -652,7 +651,7 @@ def execute_dash(world, caster, context):
     if aim_vector is None:
         return False
 
-    from systems import cancel_voluntary_movement
+    from systems.movement_system import cancel_voluntary_movement
 
     cancel_voluntary_movement(world, caster)
 
@@ -794,7 +793,6 @@ def execute_teleport(world, caster, context):
 
 
 def execute_debug_slash(world, caster, context):
-    from systems import add_debug_tile_highlight
     from combat_ops import queue_area_damage
 
     aim_vector = resolve_context_aim_vector(
@@ -819,7 +817,7 @@ def execute_debug_slash(world, caster, context):
     params = context["params"]
 
     for tile in affected_tiles:
-        add_debug_tile_highlight(
+        world.game.debug.add_debug_tile_highlight(
             world,
             tile,
             duration_ticks=params.get("debug_highlight_ticks", 12),
@@ -838,7 +836,6 @@ def execute_debug_slash(world, caster, context):
 
 
 def execute_counter_slash(world, caster, context):
-    from systems import add_debug_tile_highlight
     from combat_ops import queue_area_damage
 
     params = context["params"]
@@ -868,7 +865,7 @@ def execute_counter_slash(world, caster, context):
     )
 
     for tile in affected_tiles:
-        add_debug_tile_highlight(
+        world.game.debug.add_debug_tile_highlight(
             world,
             tile,
             duration_ticks=params["debug_highlight_ticks"],

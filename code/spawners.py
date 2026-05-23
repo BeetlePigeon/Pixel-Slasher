@@ -8,33 +8,6 @@ from support import (
 )
 
 
-def is_spawn_tile_blocked(world, tile):
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
-
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    return (tile.x, tile.y) in world.static_collision_tiles
-
-
-def can_spawn_at(world, cpos, static_tiles="reject"):
-    tile = tile_from_cpos(cpos)
-
-    blocked = is_spawn_tile_blocked(world, tile)
-
-    if not blocked:
-        return True
-
-    if static_tiles == "allow":
-        return True
-
-    if static_tiles == "reject":
-        return False
-
-    raise ValueError(f"Unknown spawn collision policy: {static_tiles}")
-
-
 def spawn_test_projectile(
     world,
     cpos,
@@ -89,6 +62,7 @@ def spawn_test_projectile(
     }
 
     return eid
+
 
 def spawn_spiral_projectile(
     world,
@@ -148,6 +122,7 @@ def spawn_spiral_projectile(
     }
 
     return eid
+
 
 def spawn_magnet_orb(
     world,
@@ -217,7 +192,7 @@ def spawn_meteor_marker(
         position_mode="free",
     )
 
-    world.runtime_skill[eid] = {
+    world.runtime_entity[eid] = {
         "type": "meteor_marker",
         "source": source,
         "skill_id": skill_id,
@@ -243,3 +218,30 @@ def spawn_meteor_marker(
     }
 
     return eid
+
+
+def can_spawn_at(world, cpos, static_tiles="reject"):
+    tile = tile_from_cpos(cpos)
+
+    blocked = is_spawn_tile_blocked(world, tile)
+
+    if not blocked:
+        return True
+
+    if static_tiles == "allow":
+        return True
+
+    if static_tiles == "reject":
+        return False
+
+    raise ValueError(f"Unknown spawn collision policy: {static_tiles}")
+
+
+def is_spawn_tile_blocked(world, tile):
+    if tile.y < 0 or tile.y >= len(world.tilemap):
+        return True
+
+    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
+        return True
+
+    return (tile.x, tile.y) in world.static_collision_tiles

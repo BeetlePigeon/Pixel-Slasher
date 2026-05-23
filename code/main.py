@@ -161,7 +161,7 @@ class Game:
 
             # Debug/window hotkeys can still act immediately on raw input.
             if self.debug_mode:
-                self.debug.process_debug_input(input_state)
+                self.debug.process_top_level_debug_input(input_state)
 
             self.sim_accumulator += frame_dt
 

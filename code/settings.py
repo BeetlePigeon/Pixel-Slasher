@@ -21,6 +21,12 @@ DIRECTIONAL_MOVEMENT_MODE = "continuous"
 # Alternative for rollback:
 #DIRECTIONAL_MOVEMENT_MODE = "grid_move"
 
+MOVEMENT_CANCELING_ACTION_TAGS = {
+    "movement_locked",
+    "stun",
+    "root",
+}
+
 PATH_POLICIES = {
     "traditional_click_move": {
         "max_expansions": 1000,

@@ -62,7 +62,7 @@ def queue_damage_event(
     skill_id=None,
     hit_tile=None,
 ):
-    world.damage_events.append({
+    world.damage_requests.append({
         "source": source,
         "target": target,
         "amount": amount,

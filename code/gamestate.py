@@ -1,8 +1,20 @@
-from systems import *
+import pygame
+from LEGACY_meteorstuff import *
 from camera import internal_screen_to_world_cpos
-from status_ops import apply_status_effect
-from combat_ops import queue_damage_event
 from gameplay_ui import GameplayUI
+from skills import SKILL_DEFS
+from systems.snapshot_system import snapshot_system
+from systems.action_state_system import action_state_system
+from systems.lifetime_system import lifetime_system
+from systems.movement_system import movement_arbiter_system, movement_system
+from systems.event_system import event_system
+from systems.skill_system import skill_intent_resolution_system, skill_execution_system
+from systems.influence_system import influence_system
+from systems.intent_system import intent_system
+from systems.camera_system import camera_update_system, camera_system, camera_shake_system
+from systems.status_effect_system import status_effect_system
+from systems.sprite_system import sprite_system, render_tiles
+from systems.combat_system import combat_damage_system
 
 
 class State:
@@ -33,25 +45,6 @@ class StateGameplay(State):
         self.gameplay_ui = GameplayUI()
 
 
-    def get_first_enemy_entity(self):
-        world = self.game.world
-
-        for entity in sorted(world.team):
-            if world.team.get(entity) == "enemy":
-                return entity
-
-        return None
-
-
-    def toggle_control_scheme(self):
-        world = self.game.world
-
-        if world.control_scheme == "modern":
-            world.control_scheme = "traditional"
-        else:
-            world.control_scheme = "modern"
-
-
     def get_skill_trigger_mode(self, entity, slot):
         skill_id = self.game.world.skills.get((entity, slot))
 
@@ -64,6 +57,7 @@ class StateGameplay(State):
             return "press"
 
         return skill_def["trigger_mode"]
+
 
     def build_gameplay_input_state(self, input_state):
         return self.gameplay_ui.filter_input_for_gameplay(
@@ -252,108 +246,18 @@ class StateGameplay(State):
         # AI Intents
         pass  # add intents to the intents dict created under Player Intents
 
-        # Debug camera
-        if pygame.K_F8 in input_state.keys_pressed:
-            self.toggle_control_scheme()
-
-        if pygame.K_F9 in input_state.keys_pressed:
-            settings = self.game.world.gameplay_settings
-
-            current = settings["modern_movement_skill_aim_source"]
-
-            if current == "facing":
-                settings["modern_movement_skill_aim_source"] = "mouse"
-            else:
-                settings["modern_movement_skill_aim_source"] = "facing"
-
-        if pygame.K_LSHIFT in input_state.keys_pressed:
-            camera = self.game.world.camera
-
-            if camera["mode"] == "follow":
-                player = self.game.world.player
-                fixed_cpos = self.game.world.transform[player].cpos
-                set_camera_fixed(self.game.world, fixed_cpos, transition_mode="snap")
-            else:
-                set_camera_follow(self.game.world, self.game.world.player, transition_mode="smooth", transition_duration=26)
-
-        if pygame.K_v in input_state.keys_pressed:
-            start_camera_shake(
-                self.game.world,
-                duration_ticks=18,
-                strength=4,
-            )
-
-        if pygame.K_b in input_state.keys_pressed:
-            apply_status_effect(
-                self.game.world,
-                self.game.world.player,
-                "debug_stun",
-                tags={
-                    "stun",
-                    "movement_locked",
-                    "skill_locked",
-                },
-                duration=90,
-                cancels_action_tags={
-                    "cast",
-                    "channel",
-                    "recovery",
-                },
-                cancels_motion_tags={
-                    "dash",
-                    "directional_move",
-                    "path_follow",
-                },
-            )
-
-        if pygame.K_n in input_state.keys_pressed:
-            apply_status_effect(
-                self.game.world,
-                self.game.world.player,
-                "debug_freeze",
-                tags={
-                    "freeze",
-                    "movement_locked",
-                    "skill_locked",
-                    "settle_locked",
-                },
-                duration=90,
-                pauses_action_tags={
-                    "cast",
-                    "recovery",
-                },
-                cancels_action_tags={
-                    "channel",
-                },
-                cancels_motion_tags={
-                    "dash",
-                    "directional_move",
-                    "path_follow",
-                    "settle",
-                },
-            )
-
-        if pygame.K_h in input_state.keys_pressed:
-            attacker = self.get_first_enemy_entity()
-
-            if attacker is not None:
-                queue_damage_event(
-                    self.game.world,
-                    source=attacker,
-                    target=self.game.world.player,
-                    amount=1,
-                    skill_id="debug_enemy_hit",
-                )
-        # End debug
-
+        # Debug Inputs Bypass Arbiters
+        if self.game.debug_mode:
+            self.game.debug.process_gamestate_debug_inputs(input_state)
 
         # Update Systems
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
-        runtime_skill_system(self.game.world)
+        runtime_entity_system(self.game.world)
         combat_damage_system(self.game.world)
-        debug_tile_highlight_system(self.game.world)
+        if self.game.debug_mode:
+            self.game.debug.debug_tile_highlight_system(self.game.world)
         intent_system(self.game.world, intents)
         skill_intent_resolution_system(self.game.world, intents)
         skill_execution_system(self.game.world)
