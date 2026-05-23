@@ -14,6 +14,8 @@ MAX_COLLISION_STEP = TILE_UNITS // 4
 TILE_DIMENSION = 32     # Width/Height in pixels
 MOVE_BUFFER_TICKS = 8
 
+WINDOW_TITLEBAR_SAFE_Y = 48
+
 DIRECTIONAL_MOVEMENT_MODE = "continuous"
 #DIRECTIONAL_MOVEMENT_MODE = "node_follow"
 # Alternative for rollback:

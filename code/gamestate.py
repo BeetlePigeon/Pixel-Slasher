@@ -1,4 +1,3 @@
-from dataclasses import replace
 from systems import *
 from camera_utils import internal_screen_to_world_cpos
 from status_ops import apply_status_effect
@@ -9,7 +8,7 @@ from gameplay_ui import GameplayUI
 class State:
     def __init__(self, game):
         self.game = game
-        self.surface = game.render_surface  # The fixed internal surface all blits are applied to.
+        self.surface = game.display.render_surface  # The fixed internal surface all blits are applied to.
         self.surface_rect = self.surface.get_rect()
 
         # Internal state machine setup

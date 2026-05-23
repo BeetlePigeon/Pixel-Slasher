@@ -1,0 +1,203 @@
+import pygame
+
+
+# Debug controls:
+# WASD / L Click: Move
+# R Click: Spiral Projectile
+# SPACE: Test Projectile
+# 1: Teleport
+# 2: Wide Projectiles
+# 3: Magnet
+# 4: Dash
+# 5: *FREE*
+# 6: Debug Slash
+# 7: Debug Channel Projectile
+# 8: Debug Channel Projectile
+# 9: Meteor
+# 0: *FREE*
+# LSHIFT: Toggle Camera Mode
+# B: Debug Stun Player
+# N: Debug Freeze Player
+# H: Debug Make Enemy Damage Player
+# V: Debug Screen Shake
+# F5: Cycle Windowed Scale
+# F6: Toggle VSync
+# F7: Cycle FPS Cap
+# F8: Toggle Control Scheme
+# F9: Toggle Modern Movement Aim Source
+# F10: Zoom Camera Out
+# F11: Zoom Camera In
+# F12: Cycle Display Mode
+
+class Debug:
+    def __init__(self, game):
+        self.game = game
+        self.debug_frame_ms_history = []
+        self.debug_sim_ticks_history = []
+        self.debug_frame_history_max = 180
+
+    def process_debug_input(self, input_state):
+        if pygame.K_F5 in input_state.keys_pressed:
+            self.game.display.cycle_windowed_scale()
+        if pygame.K_F6 in input_state.keys_pressed:
+            self.game.display.toggle_vsync()
+        if pygame.K_F7 in input_state.keys_pressed:
+            self.game.display.cycle_fps_cap()
+        if pygame.K_F12 in input_state.keys_pressed:
+            self.game.display.cycle_display_mode()
+        if pygame.K_F10 in input_state.keys_pressed:
+            self.game.display.zoom_camera_out()
+        if pygame.K_F11 in input_state.keys_pressed:
+            self.game.display.zoom_camera_in()
+
+
+    def draw_debug_overlay(self):
+        lines = [
+            f"FPS: {self.game.fps:.1f}",
+            f"Entities next_id: {self.game.entities.next_id}",
+            f"Transforms: {len(self.game.world.transform)}",
+            f"MotionState: {len(self.game.world.motion_state)}",
+            f"Sprites: {len(self.game.world.sprite)}",
+            f"Projectiles: {len(self.game.world.projectile)}",
+            f"Emitters: {len(self.game.world.influence_emitter)}",
+            f"Receivers: {len(self.game.world.influence_receiver)}",
+            f"Lifetime: {len(self.game.world.lifetime)}",
+            f"Display: {self.game.display.display_mode}",
+            f"Scale: {self.game.display.scale}x",
+            f"Windowed scale: {self.game.display.windowed_scale}x",
+            f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
+            f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
+            f"Camera: {self.game.world.camera['transition_mode']}",
+            f"Controls: {self.game.world.control_scheme}",
+            f"Move skill aim: {self.game.world.gameplay_settings['modern_movement_skill_aim_source']}",
+            f"Animations: {len(self.game.world.animation)}",
+            f"Action State: {self.game.world.action_state}",
+            f"Ticks: {self.game.world.tick}",
+            f"Statuses: {self.game.world.status_effects.get(self.game.world.player, {})}",
+            (
+                f"Zoom: "
+                f"{self.game.world.camera['zoom_current_fp'] / 1024:.2f}x "
+                f"-> {self.game.world.camera['zoom_target_num']}/"
+                f"{self.game.world.camera['zoom_target_den']} "
+                f"({'smooth' if self.game.world.camera['zoom_smooth'] else 'snap'})"
+            ),
+        ]
+
+        y = 4
+
+        for line in lines:
+            text_surface = self.game.display.debug_font.render(line, False, "white")
+            self.game.display.render_surface.blit(text_surface, (4, y))
+            y += 14
+
+
+    def record_debug_frame_sample(self, raw_frame_dt, sim_ticks_this_frame):
+        frame_ms = raw_frame_dt * 1000.0
+
+        self.debug_frame_ms_history.append(frame_ms)
+        self.debug_sim_ticks_history.append(sim_ticks_this_frame)
+
+        if len(self.debug_frame_ms_history) > self.debug_frame_history_max:
+            self.debug_frame_ms_history.pop(0)
+
+        if len(self.debug_sim_ticks_history) > self.debug_frame_history_max:
+            self.debug_sim_ticks_history.pop(0)
+
+
+    def draw_debug_frame_graph(self):
+        history = self.debug_frame_ms_history
+
+        if not history:
+            return
+
+        graph_x = 4
+        graph_y = self.game.display.internal_height - 64
+        graph_w = min(180, self.game.display.internal_width - 8)
+        graph_h = 44
+
+        pygame.draw.rect(
+            self.game.display.render_surface,
+            "black",
+            (graph_x - 1, graph_y - 1, graph_w + 2, graph_h + 16),
+        )
+
+        pygame.draw.rect(
+            self.game.display.render_surface,
+            "white",
+            (graph_x, graph_y, graph_w, graph_h),
+            1,
+        )
+
+        # Reference lines:
+        # 16.67 ms = 60 FPS
+        # 33.33 ms = 30 FPS
+        max_ms = 50.0
+
+        def ms_to_y(ms):
+            clamped = min(max_ms, max(0.0, ms))
+            return graph_y + graph_h - int((clamped / max_ms) * graph_h)
+
+        y_60 = ms_to_y(1000.0 / 60.0)
+        y_30 = ms_to_y(1000.0 / 30.0)
+
+        pygame.draw.line(
+            self.game.display.render_surface,
+            "gray",
+            (graph_x, y_60),
+            (graph_x + graph_w, y_60),
+            1,
+        )
+
+        pygame.draw.line(
+            self.game.display.render_surface,
+            "gray",
+            (graph_x, y_30),
+            (graph_x + graph_w, y_30),
+            1,
+        )
+
+        start_index = max(0, len(history) - graph_w)
+
+        for i, frame_ms in enumerate(history[start_index:]):
+            x = graph_x + i
+            y = ms_to_y(frame_ms)
+
+            color = "green"
+
+            if frame_ms > 33.33:
+                color = "red"
+            elif frame_ms > 16.67:
+                color = "yellow"
+
+            pygame.draw.line(
+                self.game.display.render_surface,
+                color,
+                (x, graph_y + graph_h - 1),
+                (x, y),
+                1,
+            )
+
+        latest_ms = history[-1]
+        worst_ms = max(history)
+        latest_ticks = (
+            self.debug_sim_ticks_history[-1]
+            if self.debug_sim_ticks_history
+            else 0
+        )
+
+        label = (
+            f"Frame ms: {latest_ms:.1f} | "
+            f"Peak: {worst_ms:.1f} | "
+            f"Sim ticks: {latest_ticks}"
+        )
+
+        text_surface = self.game.display.debug_font.render(
+            label,
+            False,
+            "white",
+        )
+
+        self.game.display.render_surface.blit(
+            text_surface,
+            (graph_x, graph_y + graph_h + 3),
+        )
