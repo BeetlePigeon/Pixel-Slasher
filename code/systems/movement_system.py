@@ -1,17 +1,18 @@
-from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE
+from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
-from support import (
-    TILE_UNITS,
-    Vec2i,
-    sign,
-    tile_center,
-    tile_from_cpos,
-    normalize_vector_to_dir_scale,
+from support import Vec2i
+from motion_controllers import (
     GridMoveController,
     SettleToGridController,
     PathFollowController,
     DirectionalMoveController,
+)
+from tile_vec_utils import (
+    sign,
+    tile_center,
+    tile_from_cpos,
+    normalize_vector_to_dir_scale,
 )
 from path_utils import (
     find_static_tile_path_to_target,

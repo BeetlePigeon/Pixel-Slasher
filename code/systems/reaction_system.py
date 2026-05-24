@@ -1,5 +1,4 @@
 from .action_state_system import action_state_has_any_tags, cancel_action_state
-from skills import start_skill_action_from_def, SKILL_DEFS
 
 
 def reaction_system(world, events):
@@ -26,6 +25,8 @@ def entity_is_counter_ready(world, entity):
 
 
 def start_counter_attack_action(world, defender, attacker):
+    from SKILL_DEFS import SKILL_DEFS
+
     skill_def = SKILL_DEFS["counter_attack"]
     action_def = skill_def["cast"]
 
@@ -35,6 +36,8 @@ def start_counter_attack_action(world, defender, attacker):
         "type": "reactive_counter",
         "counter_target": attacker,
     }
+
+    from skill_utils import start_skill_action_from_def
 
     return start_skill_action_from_def(
         world,

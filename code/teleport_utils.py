@@ -1,4 +1,5 @@
-from support import Vec2i, tile_center, tiles_crossed_by_segment
+from support import Vec2i
+from tile_vec_utils import chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 
 
 def is_tile_blocked_for_teleport(world, tile: Vec2i) -> bool:
@@ -9,17 +10,6 @@ def is_tile_blocked_for_teleport(world, tile: Vec2i) -> bool:
         return True
 
     return (tile.x, tile.y) in world.static_collision_tiles
-
-
-def chebyshev_tile_distance(a: Vec2i, b: Vec2i) -> int:
-    return max(
-        abs(a.x - b.x),
-        abs(a.y - b.y),
-    )
-
-
-def manhattan_tile_distance(a: Vec2i, b: Vec2i) -> int:
-    return abs(a.x - b.x) + abs(a.y - b.y)
 
 
 def has_min_progress(

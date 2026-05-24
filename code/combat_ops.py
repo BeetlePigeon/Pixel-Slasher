@@ -1,4 +1,4 @@
-from support import tile_from_cpos
+from tile_vec_utils import tile_from_cpos
 
 
 def get_entity_current_tile(world, entity):

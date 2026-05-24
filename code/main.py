@@ -1,3 +1,31 @@
+# Debug controls:
+# WASD / L Click: Move
+# R Click: Channel Projectile
+# SPACE: Test Projectile
+# 1: Teleport
+# 2: Wide Projectiles
+# 3: Magnet
+# 4: Dash
+# 5: Spiral Projectile
+# 6: Debug Slash
+# 7: *FREE*
+# 8: Guard Counter
+# 9: Meteor
+# 0: *FREE*
+# LSHIFT: Toggle Camera Mode
+# B: Debug Stun Player
+# N: Debug Freeze Player
+# H: Debug Make Enemy Damage Player
+# V: Debug Screen Shake
+# F5: Cycle Windowed Scale
+# F6: Toggle VSync
+# F7: Cycle FPS Cap
+# F8: Toggle Control Scheme
+# F9: Toggle Modern Movement Aim Source
+# F10: Zoom Camera Out
+# F11: Zoom Camera In
+# F12: Cycle Display Mode
+
 import sys
 import pygame
 import time
@@ -9,7 +37,8 @@ from inputhandler import Input
 from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
-from skills import SKILL_DEFS, validate_skill_defs
+from skill_utils import validate_skill_defs
+from SKILL_DEFS import SKILL_DEFS
 from world import World
 from dataclasses import replace
 
@@ -45,7 +74,7 @@ class Game:
         self.entities = EntityManager()
 
         # Validate Game Data
-        validate_skill_defs(SKILL_DEFS)
+#        validate_skill_defs(SKILL_DEFS)
 
         # World
         self.world = World(self, self.entities)

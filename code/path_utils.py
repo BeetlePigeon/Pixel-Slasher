@@ -1,24 +1,6 @@
 import heapq
-
-from support import Vec2i, tile_center, tiles_crossed_by_segment
-
-
-CARDINAL_DIRS = (
-    Vec2i(1, 0),
-    Vec2i(-1, 0),
-    Vec2i(0, 1),
-    Vec2i(0, -1),
-)
-
-DIAGONAL_DIRS = (
-    Vec2i(1, 1),
-    Vec2i(1, -1),
-    Vec2i(-1, 1),
-    Vec2i(-1, -1),
-)
-
-ALL_DIRS_8WAY = CARDINAL_DIRS + DIAGONAL_DIRS
-
+from tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
+from settings import CARDINAL_DIRS, ALL_DIRS_8WAY
 
 class PathSearchBudget:
     def __init__(self, max_expansions):
@@ -30,17 +12,6 @@ class PathSearchBudget:
 
         self.remaining -= 1
         return True
-
-
-def chebyshev_tile_distance(a: Vec2i, b: Vec2i) -> int:
-    return max(
-        abs(a.x - b.x),
-        abs(a.y - b.y),
-    )
-
-
-def manhattan_tile_distance(a: Vec2i, b: Vec2i) -> int:
-    return abs(a.x - b.x) + abs(a.y - b.y)
 
 
 def is_static_tile_blocked(world, tile: Vec2i) -> bool:

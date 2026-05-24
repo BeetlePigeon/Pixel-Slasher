@@ -1,35 +1,8 @@
 import pygame
-from systems.camera_system import set_camera_follow, set_camera_fixed, start_camera_shake
 from status_ops import apply_status_effect
 from combat_ops import queue_damage_request
+from camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake
 
-# Debug controls:
-# WASD / L Click: Move
-# R Click: Spiral Projectile
-# SPACE: Test Projectile
-# 1: Teleport
-# 2: Wide Projectiles
-# 3: Magnet
-# 4: Dash
-# 5: *FREE*
-# 6: Debug Slash
-# 7: Debug Channel Projectile
-# 8: Debug Channel Projectile
-# 9: Meteor
-# 0: *FREE*
-# LSHIFT: Toggle Camera Mode
-# B: Debug Stun Player
-# N: Debug Freeze Player
-# H: Debug Make Enemy Damage Player
-# V: Debug Screen Shake
-# F5: Cycle Windowed Scale
-# F6: Toggle VSync
-# F7: Cycle FPS Cap
-# F8: Toggle Control Scheme
-# F9: Toggle Modern Movement Aim Source
-# F10: Zoom Camera Out
-# F11: Zoom Camera In
-# F12: Cycle Display Mode
 
 class Debug:
     def __init__(self, game):
@@ -37,6 +10,50 @@ class Debug:
         self.debug_frame_ms_history = []
         self.debug_sim_ticks_history = []
         self.debug_frame_history_max = 180
+
+
+    def draw_debug_overlay(self):
+        statuses = self.game.world.status_effects.get(self.game.world.player, {})
+        stun = True if statuses.get("debug_stun") else False
+        freeze = True if statuses.get("debug_freeze") else False
+        lines = [
+#            f"FPS: {self.game.fps:.1f}",
+#            f"Entities next_id: {self.game.entities.next_id}",
+#            f"Transforms: {len(self.game.world.transform)}",
+            f"MotionState: {len(self.game.world.motion_state)}",
+            f"Sprites: {len(self.game.world.sprite)}",
+#            f"Projectiles: {len(self.game.world.projectile)}",
+#            f"Emitters: {len(self.game.world.influence_emitter)}",
+#            f"Receivers: {len(self.game.world.influence_receiver)}",
+#            f"Lifetime: {len(self.game.world.lifetime)}",
+            f"Display: {self.game.display.display_mode}",
+            f"Scale: {self.game.display.scale}x",
+            f"Windowed scale: {self.game.display.windowed_scale}x",
+            f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
+            f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
+            f"Camera: {self.game.world.world_camera.camera['transition_mode']}",
+            f"Controls: {self.game.world.control_scheme}",
+            f"Move skill aim: {self.game.world.gameplay_settings['modern_movement_skill_aim_source']}",
+#            f"Animations: {len(self.game.world.animation)}",
+            f"Action State: {self.game.world.action_state}",
+            f"Ticks: {self.game.world.tick}",
+            f"Statuses: {len(statuses)}",
+            f"Stun: {stun}",
+            f"Freeze: {freeze}",
+            (
+                f"Zoom: "
+                f"{self.game.world.world_camera.camera['zoom_current_fp'] / 1024:.2f}x "
+                f"-> {self.game.world.world_camera.camera['zoom_target_num']}/"
+                f"{self.game.world.world_camera.camera['zoom_target_den']} "
+                f"({'smooth' if self.game.world.world_camera.camera['zoom_smooth'] else 'snap'})"
+            ),
+        ]
+        y = 4
+
+        for line in lines:
+            text_surface = self.game.display.debug_font.render(line, False, "white")
+            self.game.display.render_surface.blit(text_surface, (4, y))
+            y += 14
 
 
     def get_first_enemy_entity(self):
@@ -167,45 +184,6 @@ class Debug:
                     amount=1,
                     skill_id="debug_enemy_hit",
                 )
-
-    def draw_debug_overlay(self):
-        lines = [
-            f"FPS: {self.game.fps:.1f}",
-            f"Entities next_id: {self.game.entities.next_id}",
-            f"Transforms: {len(self.game.world.transform)}",
-            f"MotionState: {len(self.game.world.motion_state)}",
-            f"Sprites: {len(self.game.world.sprite)}",
-            f"Projectiles: {len(self.game.world.projectile)}",
-            f"Emitters: {len(self.game.world.influence_emitter)}",
-            f"Receivers: {len(self.game.world.influence_receiver)}",
-            f"Lifetime: {len(self.game.world.lifetime)}",
-            f"Display: {self.game.display.display_mode}",
-            f"Scale: {self.game.display.scale}x",
-            f"Windowed scale: {self.game.display.windowed_scale}x",
-            f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
-            f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
-            f"Camera: {self.game.world.world_camera.camera['transition_mode']}",
-            f"Controls: {self.game.world.control_scheme}",
-            f"Move skill aim: {self.game.world.gameplay_settings['modern_movement_skill_aim_source']}",
-            f"Animations: {len(self.game.world.animation)}",
-            f"Action State: {self.game.world.action_state}",
-            f"Ticks: {self.game.world.tick}",
-            f"Statuses: {self.game.world.status_effects.get(self.game.world.player, {})}",
-            (
-                f"Zoom: "
-                f"{self.game.world.world_camera.camera['zoom_current_fp'] / 1024:.2f}x "
-                f"-> {self.game.world.world_camera.camera['zoom_target_num']}/"
-                f"{self.game.world.world_camera.camera['zoom_target_den']} "
-                f"({'smooth' if self.game.world.world_camera.camera['zoom_smooth'] else 'snap'})"
-            ),
-        ]
-
-        y = 4
-
-        for line in lines:
-            text_surface = self.game.display.debug_font.render(line, False, "white")
-            self.game.display.render_surface.blit(text_surface, (4, y))
-            y += 14
 
 
     def record_debug_frame_sample(self, raw_frame_dt, sim_ticks_this_frame):

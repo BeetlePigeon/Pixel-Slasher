@@ -1,10 +1,7 @@
 from settings import TILE_DIMENSION, TILE_UNITS
 from camera import Camera
-from support import (
-    Vec2i,
-    Transform,
-    tile_center,
-)
+from tile_vec_utils import tile_center
+from support import Vec2i, Transform
 
 
 class World:
@@ -231,11 +228,11 @@ class World:
         self.skills[(eid, 2)] = "burst_projectile"
         self.skills[(eid, 3)] = "magnet_orb"
         self.skills[(eid, 4)] = "dash"
-#        self.skills[(eid, 5)] = "spiral_projectile"
+        self.skills[(eid, 5)] = "spiral_projectile"
         self.skills[(eid, 6)] = "debug_slash"
-        self.skills[(eid, 7)] = "debug_channel_projectile"
+#        self.skills[(eid, 7)] = "debug_channel_projectile"
         self.skills[(eid, 8)] = "guard_counter"
-        self.skills[(eid, 9)] = "spiral_projectile"
+        self.skills[(eid, 9)] = "debug_channel_projectile"
         self.skills[(eid, 10)] = "meteor"
 #        self.skills[(eid, 11)] = "squidward"
 

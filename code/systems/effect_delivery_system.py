@@ -1,5 +1,4 @@
 from support import Vec2i
-
 from combat_ops import (
     find_hittable_entities_on_tiles,
     get_entity_current_tile,

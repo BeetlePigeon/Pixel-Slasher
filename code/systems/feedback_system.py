@@ -1,4 +1,4 @@
-from .camera_system import start_camera_shake
+from camera_utils import start_camera_shake
 
 
 def feedback_system(world, events):

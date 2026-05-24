@@ -1,4 +1,5 @@
-from support import tile_center, Vec2i, sign, tile_from_cpos
+from support import Vec2i
+from tile_vec_utils import tile_center, tile_from_cpos, sign
 
 
 
