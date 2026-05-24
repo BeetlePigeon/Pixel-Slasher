@@ -203,7 +203,10 @@ def spawn_meteor(
         "delivery": {
             "type": "timed_tiles",
             "age": 0,
-            "trigger_tick": impact_tick,
+            "trigger": {
+                "type": "once",
+                "tick": impact_tick,
+            },
             "tiles": affected_tiles,
         },
         "effects": [
