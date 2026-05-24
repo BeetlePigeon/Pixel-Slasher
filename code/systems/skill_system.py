@@ -1,5 +1,5 @@
 from SKILL_DEFS import SKILL_DEFS
-from skill_handlers import HANDLERS
+from skill_handlers import get_skill_handler
 from .action_state_system import cancel_action_state, build_skill_context, get_active_action_tags, action_state_has_any_tags
 from .movement_system import get_active_motion_tag
 
@@ -54,7 +54,8 @@ def skill_intent_resolution_system(world, intents):
                 continue
 
             resolved_skill = build_resolved_skill(world, entity, skill_def)
-            handler = HANDLERS[resolved_skill["handler"]]
+
+            handler = get_skill_handler(resolved_skill["handler"])
 
             world.resolved_skill_intents.append({
                 "caster": entity,
@@ -75,7 +76,7 @@ def skill_execution_system(world):
         slot = resolved["slot"]
         skill_def = resolved["skill_def"]
         intent = resolved["intent"]
-        handler = HANDLERS[resolved["handler"]]
+        handler = [resolved["handler"]]
 
         if skill_cancels_active_action_state(world, caster, skill_def):
             cancel_action_state(world, caster)

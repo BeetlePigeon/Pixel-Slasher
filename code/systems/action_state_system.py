@@ -184,7 +184,11 @@ def execute_repeat_action_events(world, entity, action_state):
 
 
 def execute_action_event(world, entity, action_state, event):
-    handler = event.get("handler")
+    handler_id = event.get("handler")
+
+    from skill_handlers import get_skill_handler
+
+    handler = get_skill_handler(handler_id)
 
     if handler is None:
         return False

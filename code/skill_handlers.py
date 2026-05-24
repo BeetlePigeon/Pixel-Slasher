@@ -356,3 +356,6 @@ HANDLERS = {
     "execute_channel_skill": execute_channel_skill,
     "execute_meteor": execute_meteor,
 }
+
+def get_skill_handler(handler_id):
+    return HANDLERS[handler_id]
