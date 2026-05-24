@@ -1,7 +1,7 @@
 import pygame
 from systems.camera_system import set_camera_follow, set_camera_fixed, start_camera_shake
 from status_ops import apply_status_effect
-from combat_ops import queue_damage_event
+from combat_ops import queue_damage_request
 
 # Debug controls:
 # WASD / L Click: Move
@@ -160,7 +160,7 @@ class Debug:
             attacker = self.get_first_enemy_entity()
 
             if attacker is not None:
-                queue_damage_event(
+                queue_damage_request(
                     self.game.world,
                     source=attacker,
                     target=self.game.world.player,

@@ -54,7 +54,7 @@ def find_hittable_entities_on_tiles(world, source, tiles):
     return targets
 
 
-def queue_damage_event(
+def queue_damage_request(
     world,
     source,
     target,
@@ -85,7 +85,7 @@ def queue_area_damage(
     )
 
     for target in targets:
-        queue_damage_event(
+        queue_damage_request(
             world,
             source=source,
             target=target,

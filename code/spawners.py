@@ -1,4 +1,6 @@
+import pygame
 from settings import TILE_UNITS
+from systems.effect_delivery_system import build_square_area_tiles
 from support import (
     Vec2i,
     Transform,
@@ -164,57 +166,95 @@ def spawn_magnet_orb(
     return eid
 
 
-def spawn_meteor_marker(
+def spawn_meteor(
     world,
     cpos,
     source,
     skill_id,
-    radius_tiles,
-    damage,
-    impact_tick,
-    lifetime_ticks,
-    telegraph_highlight_ticks,
-    telegraph_highlight_color,
-    impact_highlight_ticks,
-    impact_highlight_color,
+    radius_tiles=1,
+    damage=25,
+    impact_tick=45,
+    lifetime_ticks=60,
+    telegraph_highlight_ticks=2,
+    impact_highlight_ticks=10,
+    telegraph_highlight_color="yellow",
+    impact_highlight_color="red",
 ):
-    if not can_spawn_at(world, cpos, static_tiles="reject"):
-        return None
-
     eid = world.entities.create()
 
-    marker_image = world.game.assets.images["magnet"]
+    tile = tile_from_cpos(cpos)
 
     world.transform[eid] = Transform(
-        tile=tile_from_cpos(cpos),
+        tile=tile,
         cpos=cpos,
-        prev_cpos=cpos,
-        position_mode="free",
     )
 
-    world.runtime_entity[eid] = {
-        "type": "meteor_marker",
-        "source": source,
-        "skill_id": skill_id,
+    center_tile = tile
 
-        "age": 0,
-        "impact_tick": impact_tick,
-        "duration": lifetime_ticks,
-        "impacted": False,
+    affected_tiles = build_square_area_tiles(
+        center_tile,
+        radius_tiles,
+    )
 
-        "radius_tiles": radius_tiles,
-        "damage": damage,
+    source_team = None
 
-        "telegraph_highlight_ticks": telegraph_highlight_ticks,
-        "telegraph_highlight_color": telegraph_highlight_color,
-        "impact_highlight_ticks": impact_highlight_ticks,
-        "impact_highlight_color": impact_highlight_color,
+    if source is not None:
+        source_team = world.team.get(source)
+
+    world.effect_delivery[eid] = {
+        "context": {
+            "owner": source,
+            "instigator": source,
+            "source_kind": "skill",
+            "source_id": skill_id,
+            "team": source_team,
+        },
+        "delivery": {
+            "type": "timed_tiles",
+            "age": 0,
+            "trigger_tick": impact_tick,
+            "tiles": affected_tiles,
+        },
+        "target_filter": {
+            "team_policy": "hostile_to_owner",
+            "requires": {"hittable"},
+        },
+        "hit_policy": {
+            "mode": "once",
+        },
+        "effects": [
+            {
+                "type": "damage",
+                "params": {
+                    "amount": damage,
+                    "damage_type": "fire",
+                },
+            }
+        ],
+        "consume_policy": {
+            "destroy_carrier_after_delivery": True,
+        },
+        "debug": {
+            "telegraph_highlight_ticks": telegraph_highlight_ticks,
+            "impact_highlight_ticks": impact_highlight_ticks,
+            "telegraph_highlight_color": telegraph_highlight_color,
+            "impact_highlight_color": impact_highlight_color,
+        },
     }
 
+    world.lifetime[eid] = {
+        "remaining_ticks": lifetime_ticks,
+    }
+
+    marker_surface = pygame.Surface((world.tile_size, world.tile_size), pygame.SRCALPHA)
+    marker_surface.fill((255, 180, 0, 80))
+
     world.sprite[eid] = {
-        "image": marker_image,
-        "anchor": "center",
-        "z": 0,
+        "image": marker_surface,
+        "anchor": Vec2i(
+            world.tile_size // 2,
+            world.tile_size // 2,
+        ),
     }
 
     return eid

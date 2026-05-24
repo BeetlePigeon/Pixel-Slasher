@@ -1,8 +1,8 @@
 import pygame
-from LEGACY_meteorstuff import *
 from camera import internal_screen_to_world_cpos
 from gameplay_ui import GameplayUI
 from skills import SKILL_DEFS
+from support import tile_from_cpos
 from systems.snapshot_system import snapshot_system
 from systems.action_state_system import action_state_system
 from systems.lifetime_system import lifetime_system
@@ -13,6 +13,7 @@ from systems.influence_system import influence_system
 from systems.intent_system import intent_system
 from systems.camera_system import camera_update_system, camera_system, camera_shake_system
 from systems.status_effect_system import status_effect_system
+from systems.effect_delivery_system import effect_delivery_system
 from systems.sprite_system import sprite_system, render_tiles
 from systems.combat_system import combat_damage_system
 
@@ -254,7 +255,7 @@ class StateGameplay(State):
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
-        runtime_entity_system(self.game.world)
+        effect_delivery_system(self.game.world)
         combat_damage_system(self.game.world)
         if self.game.debug_mode:
             self.game.debug.debug_tile_highlight_system(self.game.world)

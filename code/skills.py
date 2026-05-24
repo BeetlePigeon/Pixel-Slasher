@@ -26,7 +26,7 @@ from spawners import (
     spawn_test_projectile,
     spawn_spiral_projectile,
     spawn_magnet_orb,
-    spawn_meteor_marker,
+    spawn_meteor,
 )
 
 
@@ -886,7 +886,7 @@ def execute_counter_slash(world, caster, context):
     return True
 
 
-def execute_meteor_marker(world, caster, context):
+def execute_meteor(world, caster, context):
     params = context["params"]
 
     intent = get_context_intent_for_aim(
@@ -917,7 +917,7 @@ def execute_meteor_marker(world, caster, context):
 
     spawn_cpos = tile_center(spawn_tile)
 
-    eid = spawn_meteor_marker(
+    eid = spawn_meteor(
         world,
         spawn_cpos,
         source=caster,
@@ -1744,7 +1744,7 @@ SKILL_DEFS = {
             "events": [
                 {
                     "tick": 24,
-                    "handler": execute_meteor_marker,
+                    "handler": execute_meteor,
                 },
             ],
         },

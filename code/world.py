@@ -51,7 +51,7 @@ class World:
         self.projectile = {}
         self.lifetime = {}
         self.health = {}
-        self.runtime_entity = {}
+        self.effect_delivery = {}
         self.team = {}
         self.hittable = {}
         self.damage_requests = []
@@ -161,7 +161,7 @@ class World:
         self.locomotion.pop(eid, None)
         self.lifetime.pop(eid, None)
         self.health.pop(eid, None)
-        self.runtime_entity.pop(eid, None)
+        self.effect_delivery.pop(eid, None)
         self.team.pop(eid, None)
         self.hittable.pop(eid, None)
         self.movement_collision.pop(eid, None)
