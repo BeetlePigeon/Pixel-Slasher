@@ -359,9 +359,6 @@ HANDLERS = {
 
 
 def get_skill_handler(handler_id):
-    if callable(handler_id):
-        return handler_id
-
     if handler_id not in HANDLERS:
         raise ValueError(
             f"Unknown skill handler: {handler_id!r}"

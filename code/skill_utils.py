@@ -719,10 +719,11 @@ def validate_skill_defs(skill_defs):
         if skill_def["channel"] is not None:
             validate_skill_channel(skill_id, skill_def["channel"])
 
-        if not callable(skill_def["handler"]):
-            raise ValueError(
-                f"Skill '{skill_id}' handler is not callable"
-            )
+        validate_handler_id(
+            skill_id,
+            "skill",
+            skill_def["handler"],
+        )
 
 
 def validate_skill_aim(skill_id, aim):
@@ -743,6 +744,18 @@ def validate_skill_aim(skill_id, aim):
         raise ValueError(
             f"Skill '{skill_id}' aim is missing fields: "
             f"{sorted(missing_aim_fields)}"
+        )
+
+
+def validate_handler_id(skill_id, source_name, handler_id):
+    if not isinstance(handler_id, str):
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} handler must be a string"
+        )
+
+    if not handler_id:
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} handler cannot be empty"
         )
 
 
@@ -1022,11 +1035,11 @@ def validate_skill_repeat_event(skill_id, action_def, event_index, event):
             f"interval must be positive"
         )
 
-    if not callable(event["handler"]):
-        raise ValueError(
-            f"Skill '{skill_id}' repeat event {event_index} "
-            f"handler is not callable"
-        )
+    validate_handler_id(
+        skill_id,
+        f"repeat event {event_index}",
+        event["handler"],
+    )
 
     if "params" in event and not isinstance(event["params"], dict):
         raise ValueError(
@@ -1090,11 +1103,11 @@ def validate_skill_cast_event(skill_id, cast, event_index, event):
             f"fires after cast duration"
         )
 
-    if not callable(event["handler"]):
-        raise ValueError(
-            f"Skill '{skill_id}' cast event {event_index} "
-            f"handler is not callable"
-        )
+    validate_handler_id(
+        skill_id,
+        f"cast event {event_index}",
+        event["handler"],
+    )
 
     if "params" in event and not isinstance(event["params"], dict):
         raise ValueError(

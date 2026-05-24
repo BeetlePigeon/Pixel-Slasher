@@ -74,7 +74,7 @@ class Game:
         self.entities = EntityManager()
 
         # Validate Game Data
-#        validate_skill_defs(SKILL_DEFS)
+        validate_skill_defs(SKILL_DEFS)
 
         # World
         self.world = World(self, self.entities)
