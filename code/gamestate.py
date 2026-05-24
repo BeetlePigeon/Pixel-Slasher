@@ -154,6 +154,17 @@ class StateGameplay(State):
 
     def append_mouse_skill_intents(self, intents, input_state, mouse_to_slot):
         for button, slot in mouse_to_slot.items():
+            print(
+                "mouse skill check",
+                {
+                    "button": button,
+                    "slot": slot,
+                    "pressed": button in input_state.mouse_pressed,
+                    "held": self.is_mouse_button_held(input_state, button),
+                    "released": button in input_state.mouse_released,
+                },
+            )
+
             if button in input_state.mouse_pressed:
                 intents.append({
                     "type": "skill_pressed",

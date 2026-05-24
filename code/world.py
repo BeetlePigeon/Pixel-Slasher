@@ -230,11 +230,11 @@ class World:
         self.skills[(eid, 4)] = "dash"
         self.skills[(eid, 5)] = "spiral_projectile"
         self.skills[(eid, 6)] = "debug_slash"
-#        self.skills[(eid, 7)] = "debug_channel_projectile"
+#        self.skills[(eid, 7)] = None
         self.skills[(eid, 8)] = "guard_counter"
         self.skills[(eid, 9)] = "debug_channel_projectile"
         self.skills[(eid, 10)] = "meteor"
-#        self.skills[(eid, 11)] = "squidward"
+#        self.skills[(eid, 11)] = None
 
         player_image = self.game.assets.images["player"]
         self.sprite[eid] = {
