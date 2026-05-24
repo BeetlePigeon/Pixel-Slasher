@@ -1,6 +1,6 @@
 import os
 import pygame
-from settings import *
+from constants import INTERNAL_HEIGHT, INTERNAL_WIDTH, INTERNAL_RES, WINDOW_TITLEBAR_SAFE_Y
 
 
 class Display:

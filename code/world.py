@@ -1,4 +1,4 @@
-from settings import TILE_DIMENSION, TILE_UNITS
+from constants import TILE_DIMENSION, TILE_UNITS
 from camera import Camera
 from tile_vec_utils import tile_center
 from support import Vec2i, Transform

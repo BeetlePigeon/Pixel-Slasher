@@ -9,7 +9,7 @@ from systems.intent_system import intent_system
 from systems.camera_system import camera_update_system, camera_system, camera_shake_system
 from systems.status_effect_system import status_effect_system
 from systems.effect_delivery_system import effect_delivery_system
-from systems.sprite_system import sprite_system, render_tiles
+from systems.sprite_system import sprite_system, tile_render_system
 from systems.combat_system import combat_damage_system
 
 __all__ = [
@@ -29,6 +29,6 @@ __all__ = [
     "status_effect_system",
     "effect_delivery_system",
     "sprite_system",
-    "render_tiles",
+    "tile_render_system",
     "combat_damage_system",
 ]

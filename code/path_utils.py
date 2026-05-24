@@ -1,6 +1,7 @@
 import heapq
 from tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
-from settings import CARDINAL_DIRS, ALL_DIRS_8WAY
+from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
+
 
 class PathSearchBudget:
     def __init__(self, max_expansions):
@@ -15,12 +16,14 @@ class PathSearchBudget:
 
 
 def is_static_tile_blocked(world, tile: Vec2i) -> bool:
+    # Out of bounds is blocked.
     if tile.y < 0 or tile.y >= len(world.tilemap):
         return True
 
     if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
         return True
 
+    # Static collision from tilemap.
     return (tile.x, tile.y) in world.static_collision_tiles
 
 
@@ -103,7 +106,7 @@ def step_is_navigable_for_entity(
 
 
 def iter_path_neighbors(world, entity, tile: Vec2i, can_move_8way: bool):
-    directions = ALL_DIRS_8WAY if can_move_8way else CARDINAL_DIRS
+    directions = CHEBY_DIRS if can_move_8way else CARDINAL_DIRS
 
     for direction in directions:
         if not step_is_navigable_for_entity(

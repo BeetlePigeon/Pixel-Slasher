@@ -1,4 +1,4 @@
-from settings import TILE_UNITS, ANGLE_SCALE
+from constants import TILE_UNITS, ANGLE_SCALE
 
 
 SKILL_DEFS = {

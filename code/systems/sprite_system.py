@@ -6,7 +6,7 @@ from camera_utils import (
     scale_length_by_camera_zoom
 )
 from support import Vec2i
-from settings import TILE_UNITS
+from constants import TILE_UNITS
 from tile_vec_utils import (
     interp_cpos,
     cpos_to_screen,
@@ -170,7 +170,7 @@ def sprite_system(world, surface, render_alpha):
             )
 
 
-def render_tiles(world, surface, render_alpha=0.0):
+def tile_render_system(world, surface, render_alpha=0.0):
     scaled_tile_images = {}
 
     for y, row in enumerate(world.tilemap):

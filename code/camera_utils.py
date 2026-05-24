@@ -1,6 +1,6 @@
 import pygame
 from support import Vec2i
-from settings import ZOOM_FP_SCALE
+from constants import ZOOM_FP_SCALE
 from tile_vec_utils import screen_to_cpos, tile_from_cpos
 
 

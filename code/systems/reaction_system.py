@@ -1,3 +1,4 @@
+from data.tables_skill_defs import SKILL_DEFS
 from .action_state_system import action_state_has_any_tags, cancel_action_state
 
 
@@ -25,7 +26,6 @@ def entity_is_counter_ready(world, entity):
 
 
 def start_counter_attack_action(world, defender, attacker):
-    from SKILL_DEFS import SKILL_DEFS
 
     skill_def = SKILL_DEFS["counter_attack"]
     action_def = skill_def["cast"]

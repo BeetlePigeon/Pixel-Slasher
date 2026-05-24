@@ -1,7 +1,7 @@
 import pygame
 from camera_utils import internal_screen_to_world_cpos
 from gameplay_ui import GameplayUI
-from SKILL_DEFS import SKILL_DEFS
+from data.tables_skill_defs import SKILL_DEFS
 from tile_vec_utils import tile_from_cpos
 from systems import (
     snapshot_system,
@@ -20,7 +20,7 @@ from systems import (
     status_effect_system,
     effect_delivery_system,
     sprite_system,
-    render_tiles,
+    tile_render_system,
     combat_damage_system,
 )
 
@@ -283,6 +283,6 @@ class StateGameplay(State):
 
     def draw(self, surface, render_alpha):
         camera_system(self.game.world, surface, render_alpha)
-        render_tiles(self.game.world, surface, render_alpha)
+        tile_render_system(self.game.world, surface, render_alpha)
         sprite_system(self.game.world, surface, render_alpha)
         self.gameplay_ui.draw(surface)

@@ -1,15 +1,12 @@
 from support import Vec2i
 from tile_vec_utils import chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
+from path_utils import is_static_tile_blocked
 
 
 def is_tile_blocked_for_teleport(world, tile: Vec2i) -> bool:
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
+    blocked = is_static_tile_blocked(world, tile)
 
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    return (tile.x, tile.y) in world.static_collision_tiles
+    return blocked
 
 
 def has_min_progress(

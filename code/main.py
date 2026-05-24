@@ -29,7 +29,7 @@
 import sys
 import pygame
 import time
-from settings import *
+from constants import SIM_DT, MAX_FRAME_DT
 from display import Display
 from debug import Debug
 from gamestate import StateGameplay
@@ -38,7 +38,7 @@ from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
 from skill_utils import validate_skill_defs
-from SKILL_DEFS import SKILL_DEFS
+from data.tables_skill_defs import SKILL_DEFS
 from world import World
 from dataclasses import replace
 

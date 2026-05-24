@@ -1,13 +1,11 @@
 from support import Vec2i
 from settings import (
-    TILE_UNITS,
-    AIM_DIRECTION_LUTS,
-    AIM_LUT_SIZES,
-    DIRECTION_VECTORS,
     ALLOWED_AIM_TIMINGS,
     ALLOWED_TRIGGER_MODES,
     REQUIRED_SKILL_FIELDS,
 )
+from constants import TILE_UNITS, AIM_LUT_SIZES, DEFAULT_AIM_OFFSET_RESOLUTION
+from data.tables_dirs import AIM_DIRECTION_LUTS, DIRECTION_VECTORS
 from tile_vec_utils import (
     sign,
     quantize_vector_to_lut_direction,
@@ -205,9 +203,6 @@ def build_slash_fan_tiles(origin_tile, direction):
         ))
 
     return list(tiles)
-
-
-DEFAULT_AIM_OFFSET_RESOLUTION = 32
 
 
 def apply_aim_offset_steps(aim_vector: Vec2i, offset_steps: int, lut_size: int):

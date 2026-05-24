@@ -1,5 +1,5 @@
 import pygame
-from settings import TILE_UNITS
+from constants import TILE_UNITS
 from systems.effect_delivery_system import build_square_area_tiles
 from support import Vec2i, Transform
 from tile_vec_utils import tile_from_cpos

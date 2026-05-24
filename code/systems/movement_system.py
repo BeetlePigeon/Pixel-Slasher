@@ -1,4 +1,5 @@
-from settings import MOVE_BUFFER_TICKS, PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, TILE_UNITS
+from settings import PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, SETTLE_LOCKED_TAG
+from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
 from support import Vec2i
@@ -18,8 +19,8 @@ from path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
     path_tiles_to_cpos_nodes,
+    is_static_tile_blocked,
 )
-
 
 
 def vec_is_nonzero(vec: Vec2i) -> bool:
@@ -480,15 +481,9 @@ def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
 
 
 def is_tile_blocked(world, tile: Vec2i) -> bool:
-    # Out of bounds is blocked.
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
+    blocked = is_static_tile_blocked(world, tile)
 
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    # Static collision from tilemap.
-    return (tile.x, tile.y) in world.static_collision_tiles
+    return blocked
 
 
 def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
@@ -812,16 +807,13 @@ def start_settle_to_grid_if_needed(world, entity, transform, motion_state) -> bo
         start=transform.cpos,
         end=target_cpos,
         progress=0,
-        duration=4,
+        duration=3,
     )
 
     motion_state["influence_mode"] = "normal"
     motion_state["controller_source"] = "settle"
 
     return True
-
-
-SETTLE_LOCKED_TAG = "settle_locked"
 
 
 def entity_can_auto_settle(world, entity):
