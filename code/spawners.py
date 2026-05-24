@@ -174,32 +174,24 @@ def spawn_meteor(
     radius_tiles=1,
     damage=25,
     impact_tick=45,
-    lifetime_ticks=60,
-    telegraph_highlight_ticks=2,
-    impact_highlight_ticks=10,
-    telegraph_highlight_color="yellow",
-    impact_highlight_color="red",
 ):
-    eid = world.entities.create()
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
 
+    eid = world.entities.create()
     tile = tile_from_cpos(cpos)
 
     world.transform[eid] = Transform(
         tile=tile,
         cpos=cpos,
+        prev_cpos=cpos,
+        position_mode="free",
     )
-
-    center_tile = tile
 
     affected_tiles = build_square_area_tiles(
-        center_tile,
+        tile,
         radius_tiles,
     )
-
-    source_team = None
-
-    if source is not None:
-        source_team = world.team.get(source)
 
     world.effect_delivery[eid] = {
         "context": {
@@ -207,20 +199,12 @@ def spawn_meteor(
             "instigator": source,
             "source_kind": "skill",
             "source_id": skill_id,
-            "team": source_team,
         },
         "delivery": {
             "type": "timed_tiles",
             "age": 0,
             "trigger_tick": impact_tick,
             "tiles": affected_tiles,
-        },
-        "target_filter": {
-            "team_policy": "hostile_to_owner",
-            "requires": {"hittable"},
-        },
-        "hit_policy": {
-            "mode": "once",
         },
         "effects": [
             {
@@ -229,32 +213,23 @@ def spawn_meteor(
                     "amount": damage,
                     "damage_type": "fire",
                 },
-            }
+            },
         ],
         "consume_policy": {
             "destroy_carrier_after_delivery": True,
         },
-        "debug": {
-            "telegraph_highlight_ticks": telegraph_highlight_ticks,
-            "impact_highlight_ticks": impact_highlight_ticks,
-            "telegraph_highlight_color": telegraph_highlight_color,
-            "impact_highlight_color": impact_highlight_color,
-        },
     }
 
-    world.lifetime[eid] = {
-        "remaining_ticks": lifetime_ticks,
-    }
-
-    marker_surface = pygame.Surface((world.tile_size, world.tile_size), pygame.SRCALPHA)
-    marker_surface.fill((255, 180, 0, 80))
+    meteor_surface = pygame.Surface(
+        (world.tile_size, world.tile_size),
+        pygame.SRCALPHA,
+    )
+    meteor_surface.fill((255, 180, 0, 80))
 
     world.sprite[eid] = {
-        "image": marker_surface,
-        "anchor": Vec2i(
-            world.tile_size // 2,
-            world.tile_size // 2,
-        ),
+        "image": meteor_surface,
+        "anchor": "center",
+        "z": 0,
     }
 
     return eid

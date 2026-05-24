@@ -925,11 +925,6 @@ def execute_meteor(world, caster, context):
         radius_tiles=params["radius_tiles"],
         damage=params["damage"],
         impact_tick=params["impact_tick"],
-        lifetime_ticks=params["lifetime"],
-        telegraph_highlight_ticks=params["telegraph_highlight_ticks"],
-        telegraph_highlight_color=params["telegraph_highlight_color"],
-        impact_highlight_ticks=params["impact_highlight_ticks"],
-        impact_highlight_color=params["impact_highlight_color"],
     )
 
     return eid is not None

@@ -1,82 +1,179 @@
-from combat_ops import queue_damage_request, find_hittable_entities_on_tiles
 from support import Vec2i
+from combat_ops import (
+    find_hittable_entities_on_tiles,
+    get_entity_current_tile,
+    queue_damage_request,
+)
 
 
 def effect_delivery_system(world):
     for carrier, effect_delivery in list(world.effect_delivery.items()):
-        delivery = effect_delivery["delivery"]
-        delivery["age"] = delivery.get("age", 0) + 1
-
-        delivery_type = delivery["type"]
-
-        if delivery_type == "timed_tiles":
-            update_timed_tiles_effect_delivery(
-                world,
-                carrier,
-                effect_delivery,
-            )
+        if carrier not in world.effect_delivery:
             continue
 
-        raise ValueError(
-            f"Unknown effect delivery type: {delivery_type}"
+        process_effect_delivery(
+            world,
+            carrier,
+            effect_delivery,
         )
 
 
-def update_timed_tiles_effect_delivery(
-    world,
-    carrier,
-    effect_delivery,
-):
+def process_effect_delivery(world, carrier, effect_delivery):
     delivery = effect_delivery["delivery"]
 
-    if delivery.get("delivered", False):
+    advance_effect_delivery(delivery)
+
+    if not delivery_is_ready(world, carrier, effect_delivery):
         return
 
-    age = delivery["age"]
-    trigger_tick = delivery["trigger_tick"]
-    tiles = delivery["tiles"]
-
-    debug = effect_delivery.get("debug")
-
-    if debug is not None and age < trigger_tick:
-        world.game.debug.add_debug_tile_highlight(
-            world,
-            tiles,
-            debug.get("telegraph_highlight_ticks", 2),
-            debug.get("telegraph_highlight_color", "yellow"),
-        )
-
-    if age < trigger_tick:
-        return
-
-    if debug is not None:
-        world.game.debug.add_debug_tile_highlight(
-            world,
-            tiles,
-            debug.get("impact_highlight_ticks", 8),
-            debug.get("impact_highlight_color", "red"),
-        )
-
-    context = build_effect_context(
-        effect_delivery,
-        carrier=carrier,
-    )
-
-    source = context.get("owner") or context.get("instigator")
-
-    targets = find_hittable_entities_on_tiles(
+    targets = resolve_delivery_targets(
         world,
-        source,
-        tiles,
+        carrier,
+        effect_delivery,
     )
 
     apply_effects_to_targets(
         world,
-        context,
+        carrier,
+        effect_delivery,
         targets,
-        effect_delivery["effects"],
     )
 
+    consume_effect_delivery(
+        world,
+        carrier,
+        effect_delivery,
+    )
+
+
+def advance_effect_delivery(delivery):
+    delivery["age"] = delivery.get("age", 0) + 1
+
+
+def delivery_is_ready(world, carrier, effect_delivery):
+    delivery = effect_delivery["delivery"]
+    delivery_type = delivery["type"]
+
+    if delivery_type == "timed_tiles":
+        return timed_tiles_delivery_is_ready(delivery)
+
+    return unsupported_delivery_is_ready(
+        world,
+        carrier,
+        effect_delivery,
+    )
+
+
+def timed_tiles_delivery_is_ready(delivery):
+    if delivery.get("delivered", False):
+        return False
+
+    return delivery["age"] >= delivery["trigger_tick"]
+
+
+def unsupported_delivery_is_ready(world, carrier, effect_delivery):
+    raise NotImplementedError(
+        f"Effect delivery type not implemented: "
+        f"{effect_delivery['delivery']['type']}"
+    )
+
+
+def resolve_delivery_targets(world, carrier, effect_delivery):
+    delivery = effect_delivery["delivery"]
+    delivery_type = delivery["type"]
+
+    if delivery_type == "timed_tiles":
+        return resolve_timed_tiles_targets(
+            world,
+            carrier,
+            effect_delivery,
+        )
+
+    return resolve_unsupported_delivery_targets(
+        world,
+        carrier,
+        effect_delivery,
+    )
+
+
+def resolve_timed_tiles_targets(world, carrier, effect_delivery):
+    delivery = effect_delivery["delivery"]
+    context = build_effect_context(carrier, effect_delivery)
+    source = context.get("owner") or context.get("instigator")
+
+    return find_hittable_entities_on_tiles(
+        world,
+        source,
+        delivery["tiles"],
+    )
+
+
+def resolve_unsupported_delivery_targets(world, carrier, effect_delivery):
+    pass
+
+
+def apply_effects_to_targets(
+    world,
+    carrier,
+    effect_delivery,
+    targets,
+):
+    context = build_effect_context(
+        carrier,
+        effect_delivery,
+    )
+
+    for target in targets:
+        for effect in effect_delivery["effects"]:
+            apply_effect_to_target(
+                world,
+                context,
+                target,
+                effect,
+            )
+
+
+def apply_effect_to_target(world, context, target, effect):
+    effect_type = effect["type"]
+
+    if effect_type == "damage":
+        apply_damage_effect(
+            world,
+            context,
+            target,
+            effect,
+        )
+        return
+
+    apply_unsupported_effect(
+        world,
+        context,
+        target,
+        effect,
+    )
+
+
+def apply_damage_effect(world, context, target, effect):
+    params = effect["params"]
+
+    queue_damage_request(
+        world,
+        source=context.get("owner") or context.get("instigator"),
+        target=target,
+        amount=params["amount"],
+        skill_id=context.get("source_id"),
+        hit_tile=get_entity_current_tile(world, target),
+    )
+
+
+def apply_unsupported_effect(world, context, target, effect):
+    raise NotImplementedError(
+        f"Effect type not implemented: {effect['type']}"
+    )
+
+
+def consume_effect_delivery(world, carrier, effect_delivery):
+    delivery = effect_delivery["delivery"]
     delivery["delivered"] = True
 
     consume_policy = effect_delivery.get("consume_policy", {})
@@ -85,53 +182,11 @@ def update_timed_tiles_effect_delivery(
         world.entities.destroy(carrier)
 
 
-def apply_effect_to_target(
-    world,
-    context,
-    target,
-    effect,
-    hit_tile=None,
-):
-    effect_type = effect["type"]
-    params = effect.get("params", {})
+def build_effect_context(carrier, effect_delivery):
+    context = dict(effect_delivery.get("context", {}))
+    context["carrier"] = carrier
 
-    if effect_type == "damage":
-        queue_damage_request(
-            world,
-            source=context.get("owner") or context.get("instigator"),
-            target=target,
-            amount=params["amount"],
-            skill_id=context.get("source_id"),
-            hit_tile=hit_tile,
-        )
-        return
-
-    raise ValueError(
-        f"Unknown effect type: {effect_type}"
-    )
-
-
-def apply_effects_to_targets(
-    world,
-    context,
-    targets,
-    effects,
-    hit_tile_by_target=None,
-):
-    for target in targets:
-        hit_tile = None
-
-        if hit_tile_by_target is not None:
-            hit_tile = hit_tile_by_target.get(target)
-
-        for effect in effects:
-            apply_effect_to_target(
-                world,
-                context,
-                target,
-                effect,
-                hit_tile=hit_tile,
-            )
+    return context
 
 
 def build_square_area_tiles(center_tile, radius_tiles):
@@ -147,12 +202,3 @@ def build_square_area_tiles(center_tile, radius_tiles):
             )
 
     return tiles
-
-
-def build_effect_context(effect_delivery, carrier=None):
-    context = dict(effect_delivery.get("context", {}))
-
-    if carrier is not None:
-        context["carrier"] = carrier
-
-    return context
