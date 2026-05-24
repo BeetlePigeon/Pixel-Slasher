@@ -76,7 +76,7 @@ def skill_execution_system(world):
         slot = resolved["slot"]
         skill_def = resolved["skill_def"]
         intent = resolved["intent"]
-        handler = [resolved["handler"]]
+        handler = resolved["handler"]
 
         if skill_cancels_active_action_state(world, caster, skill_def):
             cancel_action_state(world, caster)
