@@ -37,6 +37,7 @@ from inputhandler import Input
 from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
+from skill_handlers import HANDLERS
 from skill_utils import validate_skill_defs
 from data.tables_skill_defs import SKILL_DEFS
 from world import World
@@ -74,7 +75,7 @@ class Game:
         self.entities = EntityManager()
 
         # Validate Game Data
-        validate_skill_defs(SKILL_DEFS)
+        validate_skill_defs(SKILL_DEFS, handler_ids=HANDLERS)
 
         # World
         self.world = World(self, self.entities)

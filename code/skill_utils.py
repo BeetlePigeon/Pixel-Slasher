@@ -596,7 +596,10 @@ def start_skill_action(world, caster, context, action_def, action_type):
     )
 
 
-def validate_skill_defs(skill_defs):
+def validate_skill_defs(skill_defs, handler_ids=None):
+    if handler_ids is not None:
+        handler_ids = set(handler_ids)
+
     for skill_id, skill_def in skill_defs.items():
         missing_fields = REQUIRED_SKILL_FIELDS - set(skill_def)
 
@@ -709,15 +712,16 @@ def validate_skill_defs(skill_defs):
             validate_skill_aim(skill_id, skill_def["aim"])
 
         if skill_def["cast"] is not None:
-            validate_skill_cast(skill_id, skill_def["cast"])
+            validate_skill_cast(skill_id, skill_def["cast"], handler_ids=handler_ids)
 
         if skill_def["channel"] is not None:
-            validate_skill_channel(skill_id, skill_def["channel"])
+            validate_skill_channel(skill_id, skill_def["channel"], handler_ids=handler_ids)
 
         validate_handler_id(
             skill_id,
             "skill",
             skill_def["handler"],
+            handler_ids=handler_ids
         )
 
 
@@ -742,7 +746,7 @@ def validate_skill_aim(skill_id, aim):
         )
 
 
-def validate_handler_id(skill_id, source_name, handler_id):
+def validate_handler_id(skill_id, source_name, handler_id, handler_ids=None):
     if not isinstance(handler_id, str):
         raise ValueError(
             f"Skill '{skill_id}' {source_name} handler must be a string"
@@ -751,6 +755,12 @@ def validate_handler_id(skill_id, source_name, handler_id):
     if not handler_id:
         raise ValueError(
             f"Skill '{skill_id}' {source_name} handler cannot be empty"
+        )
+
+    if handler_ids is not None and handler_id not in handler_ids:
+        raise ValueError(
+            f"Skill '{skill_id}' {source_name} uses unknown handler "
+            f"{handler_id!r}"
         )
 
 
@@ -818,7 +828,7 @@ def validate_aim_offset_distance_scaling_params(
         )
 
 
-def validate_skill_cast(skill_id, cast):
+def validate_skill_cast(skill_id, cast, handler_ids=None):
     if not isinstance(cast, dict):
         raise ValueError(
             f"Skill '{skill_id}' cast must be None or a dict"
@@ -864,6 +874,7 @@ def validate_skill_cast(skill_id, cast):
             cast,
             event_index,
             event,
+            handler_ids=handler_ids
         )
 
     if "phases" in cast:
@@ -881,7 +892,7 @@ def validate_skill_cast(skill_id, cast):
             )
 
 
-def validate_skill_channel(skill_id, channel):
+def validate_skill_channel(skill_id, channel, handler_ids=None):
     if not isinstance(channel, dict):
         raise ValueError(
             f"Skill '{skill_id}' channel must be None or a dict"
@@ -950,6 +961,7 @@ def validate_skill_channel(skill_id, channel):
             channel,
             event_index,
             event,
+            handler_ids=handler_ids
         )
 
     if not isinstance(channel["repeat_events"], list):
@@ -963,6 +975,7 @@ def validate_skill_channel(skill_id, channel):
             channel,
             event_index,
             event,
+            handler_ids=handler_ids
         )
 
     if "phases" in channel:
@@ -980,7 +993,7 @@ def validate_skill_channel(skill_id, channel):
             )
 
 
-def validate_skill_repeat_event(skill_id, action_def, event_index, event):
+def validate_skill_repeat_event(skill_id, action_def, event_index, event, handler_ids=None):
     if not isinstance(event, dict):
         raise ValueError(
             f"Skill '{skill_id}' repeat event {event_index} must be a dict"
@@ -1034,6 +1047,7 @@ def validate_skill_repeat_event(skill_id, action_def, event_index, event):
         skill_id,
         f"repeat event {event_index}",
         event["handler"],
+        handler_ids=handler_ids
     )
 
     if "params" in event and not isinstance(event["params"], dict):
@@ -1061,7 +1075,7 @@ def validate_skill_repeat_event(skill_id, action_def, event_index, event):
     )
 
 
-def validate_skill_cast_event(skill_id, cast, event_index, event):
+def validate_skill_cast_event(skill_id, cast, event_index, event, handler_ids=None):
     if not isinstance(event, dict):
         raise ValueError(
             f"Skill '{skill_id}' cast event {event_index} must be a dict"
@@ -1102,6 +1116,7 @@ def validate_skill_cast_event(skill_id, cast, event_index, event):
         skill_id,
         f"cast event {event_index}",
         event["handler"],
+        handler_ids=handler_ids,
     )
 
     if "params" in event and not isinstance(event["params"], dict):
