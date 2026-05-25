@@ -1,7 +1,10 @@
 # Debug controls:
+# ESC: Quit
+# `: Toggle Debug Mode
 # WASD / L Click: Move
 # R Click: Channel Projectile
 # SPACE: Test Projectile
+# LSHIFT: Toggle Camera Mode
 # 1: Teleport
 # 2: Wide Projectiles
 # 3: Magnet
@@ -12,7 +15,6 @@
 # 8: Guard Counter
 # 9: Meteor
 # 0: *FREE*
-# LSHIFT: Toggle Camera Mode
 # B: Debug Stun Player
 # N: Debug Freeze Player
 # H: Debug Make Enemy Damage Player
@@ -189,7 +191,9 @@ class Game:
             # Store edge-triggered input until the next simulation tick.
             self.input_buffer.add_frame_input(input_state)
 
-            # Debug/window hotkeys can still act immediately on raw input.
+            # Debug/window hotkeys can still act immediately on raw input. Toggle debug mode with ~.
+            if pygame.K_BACKQUOTE in input_state.keys_pressed:
+                self.debug_mode = not self.debug_mode
             if self.debug_mode:
                 self.debug.process_top_level_debug_input(input_state)
 

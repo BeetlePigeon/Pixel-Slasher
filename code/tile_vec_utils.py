@@ -34,6 +34,10 @@ def interp_cpos(prev: Vec2i, current: Vec2i, alpha: float) -> Vec2i:
     )
 
 
+def vec2i_from_pair(pair):
+    return Vec2i(pair[0], pair[1])
+
+
 def scale_normalized_dir(direction: Vec2i, distance: int) -> Vec2i:
     return Vec2i(
         direction.x * distance // DIR_SCALE,

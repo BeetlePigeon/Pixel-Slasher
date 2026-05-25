@@ -1,6 +1,14 @@
+from copy import deepcopy
 from constants import TILE_DIMENSION, TILE_UNITS
+from area_runtime import AreaRuntime
 from camera import Camera
-from tile_vec_utils import tile_center
+from data.tables_area_defs import (
+    AREA_DEFS,
+    STARTING_AREA_ID,
+    STARTING_SPAWN_ID,
+)
+from data.tables_player_defs import DEFAULT_PLAYER_STATE
+from tile_vec_utils import tile_center, vec2i_from_pair
 from support import Vec2i, Transform
 
 
@@ -56,73 +64,31 @@ class World:
         self.influence_emitter = {}
         self.influence_receiver = {}
         self.influence_delta = {}
+        self.area_member = {}
 
         self.debug_tile_highlights = []
 
-        ## Tiles
-        self.tile_size = TILE_DIMENSION
-        self.tile_images = {
-            0: self.game.assets.images["block"],    # Blocked / No floor
-            1: self.game.assets.images["water"]     # Walkable
-        }
+        ##START
+        ## Area / Player Runtime
+        self.area_defs = AREA_DEFS
+        self.current_area = None
+        self.area_snapshots = {}
 
-        self.tilemap = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        ]
-        self.static_collision_tiles = self.build_static_collision_tiles()
+        self.player_state = deepcopy(DEFAULT_PLAYER_STATE)
+        self.player = None
+
+        self.tile_size = TILE_DIMENSION
+        self.tile_images = {}
+        self.tilemap = []
+        self.static_collision_tiles = set()
+
+        self.load_area(
+            STARTING_AREA_ID,
+            STARTING_SPAWN_ID,
+        )
 
         ## Environment
 #        self.create_wind_field_emitter()
-
-        ## Actors
-        self.player = self.spawn_player()
-        self.spawn_training_dummy(Vec2i(7, 5))
-        self.spawn_training_dummy(Vec2i(7, 6))
-
-        ## Focus Camera
-        self.world_camera.camera["target"] = self.player
-        self.world_camera.camera["current_cpos"] = self.transform[self.player].cpos
-        self.world_camera.camera["prev_cpos"] = self.transform[self.player].cpos
 
 
     def create_wind_field_emitter(self):
@@ -174,6 +140,7 @@ class World:
             self.influence_emitter,
             self.influence_receiver,
             self.influence_delta,
+            self.area_member,
         )
 
 
@@ -183,7 +150,17 @@ class World:
         return self.snapshot.values()
 
 
-    def remove_entity_skill_entries(self, eid):
+    def remove_entity(self, eid):
+        self.untrack_area_entity(eid)
+
+        for component_map in self.iter_entity_component_maps():
+            component_map.pop(eid, None)
+
+        for snapshot_map in self.iter_entity_snapshot_maps():
+            snapshot_map.pop(eid, None)
+
+        self.placement_blocker.discard(eid)
+
         # Skills and cooldowns are keyed by tuples such as:
         #   (entity_id, slot)
         #
@@ -197,16 +174,124 @@ class World:
                 self.skill_cooldown.pop(key, None)
 
 
-    def remove_entity(self, eid):
-        for component_map in self.iter_entity_component_maps():
-            component_map.pop(eid, None)
+    def build_tile_images(self, tile_image_assets):
+        tile_images = {}
 
-        for snapshot_map in self.iter_entity_snapshot_maps():
-            snapshot_map.pop(eid, None)
+        for tile_id, asset_key in tile_image_assets.items():
+            tile_images[tile_id] = self.game.assets.images[asset_key]
 
-        self.placement_blocker.discard(eid)
+        return tile_images
 
-        self.remove_entity_skill_entries(eid)
+
+    def load_area(self, area_id, spawn_id):
+        if area_id not in self.area_defs:
+            raise ValueError(f"Unknown area id: {area_id!r}")
+
+        area_def = self.area_defs[area_id]
+
+        if spawn_id not in area_def["spawn_points"]:
+            raise ValueError(
+                f"Area {area_id!r} has no spawn point {spawn_id!r}"
+            )
+
+        self.unload_current_area()
+
+        tilemap = [
+            list(row)
+            for row in area_def["tilemap"]
+        ]
+
+        tile_images = self.build_tile_images(
+            area_def["tile_image_assets"]
+        )
+
+        self.current_area = AreaRuntime(
+            area_id=area_id,
+            area_def=area_def,
+            tilemap=tilemap,
+            tile_images=tile_images,
+        )
+
+        self.tilemap = self.current_area.tilemap
+        self.tile_images = self.current_area.tile_images
+        self.static_collision_tiles = self.build_static_collision_tiles()
+        self.current_area.static_collision_tiles = self.static_collision_tiles
+
+        spawn_def = area_def["spawn_points"][spawn_id]
+        self.player = self.spawn_player(spawn_def)
+
+        for entity_def in area_def.get("placed_entities", []):
+            self.spawn_area_entity_from_def(entity_def)
+
+        self.focus_camera_on_player()
+
+
+    def unload_current_area(self):
+        if self.player is not None:
+            self.capture_player_state_from_entity(self.player)
+            self.remove_entity(self.player)
+            self.entities.dead.discard(self.player)
+            self.player = None
+
+        if self.current_area is not None:
+            for eid in sorted(self.current_area.entity_ids):
+                self.remove_entity(eid)
+                self.entities.dead.discard(eid)
+
+        self.current_area = None
+        self.tile_images = {}
+        self.tilemap = []
+        self.static_collision_tiles = set()
+
+
+    def capture_player_state_from_entity(self, player):
+        health = self.health.get(player)
+        if health is not None:
+            self.player_state["health"] = dict(health)
+
+        skills = {}
+
+        for key, skill_id in self.skills.items():
+            entity, slot = key
+            if entity == player:
+                skills[slot] = skill_id
+
+        self.player_state["skills"] = skills
+
+
+    def track_area_entity(self, eid):
+        if self.current_area is None:
+            return
+
+        self.current_area.track_entity(eid)
+        self.area_member[eid] = self.current_area.area_id
+
+
+    def untrack_area_entity(self, eid):
+        if self.current_area is not None:
+            self.current_area.untrack_entity(eid)
+
+        self.area_member.pop(eid, None)
+
+
+    def spawn_area_entity_from_def(self, entity_def):
+        kind = entity_def["kind"]
+
+        if kind == "training_dummy":
+            tile = vec2i_from_pair(entity_def["tile"])
+            return self.spawn_training_dummy(tile)
+
+        raise ValueError(f"Unsupported placed entity kind: {kind!r}")
+
+
+    def focus_camera_on_player(self):
+        self.world_camera.camera["target"] = self.player
+        self.world_camera.camera["current_cpos"] = (
+            self.transform[self.player].cpos
+        )
+        self.world_camera.camera["prev_cpos"] = (
+            self.transform[self.player].cpos
+        )
 
 
     def build_static_collision_tiles(self):
@@ -218,70 +303,67 @@ class World:
 
         return blocked
 
-
-    def spawn_player(self):
+    def spawn_player(self, spawn_def):
         eid = self.entities.create()
-        player_tile = Vec2i(5, 5)
+
+        player_tile = vec2i_from_pair(spawn_def["tile"])
         player_cpos = tile_center(player_tile)
 
         player_transform = Transform(
             tile=player_tile,
-            cpos=tile_center(player_tile),
+            cpos=player_cpos,
             prev_cpos=player_cpos,
             position_mode="grid",
         )
+
         self.transform[eid] = player_transform
-        self.facing[eid] = Vec2i(1, -1)
+        self.facing[eid] = vec2i_from_pair(spawn_def["facing"])
+
         self.movement_collision[eid] = {
             "static_tiles": "slide",
-
             # Default/fallback ratio.
             "slide_min_tangent_ratio": (1, 2),
-
             # Direct grid movement: WASD / buffered WASD.
             "grid_slide_min_tangent_ratio": (1, 2),
-
             # Traditional click-to-move target movement.
             "mouse_slide_min_tangent_ratio": (5, 2),
             "corner_cutting": "allow_if_one_side_open",
         }
+
         self.motion_state[eid] = {
             "controller": None,
             "last_delta": Vec2i(0, 0),
             "influence_mode": "normal",
         }
+
         self.influence_receiver[eid] = {
-            "accepts": {"wind", "magnet",},
+            "accepts": {"wind", "magnet"},
             "scales": {
                 "wind": (1, 1),
                 "magnet": (1, 1),
             },
             "max_delta": TILE_UNITS // 16,
         }
+
         self.locomotion[eid] = {
             "step_duration": 10,
             "can_move_8way": True,
         }
+
         self.placement_blocker.add(eid)
-        self.skills[(eid, 0)] = "test_projectile"
-        self.skills[(eid, 1)] = "teleport"
-        self.skills[(eid, 2)] = "burst_projectile"
-        self.skills[(eid, 3)] = "magnet_orb"
-        self.skills[(eid, 4)] = "dash"
-        self.skills[(eid, 5)] = "spiral_projectile"
-        self.skills[(eid, 6)] = "debug_slash"
-#        self.skills[(eid, 7)] = None
-        self.skills[(eid, 8)] = "guard_counter"
-        self.skills[(eid, 9)] = "debug_channel_projectile"
-        self.skills[(eid, 10)] = "meteor"
-#        self.skills[(eid, 11)] = None
+
+        for slot, skill_id in self.player_state["skills"].items():
+            if skill_id is not None:
+                self.skills[(eid, slot)] = skill_id
 
         player_image = self.game.assets.images["player"]
+
         self.sprite[eid] = {
             "image": player_image,
             "anchor": "bottom_center",
-            "z": 0
+            "z": 0,
         }
+
         self.animation[eid] = {
             "set": "player",
             "state": "idle",
@@ -289,14 +371,15 @@ class World:
             "frame": 0,
             "timer": 0,
         }
+
         self.team[eid] = "player"
-        self.health[eid] = {
-            "current": 100,
-            "max": 100,
-        }
+
+        self.health[eid] = dict(self.player_state["health"])
+
         self.hittable[eid] = {
             "enabled": True,
         }
+
         return eid
 
 
@@ -357,5 +440,7 @@ class World:
         }
 
         self.placement_blocker.add(eid)
+
+        self.track_area_entity(eid)
 
         return eid
