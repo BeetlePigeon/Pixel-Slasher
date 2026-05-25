@@ -239,39 +239,114 @@ class StateGameplay(State):
 
         return intents, input_state.mouse_pos
 
-
     def update(self, dt, input_state):
         self.game.world.tick += 1
+
+        # ------------------------------------------------------------------
+        # Fixed-tick gameplay pipeline
+        #
+        # This function defines the authoritative simulation order for one
+        # gameplay tick. The order is part of the engine contract. Do not
+        # reorder systems casually.
+        #
+        # General rule:
+        # - Earlier systems prepare or resolve state.
+        # - Later systems consume that state.
+        # - Most newly spawned gameplay effects are intended to resolve on a
+        #   later tick, not immediately in the same tick they are created.
+        #
+        # Important movement rule:
+        # movement_system intentionally runs before movement_arbiter_system.
+        # This lets movement_system finish and clear an existing motion
+        # controller, then lets movement_arbiter_system assign a new controller
+        # in the same tick. This prevents a one-frame movement gap.
+        #
+        # Important event rule:
+        # event_system currently acts as the event queue coordinator near the
+        # end of the tick. Same-tick event chaining is intentionally avoided
+        # for now. Gameplay reactions and feedback should stay explicit.
+        # ------------------------------------------------------------------
 
         # Player Intents
         player = self.game.world.player
         player_intents, player_mouse_pos = self.build_player_intents(input_state)
 
-        self.game.world.aim_state[player] = {"mouse_pos": player_mouse_pos}
+        self.game.world.aim_state[player] = {
+            "mouse_pos": player_mouse_pos,
+        }
 
-        intents = {player: player_intents}
+        intents = {
+            player: player_intents,
+        }
 
         # AI Intents
-        pass  # add intents to the intents dict created under Player Intents
+        pass
+        # Add AI-generated intents to the intents dict created under Player Intents.
 
         # Debug Inputs Bypass Arbiters
         if self.game.debug_mode:
             self.game.debug.process_gamestate_debug_inputs(input_state)
 
-        # Update Systems
+        # Phase 1: resolve state carried over from previous ticks.
+        #
+        # snapshot_system stores previous-frame state for interpolation and
+        # comparison.
+        #
+        # action_state_system advances casts/channels and emits scheduled
+        # skill events.
+        #
+        # status_effect_system advances existing statuses.
+        #
+        # effect_delivery_system resolves existing effect carriers, such as
+        # delayed tile effects.
+        #
+        # combat_damage_system applies queued damage requests produced by
+        # earlier systems.
         snapshot_system(self.game.world)
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
         effect_delivery_system(self.game.world)
         combat_damage_system(self.game.world)
+
         if self.game.debug_mode:
             self.game.debug.debug_tile_highlight_system(self.game.world)
+
+        # Phase 2: convert this tick's input/AI intents into gameplay requests.
+        #
+        # intent_system stores raw entity intents.
+        #
+        # skill_intent_resolution_system checks whether requested skills are
+        # currently legal.
+        #
+        # skill_execution_system starts casts, channels, instant skills, and
+        # other skill-driven behavior.
         intent_system(self.game.world, intents)
         skill_intent_resolution_system(self.game.world, intents)
         skill_execution_system(self.game.world)
+
+        # Phase 3: resolve influence and movement.
+        #
+        # influence_system computes external movement influences.
+        #
+        # movement_system advances current motion controllers and clears
+        # finished controllers.
+        #
+        # movement_arbiter_system assigns new movement controllers after the
+        # movement system has had a chance to clear completed ones. This order
+        # is intentional and prevents frame gaps when a motion controller finishes and is then reassigned.
         influence_system(self.game.world)
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
+
+        # Phase 4: lifetime, camera, and events.
+        #
+        # lifetime_system expires temporary entities.
+        #
+        # camera_update_system updates camera target state.
+        #
+        # camera_shake_system applies presentation shake.
+        #
+        # event_system coordinates queued events near the end of the tick.
         lifetime_system(self.game.world)
         camera_update_system(self.game.world)
         camera_shake_system(self.game.world)
