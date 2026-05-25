@@ -49,9 +49,9 @@ def start_counter_attack_action(world, defender, attacker):
     )
 
 
-def try_trigger_guard_counter(world, damage_event):
-    defender = damage_event.get("target")
-    attacker = damage_event.get("source")
+def try_trigger_guard_counter(world, event):
+    defender = event.get("target")
+    attacker = event.get("source")
 
     if defender is None or attacker is None:
         return False
