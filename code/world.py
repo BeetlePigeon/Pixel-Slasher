@@ -124,6 +124,7 @@ class World:
         self.world_camera.camera["current_cpos"] = self.transform[self.player].cpos
         self.world_camera.camera["prev_cpos"] = self.transform[self.player].cpos
 
+
     def create_wind_field_emitter(self):
         eid = self.entities.create()
 
@@ -141,34 +142,72 @@ class World:
 
         return eid
 
-    def remove_entity(self, eid):
-        self.transform.pop(eid, None)
-        self.motion_state.pop(eid, None)
-        self.action_state.pop(eid, None)
-        self.status_effects.pop(eid, None)
-        self.facing.pop(eid, None)
 
-        self.move_intent.pop(eid, None)
-        self.buffered_move_intent.pop(eid, None)
-        self.move_target.pop(eid, None)
-        self.aim_state.pop(eid, None)
-        self.projectile.pop(eid, None)
-        self.sprite.pop(eid, None)
-        self.animation.pop(eid, None)
-        self.locomotion.pop(eid, None)
-        self.lifetime.pop(eid, None)
-        self.health.pop(eid, None)
-        self.effect_delivery.pop(eid, None)
-        self.team.pop(eid, None)
-        self.hittable.pop(eid, None)
-        self.movement_collision.pop(eid, None)
-        self.influence_emitter.pop(eid, None)
-        self.influence_receiver.pop(eid, None)
-        self.influence_delta.pop(eid, None)
-        self.placement_blocker.discard(eid)
+    def iter_entity_component_maps(self):
+        # Component maps keyed directly by entity id.
+        #
+        # If a new per-entity component dict is added to World, add it here so
+        # entity cleanup stays centralized.
+        return (
+            self.transform,
+            self.motion_state,
+            self.action_state,
+            self.status_effects,
+            self.facing,
+            self.move_intent,
+            self.buffered_move_intent,
+            self.move_target,
+            self.aim_state,
+            self.intent,
+            self.input_controlled,
+            self.active_skill,
+            self.sprite,
+            self.animation,
+            self.locomotion,
+            self.projectile,
+            self.lifetime,
+            self.health,
+            self.effect_delivery,
+            self.team,
+            self.hittable,
+            self.movement_collision,
+            self.influence_emitter,
+            self.influence_receiver,
+            self.influence_delta,
+        )
+
+
+    def iter_entity_snapshot_maps(self):
+        # Snapshot maps are grouped separately because self.snapshot is a dict of
+        # per-entity maps rather than a single component map.
+        return self.snapshot.values()
+
+
+    def remove_entity_skill_entries(self, eid):
+        # Skills and cooldowns are keyed by tuples such as:
+        #   (entity_id, slot)
+        #
+        # They cannot be cleaned with a simple component_map.pop(eid).
+        for key in list(self.skills):
+            if key[0] == eid:
+                self.skills.pop(key, None)
+
         for key in list(self.skill_cooldown):
             if key[0] == eid:
                 self.skill_cooldown.pop(key, None)
+
+
+    def remove_entity(self, eid):
+        for component_map in self.iter_entity_component_maps():
+            component_map.pop(eid, None)
+
+        for snapshot_map in self.iter_entity_snapshot_maps():
+            snapshot_map.pop(eid, None)
+
+        self.placement_blocker.discard(eid)
+
+        self.remove_entity_skill_entries(eid)
+
 
     def build_static_collision_tiles(self):
         blocked = set()
@@ -178,6 +217,7 @@ class World:
                     blocked.add((x, y))
 
         return blocked
+
 
     def spawn_player(self):
         eid = self.entities.create()
