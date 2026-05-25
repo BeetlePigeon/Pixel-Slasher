@@ -716,10 +716,6 @@ SKILL_DEFS = {
             "damage",
             "impact_tick",
             "lifetime",
-            "telegraph_highlight_ticks",
-            "telegraph_highlight_color",
-            "impact_highlight_ticks",
-            "impact_highlight_color",
         },
         "allowed_param_values": {},
 
@@ -778,11 +774,7 @@ SKILL_DEFS = {
             "radius_tiles": 2,
             "damage": 3,
             "impact_tick": 75,
-            "lifetime": 90,
-            "telegraph_highlight_ticks": 4,
-            "telegraph_highlight_color": "purple",
-            "impact_highlight_ticks": 18,
-            "impact_highlight_color": "red",
+            "lifetime": 20,
         },
 
         "handler": "execute_cast_skill",

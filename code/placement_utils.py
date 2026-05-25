@@ -51,7 +51,8 @@ def tile_is_valid_for_placement(world, tile: Vec2i, ignore_entity=None) -> bool:
         tile,
         ignore_entity=ignore_entity,
     ):
-        return False
+        print("this guy's gonna get hit!")
+#        return False
 
     return True
 

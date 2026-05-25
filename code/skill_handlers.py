@@ -310,7 +310,6 @@ def execute_meteor(world, caster, context):
     )
 
     mouse_pos = intent.get("mouse_pos")
-
     if mouse_pos is None:
         return False
 
@@ -339,6 +338,7 @@ def execute_meteor(world, caster, context):
         radius_tiles=params["radius_tiles"],
         damage=params["damage"],
         impact_tick=params["impact_tick"],
+        lifetime_ticks=params["lifetime"],
     )
 
     return eid is not None

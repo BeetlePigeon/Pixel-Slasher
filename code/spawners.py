@@ -173,6 +173,7 @@ def spawn_meteor(
     radius_tiles=1,
     damage=25,
     impact_tick=45,
+    lifetime_ticks=None,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
@@ -222,14 +223,15 @@ def spawn_meteor(
         },
     }
 
-    meteor_surface = pygame.Surface(
-        (world.tile_size, world.tile_size),
-        pygame.SRCALPHA,
-    )
-    meteor_surface.fill((255, 180, 0, 80))
+    if lifetime_ticks is not None:
+        world.lifetime[eid] = {
+            "remaining_ticks": lifetime_ticks,
+        }
+
+    meteor_image = world.game.assets.images["meteor"]
 
     world.sprite[eid] = {
-        "image": meteor_surface,
+        "image": meteor_image,
         "anchor": "center",
         "z": 0,
     }

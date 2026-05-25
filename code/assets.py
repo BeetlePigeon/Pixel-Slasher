@@ -18,6 +18,7 @@ class Assets:
         self.images["player"] = self.load_image("characters", "player.png")
         self.images["test_projectile"] = self.load_image("projectiles", "test_projectile.png")
         self.images["magnet"] = self.load_image("projectiles", "magnet.png")
+        self.images["meteor"] = self.load_image("projectiles", "meteor.png")
 
         # Tiles
         self.images["block"] = self.load_image("tiles", "block.png")
