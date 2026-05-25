@@ -8,6 +8,8 @@ class AreaRuntime:
     tilemap: list
     tile_images: dict
     static_collision_tiles: set = field(default_factory=set)
+    spawn_points: dict = field(default_factory=dict)
+    transitions: list = field(default_factory=list)
     entity_ids: set = field(default_factory=set)
 
     def track_entity(self, eid):

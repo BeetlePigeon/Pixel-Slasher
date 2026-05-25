@@ -2,6 +2,7 @@ import pygame
 from status_ops import apply_status_effect
 from combat_ops import queue_damage_request
 from camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake
+from world import World
 
 
 class Debug:
@@ -78,6 +79,13 @@ class Debug:
 
 
     def process_top_level_debug_input(self, input_state):
+        if pygame.K_F4 in input_state.keys_pressed:
+            current_area = self.game.world.current_area.area_id
+            if current_area == "test_start_area":
+                self.game.world.load_area("test_dungeon", "default")
+            else:
+                self.game.world.load_area("test_start_area", "default")
+            print(current_area)
         if pygame.K_F5 in input_state.keys_pressed:
             self.game.display.cycle_windowed_scale()
         if pygame.K_F6 in input_state.keys_pressed:

@@ -10,6 +10,7 @@ from data.tables_area_defs import (
 from data.tables_player_defs import DEFAULT_PLAYER_STATE
 from tile_vec_utils import tile_center, vec2i_from_pair
 from support import Vec2i, Transform
+from map_loader import load_area_map
 
 
 class World:
@@ -188,8 +189,16 @@ class World:
             raise ValueError(f"Unknown area id: {area_id!r}")
 
         area_def = self.area_defs[area_id]
+        area_map = load_area_map(area_def["map_file"])
 
-        if spawn_id not in area_def["spawn_points"]:
+        if area_map["id"] != area_id:
+            raise ValueError(
+                f"Area def {area_id!r} points to map file "
+                f"{area_def['map_file']!r}, but that map has id "
+                f"{area_map['id']!r}"
+            )
+
+        if spawn_id not in area_map["spawn_points"]:
             raise ValueError(
                 f"Area {area_id!r} has no spawn point {spawn_id!r}"
             )
@@ -198,11 +207,11 @@ class World:
 
         tilemap = [
             list(row)
-            for row in area_def["tilemap"]
+            for row in area_map["tilemap"]
         ]
 
         tile_images = self.build_tile_images(
-            area_def["tile_image_assets"]
+            area_map["tile_image_assets"]
         )
 
         self.current_area = AreaRuntime(
@@ -210,17 +219,21 @@ class World:
             area_def=area_def,
             tilemap=tilemap,
             tile_images=tile_images,
+            static_collision_tiles=set(area_map["static_collision_tiles"]),
+            spawn_points=dict(area_map["spawn_points"]),
+            transitions=list(area_map["transitions"]),
         )
 
         self.tilemap = self.current_area.tilemap
         self.tile_images = self.current_area.tile_images
-        self.static_collision_tiles = self.build_static_collision_tiles()
-        self.current_area.static_collision_tiles = self.static_collision_tiles
+        self.static_collision_tiles = set(
+            self.current_area.static_collision_tiles
+        )
 
-        spawn_def = area_def["spawn_points"][spawn_id]
+        spawn_def = self.current_area.spawn_points[spawn_id]
         self.player = self.spawn_player(spawn_def)
 
-        for entity_def in area_def.get("placed_entities", []):
+        for entity_def in area_map["placed_entities"]:
             self.spawn_area_entity_from_def(entity_def)
 
         self.focus_camera_on_player()
@@ -275,13 +288,13 @@ class World:
 
 
     def spawn_area_entity_from_def(self, entity_def):
-        kind = entity_def["kind"]
+        entity_type = entity_def["type"]
 
-        if kind == "training_dummy":
+        if entity_type == "training_dummy":
             tile = vec2i_from_pair(entity_def["tile"])
             return self.spawn_training_dummy(tile)
 
-        raise ValueError(f"Unsupported placed entity kind: {kind!r}")
+        raise ValueError(f"Unsupported placed entity type: {entity_type!r}")
 
 
     def focus_camera_on_player(self):
@@ -293,15 +306,6 @@ class World:
             self.transform[self.player].cpos
         )
 
-
-    def build_static_collision_tiles(self):
-        blocked = set()
-        for y, row in enumerate(self.tilemap):
-            for x, tile_id in enumerate(row):
-                if tile_id == 0:
-                    blocked.add((x, y))
-
-        return blocked
 
     def spawn_player(self, spawn_def):
         eid = self.entities.create()

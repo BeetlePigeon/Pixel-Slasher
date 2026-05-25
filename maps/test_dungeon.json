@@ -1,0 +1,42 @@
+{
+  "id": "test_dungeon",
+
+  "tile_image_assets": {
+    "0": "block",
+    "1": "water"
+  },
+
+  "layers": {
+    "floor": [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    ]
+  },
+
+  "collision": {
+    "blocked_floor_tile_ids": [0],
+    "blocked_tiles": []
+  },
+
+  "objects": [
+    {
+      "id": "default_spawn",
+      "type": "spawn_point",
+      "spawn_id": "default",
+      "tile": [0, 0],
+      "facing": [1, -1]
+    },
+    {
+      "id": "training_dummy_1",
+      "type": "training_dummy",
+      "tile": [0, 5]
+    },
+    {
+      "id": "training_dummy_2",
+      "type": "training_dummy",
+      "tile": [0, 7]
+    }
+  ],
+
+  "transitions": []
+}
