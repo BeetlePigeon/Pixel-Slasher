@@ -3,6 +3,11 @@ from .action_state_system import action_state_has_any_tags, cancel_action_state
 
 
 def reaction_system(world, events):
+    # Gameplay reaction ownership:
+    # - This system may start actions, apply gameplay consequences, or mutate
+    #   gameplay components in response to events.
+    # - It should not own camera shake, audio, particles, or other presentation
+    #   feedback.
     for event in events:
         event_type = event["type"]
 
@@ -15,7 +20,6 @@ def reaction_system(world, events):
 
 def entity_is_counter_ready(world, entity):
     action_state = world.action_state.get(entity)
-
     if action_state is None:
         return False
 
@@ -26,7 +30,6 @@ def entity_is_counter_ready(world, entity):
 
 
 def start_counter_attack_action(world, defender, attacker):
-
     skill_def = SKILL_DEFS["counter_attack"]
     action_def = skill_def["cast"]
 

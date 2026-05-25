@@ -3,11 +3,22 @@ from .feedback_system import feedback_system
 
 
 def event_system(world):
-    events = list(world.events)
+    # Event system ownership:
+    # - Snapshot the current event queue.
+    # - Clear the queue before dispatch.
+    # - Send the same event batch to gameplay reactions and presentation feedback.
+    #
+    # Events emitted while processing this batch remain in world.events and are
+    # intentionally handled on a later tick. This keeps same-tick event chaining
+    # out of the engine for now.
+    current_events = list(world.events)
     world.events.clear()
 
-    reaction_system(world, events)
-    feedback_system(world, events)
+    if not current_events:
+        return
+
+    reaction_system(world, current_events)
+    feedback_system(world, current_events)
 
 
 def emit_event(world, event_type, **data):
