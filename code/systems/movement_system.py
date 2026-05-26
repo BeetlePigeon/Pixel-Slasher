@@ -19,7 +19,6 @@ from path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
     path_tiles_to_cpos_nodes,
-    is_static_tile_blocked,
 )
 
 
@@ -103,6 +102,8 @@ def entity_can_start_voluntary_movement(world, entity):
 
 
 def movement_arbiter_system(world):
+    world.rebuild_dynamic_occupancy()
+
     active_directional_entities = {
         entity
         for entity, motion_state in world.motion_state.items()
@@ -386,7 +387,11 @@ def resolve_grid_move_direction_from_tile(
         slide_vector = desired_direction
 
     # If desired movement is open, take it directly.
-    if not is_tile_blocked(world, desired_tile):
+    if not is_tile_blocked(
+            world,
+            desired_tile,
+            mover_entity=entity,
+    ):
         return desired_direction
 
     # Only entities with slide policy may use this fallback.
@@ -410,7 +415,11 @@ def resolve_grid_move_direction_from_tile(
     x_direction = Vec2i(desired_direction.x, 0)
     x_tile = current_tile + x_direction
 
-    if not is_tile_blocked(world, x_tile):
+    if not is_tile_blocked(
+            world,
+            x_tile,
+            mover_entity=entity,
+    ):
         tangent = slide_vector.x
         normal = slide_vector.y
 
@@ -425,7 +434,11 @@ def resolve_grid_move_direction_from_tile(
     y_direction = Vec2i(0, desired_direction.y)
     y_tile = current_tile + y_direction
 
-    if not is_tile_blocked(world, y_tile):
+    if not is_tile_blocked(
+            world,
+            y_tile,
+            mover_entity=entity,
+    ):
         tangent = slide_vector.y
         normal = slide_vector.x
 
@@ -480,10 +493,11 @@ def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
     return tangent_abs * den >= normal_abs * num
 
 
-def is_tile_blocked(world, tile: Vec2i) -> bool:
-    blocked = is_static_tile_blocked(world, tile)
-
-    return blocked
+def is_tile_blocked(world, tile: Vec2i, mover_entity=None) -> bool:
+    return world.is_tile_blocked_for_movement(
+        tile,
+        mover_entity=mover_entity,
+    )
 
 
 def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
@@ -562,7 +576,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
     target_tile = tile_from_cpos(end_cpos)
 
     if current_tile == target_tile:
-        collision_result = handle_static_tile_collision(
+        collision_result = handle_movement_tile_collision(
             world,
             entity,
             target_tile,
@@ -636,7 +650,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
                 current_tile.y,
             )
 
-            collision_result = handle_static_tile_collision(
+            collision_result = handle_movement_tile_collision(
                 world,
                 entity,
                 current_tile,
@@ -663,7 +677,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
                 current_tile.y + step_y,
             )
 
-            collision_result = handle_static_tile_collision(
+            collision_result = handle_movement_tile_collision(
                 world,
                 entity,
                 current_tile,
@@ -893,7 +907,7 @@ def resolve_corner_crossing_collision(
 
     if corner_policy == "strict":
         for candidate_tile in (side_x_tile, side_y_tile, diagonal_tile):
-            collision_result = handle_static_tile_collision(
+            collision_result = handle_movement_tile_collision(
                 world,
                 entity,
                 candidate_tile,
@@ -905,7 +919,7 @@ def resolve_corner_crossing_collision(
         return "allow"
 
     if corner_policy == "allow_if_one_side_open":
-        diagonal_result = handle_static_tile_collision(
+        diagonal_result = handle_movement_tile_collision(
             world,
             entity,
             diagonal_tile,
@@ -914,13 +928,13 @@ def resolve_corner_crossing_collision(
         if diagonal_result != "allow":
             return diagonal_result
 
-        side_x_result = handle_static_tile_collision(
+        side_x_result = handle_movement_tile_collision(
             world,
             entity,
             side_x_tile,
         )
 
-        side_y_result = handle_static_tile_collision(
+        side_y_result = handle_movement_tile_collision(
             world,
             entity,
             side_y_tile,
@@ -947,10 +961,52 @@ def handle_static_tile_collision(world, entity, next_tile):
 
     behavior = policy.get("static_tiles", "allow")
 
-    if not is_tile_blocked(world, next_tile):
+    if not world.is_tile_static_blocked(next_tile):
         return "allow"
 
     return behavior
+
+
+def handle_dynamic_movement_collision(world, entity, next_tile):
+    policy = world.movement_collision.get(entity)
+
+    if policy is None:
+        return "allow"
+
+    behavior = policy.get(
+        "dynamic_blockers",
+        "allow",
+    )
+
+    if behavior == "allow":
+        return "allow"
+
+    blockers = world.get_movement_blockers_on_tile(
+        next_tile,
+        mover_entity=entity,
+    )
+
+    if not blockers:
+        return "allow"
+
+    return behavior
+
+
+def handle_movement_tile_collision(world, entity, next_tile):
+    static_result = handle_static_tile_collision(
+        world,
+        entity,
+        next_tile,
+    )
+
+    if static_result != "allow":
+        return static_result
+
+    return handle_dynamic_movement_collision(
+        world,
+        entity,
+        next_tile,
+    )
 
 
 def get_path_policy(world, target):
@@ -1173,6 +1229,8 @@ def start_directional_node_follow_controller(
     if entity in world.facing:
         world.facing[entity] = resolved_direction
 
+    world.rebuild_dynamic_occupancy()
+
     return True
 
 
@@ -1225,6 +1283,8 @@ def start_directional_grid_move_controller(
 
     if entity in world.facing:
         world.facing[entity] = resolved_direction
+
+    world.rebuild_dynamic_occupancy()
 
     return True
 
@@ -1356,6 +1416,8 @@ def start_path_follow_controller(world, entity, target):
 
     motion_state["controller_source"] = "move_target"
 
+    world.rebuild_dynamic_occupancy()
+
     return True
 
 
@@ -1426,6 +1488,8 @@ def path_follow_movement_was_modified(
 
 
 def movement_system(world):
+    world.rebuild_dynamic_occupancy()
+
     entities = (
         set(world.transform)
         & set(world.motion_state)
@@ -1555,6 +1619,9 @@ def movement_system(world):
 
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
+
+        world.mark_dynamic_occupancy_dirty()
+        world.rebuild_dynamic_occupancy()
 
 
 def cancel_motion_by_tags_for_status(world, entity, motion_tags):
