@@ -1206,3 +1206,20 @@ def validate_skill_cast_phase(skill_id, cast, phase_index, phase):
             f"Skill '{skill_id}' cast phase {phase_index} "
             f"tags must be a set"
         )
+
+
+def validate_player_skill_loadout(player_state, skill_defs):
+    skills = player_state.get("skills")
+
+    if not isinstance(skills, dict):
+        raise ValueError("Player state skills must be a dict")
+
+    for slot, skill_id in skills.items():
+        if skill_id is None:
+            continue
+
+        if skill_id not in skill_defs:
+            raise ValueError(
+                f"Player skill slot {slot!r} references unknown skill "
+                f"{skill_id!r}"
+            )

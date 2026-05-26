@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SKILLS_DIR = PROJECT_ROOT / "assets" / "data" / "skills"
+SKILLS_DIR = PROJECT_ROOT / "data" / "skills"
 
 
 TOP_LEVEL_SET_FIELDS = {
@@ -24,7 +24,9 @@ PARAM_TUPLE_FIELDS = {
 
 def load_external_skill_defs(skills_dir=SKILLS_DIR):
     if not skills_dir.exists():
-        return {}
+        raise FileNotFoundError(
+            f"External skill directory does not exist: {skills_dir}"
+        )
 
     skill_defs = {}
 

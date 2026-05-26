@@ -19,6 +19,7 @@
 # N: Debug Freeze Player
 # H: Debug Make Enemy Damage Player
 # V: Debug Screen Shake
+# F4: Debug Area Toggle
 # F5: Cycle Windowed Scale
 # F6: Toggle VSync
 # F7: Cycle FPS Cap
@@ -32,6 +33,7 @@ import sys
 import pygame
 import time
 from constants import SIM_DT, MAX_FRAME_DT
+from data.tables_player_defs import DEFAULT_PLAYER_STATE
 from display import Display
 from debug import Debug
 from gamestate import StateGameplay
@@ -40,7 +42,7 @@ from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
 from skill_handlers import HANDLERS
-from skill_utils import validate_skill_defs
+from skill_utils import validate_skill_defs, validate_player_skill_loadout
 from data.tables_skill_defs import SKILL_DEFS
 from world import World
 from dataclasses import replace
@@ -78,6 +80,7 @@ class Game:
 
         # Validate Game Data
         validate_skill_defs(SKILL_DEFS, handler_ids=HANDLERS)
+        validate_player_skill_loadout(DEFAULT_PLAYER_STATE, SKILL_DEFS)
 
         # World
         self.world = World(self, self.entities)
