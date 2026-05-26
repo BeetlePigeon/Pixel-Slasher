@@ -43,7 +43,7 @@ from assets import Assets
 from entity import EntityManager
 from skill_handlers import HANDLERS
 from skill_utils import validate_skill_defs, validate_player_skill_loadout
-from skill_registry import SKILL_DEFS
+from skill_registry import SKILL_DEFS, replace_skill_defs, build_skill_defs
 from world import World
 from dataclasses import replace
 
@@ -119,6 +119,34 @@ class Game:
             input_state,
             mouse_pos=self.window_to_internal_mouse_pos(input_state.mouse_pos),
         )
+
+
+    def reload_skill_defs(self):
+        try:
+            new_skill_defs = build_skill_defs()
+
+            validate_skill_defs(
+                new_skill_defs,
+                handler_ids=HANDLERS,
+            )
+
+            validate_player_skill_loadout(
+                DEFAULT_PLAYER_STATE,
+                new_skill_defs,
+            )
+
+        except Exception as error:
+            print(f"[skill reload] failed: {error}")
+            return False
+
+        replace_skill_defs(new_skill_defs)
+
+        print(
+            f"[skill reload] loaded {len(SKILL_DEFS)} skills: "
+            f"{sorted(SKILL_DEFS)}"
+        )
+
+        return True
 
 
     def window_to_internal_mouse_pos(self, window_pos):

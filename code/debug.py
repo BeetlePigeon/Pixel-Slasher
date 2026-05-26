@@ -79,6 +79,8 @@ class Debug:
 
 
     def process_top_level_debug_input(self, input_state):
+        if pygame.K_F3 in input_state.keys_pressed:
+            self.game.reload_skill_defs()
         if pygame.K_F4 in input_state.keys_pressed:
             current_area = self.game.world.current_area.area_id
             if current_area == "test_start_area":
