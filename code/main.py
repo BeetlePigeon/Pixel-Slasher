@@ -15,18 +15,26 @@
 # 8: Guard Counter
 # 9: Meteor
 # 0: *FREE*
-# B: Debug Stun Player
-# N: Debug Freeze Player
-# H: Debug Make Enemy Damage Player
-# V: Debug Screen Shake
-# F4: Debug Area Toggle
+# B: Stun Player
+# N: Freeze Player
+# H: Make Enemy Damage Player
+# V: Screen Shake
+# [: Brightness Down
+# ]: Brightness Up
+# ;: Contrast Down
+# ': Contrast Up
+# ,: Gamma Down
+# .: Gamma Up
+# /: Reset Display Calibration
+# F3: Live Reload Skill Definitions
+# F4: Area Toggle
 # F5: Cycle Windowed Scale
 # F6: Toggle VSync
 # F7: Cycle FPS Cap
 # F8: Toggle Control Scheme
 # F9: Toggle Modern Movement Aim Source
-# F10: Zoom Camera Out
-# F11: Zoom Camera In
+# F10: Zoom Out
+# F11: Zoom In
 # F12: Cycle Display Mode
 
 import sys
@@ -205,7 +213,9 @@ class Game:
         scaled_height = self.display.internal_size[1] * self.display.scale
         x_offset = (self.display.window_size[0] - scaled_width) // 2
         y_offset = (self.display.window_size[1] - scaled_height) // 2
-        scaled_surface = pygame.transform.scale_by(self.display.render_surface, self.display.scale)
+        present_surface = self.display.apply_visual_calibration(self.display.render_surface)
+#        present_surface = self.display.render_surface
+        scaled_surface = pygame.transform.scale_by(present_surface, self.display.scale)
         self.display.window.blit(scaled_surface, (x_offset, y_offset))
         pygame.display.flip()
 

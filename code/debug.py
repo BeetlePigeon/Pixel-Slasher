@@ -29,6 +29,9 @@ class Debug:
 #            f"Lifetime: {len(self.game.world.lifetime)}",
             f"Display: {self.game.display.display_mode}",
             f"Scale: {self.game.display.scale}x",
+            f"Brightness: {self.game.display.brightness}",
+            f"Contrast: {self.game.display.contrast}",
+            f"Gamma: {self.game.display.gamma}",
             f"Windowed scale: {self.game.display.windowed_scale}x",
             f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
             f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
@@ -79,6 +82,20 @@ class Debug:
 
 
     def process_top_level_debug_input(self, input_state):
+        if pygame.K_LEFTBRACKET in input_state.keys_pressed:
+            self.game.display.adjust_brightness(-5)
+        if pygame.K_RIGHTBRACKET in input_state.keys_pressed:
+            self.game.display.adjust_brightness(5)
+        if pygame.K_SEMICOLON in input_state.keys_pressed:
+            self.game.display.adjust_contrast(-5)
+        if pygame.K_QUOTE in input_state.keys_pressed:
+            self.game.display.adjust_contrast(5)
+        if pygame.K_COMMA in input_state.keys_pressed:
+            self.game.display.adjust_gamma(-5)
+        if pygame.K_PERIOD in input_state.keys_pressed:
+            self.game.display.adjust_gamma(5)
+        if pygame.K_SLASH in input_state.keys_pressed:
+            self.game.display.reset_visual_calibration()
         if pygame.K_F3 in input_state.keys_pressed:
             self.game.reload_skill_defs()
         if pygame.K_F4 in input_state.keys_pressed:

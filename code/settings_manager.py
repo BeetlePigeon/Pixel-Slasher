@@ -14,6 +14,9 @@ DEFAULT_SETTINGS = {
         "windowed_scale": 1,
         "vsync_enabled": True,
         "fps_cap": 30,
+        "brightness": 0,
+        "contrast": 0,
+        "gamma": 100,
     },
 
     "controls": {
@@ -124,6 +127,33 @@ def normalize_display_settings(display_settings):
     display_settings["fps_cap"] = coerce_int(
         display_settings.get("fps_cap"),
         DEFAULT_SETTINGS["display"]["fps_cap"],
+    )
+
+    display_settings["brightness"] = clamp(
+        coerce_int(
+            display_settings.get("brightness"),
+            DEFAULT_SETTINGS["display"]["brightness"],
+        ),
+        -100,
+        100,
+    )
+
+    display_settings["contrast"] = clamp(
+        coerce_int(
+            display_settings.get("contrast"),
+            DEFAULT_SETTINGS["display"]["contrast"],
+        ),
+        -100,
+        100,
+    )
+
+    display_settings["gamma"] = clamp(
+        coerce_int(
+            display_settings.get("gamma"),
+            DEFAULT_SETTINGS["display"]["gamma"],
+        ),
+        50,
+        200,
     )
 
 

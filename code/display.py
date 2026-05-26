@@ -1,5 +1,9 @@
 import os
 import pygame
+try:
+    import numpy as np
+except ImportError:
+    np = None
 from constants import INTERNAL_HEIGHT, INTERNAL_WIDTH, INTERNAL_RES, WINDOW_TITLEBAR_SAFE_Y
 
 
@@ -18,7 +22,11 @@ class Display:
             "borderless",
             "fullscreen",
         ]
-
+        self.brightness = 0
+        self.contrast = 0
+        self.gamma = 100
+        self.visual_calibration_lut = None
+        self.warned_missing_numpy_for_calibration = False
         self.scale = 1
         self.window_flags = 0
         self.window_size = self.internal_size
@@ -31,6 +39,8 @@ class Display:
         self.debug_font = pygame.font.Font(None, 18)
 
         self.load_display_settings_from_game_settings()
+        self.load_visual_calibration_from_game_settings()
+        self.rebuild_visual_calibration_lut()
         self.apply_display_settings()
         self.save_display_settings_to_game_settings()
 
@@ -257,13 +267,207 @@ class Display:
         )
 
 
+    def load_visual_calibration_from_game_settings(self):
+        display_settings = self.game.settings["display"]
+
+        self.brightness = display_settings.get("brightness", 0)
+        self.contrast = display_settings.get("contrast", 0)
+        self.gamma = display_settings.get("gamma", 100)
+
+        self.brightness = self.clamp_int(
+            self.brightness,
+            -100,
+            100,
+            0,
+        )
+
+        self.contrast = self.clamp_int(
+            self.contrast,
+            -100,
+            100,
+            0,
+        )
+
+        self.gamma = self.clamp_int(
+            self.gamma,
+            50,
+            200,
+            100,
+        )
+
+
+    def clamp_int(self, value, minimum, maximum, fallback):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = fallback
+
+        return max(
+            minimum,
+            min(maximum, value),
+        )
+
+
+    def rebuild_visual_calibration_lut(self):
+        if np is None:
+            self.visual_calibration_lut = None
+            return
+
+        values = np.arange(
+            256,
+            dtype=np.float32,
+        )
+
+        contrast_value = self.contrast * 255.0 / 100.0
+
+        contrast_factor = (
+                                  259.0 * (contrast_value + 255.0)
+                          ) / (
+                                  255.0 * (259.0 - contrast_value)
+                          )
+
+        values = contrast_factor * (values - 128.0) + 128.0
+
+        brightness_offset = self.brightness * 255.0 / 100.0
+        values = values + brightness_offset
+
+        values = np.clip(
+            values,
+            0,
+            255,
+        )
+
+        gamma_value = self.gamma / 100.0
+        gamma_exponent = 1.0 / gamma_value
+
+        values = 255.0 * np.power(
+            values / 255.0,
+            gamma_exponent,
+        )
+
+        values = np.clip(
+            values,
+            0,
+            255,
+        )
+
+        self.visual_calibration_lut = values.astype(np.uint8)
+
+
+    def visual_calibration_is_neutral(self):
+        return (
+                self.brightness == 0
+                and self.contrast == 0
+                and self.gamma == 100
+        )
+
+    def apply_visual_calibration(self, surface):
+        if self.visual_calibration_is_neutral():
+            return surface
+
+        if np is None:
+            if not self.warned_missing_numpy_for_calibration:
+                print(
+                    "[display] visual calibration requires numpy; "
+                    "brightness/contrast/gamma disabled"
+                )
+                self.warned_missing_numpy_for_calibration = True
+
+            return surface
+
+        if self.visual_calibration_lut is None:
+            self.rebuild_visual_calibration_lut()
+
+        calibrated_surface = surface.copy()
+
+        pixels = pygame.surfarray.pixels3d(calibrated_surface)
+        source_pixels = pixels.copy()
+
+        pixels[:, :, :] = self.visual_calibration_lut[source_pixels]
+
+        del pixels
+
+        return calibrated_surface
+
+
+    def set_brightness(self, brightness):
+        self.brightness = self.clamp_int(
+            brightness,
+            -100,
+            100,
+            0,
+        )
+
+        self.rebuild_visual_calibration_lut()
+        self.save_display_settings_to_game_settings()
+
+
+    def adjust_brightness(self, amount):
+        self.set_brightness(
+            self.brightness + amount,
+        )
+
+
+    def set_contrast(self, contrast):
+        self.contrast = self.clamp_int(
+            contrast,
+            -100,
+            100,
+            0,
+        )
+
+        self.rebuild_visual_calibration_lut()
+        self.save_display_settings_to_game_settings()
+
+
+    def adjust_contrast(self, amount):
+        self.set_contrast(
+            self.contrast + amount,
+        )
+
+
+    def set_gamma(self, gamma):
+        self.gamma = self.clamp_int(
+            gamma,
+            50,
+            200,
+            100,
+        )
+
+        self.rebuild_visual_calibration_lut()
+        self.save_display_settings_to_game_settings()
+
+
+    def adjust_gamma(self, amount):
+        self.set_gamma(
+            self.gamma + amount,
+        )
+
+
+    def reset_visual_calibration(self):
+        self.brightness = 0
+        self.contrast = 0
+        self.gamma = 100
+
+        self.rebuild_visual_calibration_lut()
+        self.save_display_settings_to_game_settings()
+
+
     def save_display_settings_to_game_settings(self):
-        self.game.settings["display"] = {
+        display_settings = self.game.settings.setdefault(
+            "display",
+            {},
+        )
+
+        display_settings.update({
             "display_mode": self.display_mode,
             "windowed_scale": self.windowed_scale,
             "vsync_enabled": self.vsync_enabled,
             "fps_cap": self.fps_cap,
-        }
+            "brightness": self.brightness,
+            "contrast": self.contrast,
+            "gamma": self.gamma,
+        })
 
         self.game.save_settings()
 
