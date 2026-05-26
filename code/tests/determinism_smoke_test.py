@@ -10,7 +10,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 
 from constants import INTERNAL_RES, SIM_DT
-from data.tables_skill_defs import SKILL_DEFS
+from skill_registry import SKILL_DEFS
 from entity import EntityManager
 from gamestate import StateGameplay
 from inputhandler import InputState

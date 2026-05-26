@@ -1,4 +1,4 @@
-from data.tables_skill_defs import SKILL_DEFS
+from skill_registry import SKILL_DEFS
 from skill_handlers import get_skill_handler
 from .action_state_system import cancel_action_state, build_skill_context, get_active_action_tags, action_state_has_any_tags
 from .movement_system import get_active_motion_tag

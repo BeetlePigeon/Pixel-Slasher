@@ -43,7 +43,7 @@ from assets import Assets
 from entity import EntityManager
 from skill_handlers import HANDLERS
 from skill_utils import validate_skill_defs, validate_player_skill_loadout
-from data.tables_skill_defs import SKILL_DEFS
+from skill_registry import SKILL_DEFS
 from world import World
 from dataclasses import replace
 

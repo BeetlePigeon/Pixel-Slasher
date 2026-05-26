@@ -1,4 +1,4 @@
-from data.tables_skill_defs import SKILL_DEFS
+from skill_registry import SKILL_DEFS
 from .action_state_system import action_state_has_any_tags, cancel_action_state
 
 
