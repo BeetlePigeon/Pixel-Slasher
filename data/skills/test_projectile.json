@@ -1,0 +1,52 @@
+{
+  "id": "test_projectile",
+  "name": "Test Projectile",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform"],
+  "required_params": [
+    "spawn_distance",
+    "projectile_speed",
+    "projectile_lifetime"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": {
+    "traditional_source": "mouse_tile",
+    "modern_source": "mouse_tile",
+    "resolution": "tile_center"
+  },
+
+  "cast": {
+    "duration": 20,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 10,
+        "handler": "execute_test_projectile"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "spawn_distance": 1024,
+    "projectile_speed": 512,
+    "projectile_lifetime": 300
+  },
+
+  "handler": "execute_cast_skill"
+}

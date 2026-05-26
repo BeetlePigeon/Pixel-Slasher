@@ -1,0 +1,55 @@
+{
+  "id": "teleport",
+  "name": "Teleport",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform", "motion_state"],
+  "required_params": [
+    "target_mode",
+    "collision",
+    "target_snap_radius_tiles",
+    "ray_fallback_max_miss_tiles",
+    "ray_fallback_min_progress_tiles"
+  ],
+
+  "allowed_param_values": {
+    "target_mode": ["mouse_tile_center"],
+    "collision": ["target_snap_then_ray_fallback"]
+  },
+
+  "aim": null,
+
+  "cast": {
+    "duration": 20,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 10,
+        "handler": "execute_teleport"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "target_mode": "mouse_tile_center",
+    "collision": "target_snap_then_ray_fallback",
+    "target_snap_radius_tiles": 2,
+    "ray_fallback_max_miss_tiles": 4,
+    "ray_fallback_min_progress_tiles": 1
+  },
+
+  "handler": "execute_cast_skill"
+}
