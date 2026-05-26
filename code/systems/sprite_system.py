@@ -1,25 +1,13 @@
 import pygame
-from camera_utils import (
-    project_screen_point,
-    scale_surface_by_camera_zoom,
-    scale_vec_by_camera_zoom,
-    scale_length_by_camera_zoom
-)
+from camera_utils import project_screen_point, scale_surface_by_camera_zoom, scale_vec_by_camera_zoom, scale_length_by_camera_zoom
 from support import Vec2i
 from constants import TILE_UNITS
-from tile_vec_utils import (
-    interp_cpos,
-    cpos_to_screen,
-    iso_to_screen,
-    tile_from_cpos,
-    tile_center,
-)
+from tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_from_cpos, tile_center
 
 
-def sprite_system(world, surface, render_alpha):
+def sprite_system(world, surface, render_alpha, draw_debug=False):
     draw_list = []
     debug_draw_list = []
-
     scaled_sprite_cache = {}
 
     for entity in world.sprite:
@@ -36,7 +24,10 @@ def sprite_system(world, surface, render_alpha):
 
         sprite = world.sprite[entity]
 
-        base_x, base_y = cpos_to_screen(pos, world.tile_size)
+        base_x, base_y = cpos_to_screen(
+            pos,
+            world.tile_size,
+        )
 
         screen_x, screen_y = project_screen_point(
             world,
@@ -45,6 +36,7 @@ def sprite_system(world, surface, render_alpha):
         )
 
         image = sprite["image"]
+
         cache_key = id(image)
 
         if cache_key not in scaled_sprite_cache:
@@ -74,100 +66,27 @@ def sprite_system(world, surface, render_alpha):
             ),
         ))
 
-        debug_draw_list.append((
-            entity,
-            base_x,
-            base_y,
-        ))
+        if draw_debug:
+            debug_draw_list.append((
+                entity,
+                base_x,
+                base_y,
+            ))
 
     draw_list.sort(key=lambda x: x[0])
 
     for _, image, pos in draw_list:
-        surface.blit(image, pos)
-
-    # Debug overlay after sprites, so it stays visible.
-    debug_radius = scale_length_by_camera_zoom(world, 4)
-
-    for entity, base_x, base_y in debug_draw_list:
-        transform = world.transform[entity]
-
-        committed_tile = transform.tile
-        current_tile = tile_from_cpos(transform.cpos)
-
-        committed_tile_center_cpos = tile_center(committed_tile)
-        current_tile_center_cpos = tile_center(current_tile)
-
-        committed_base_x, committed_base_y = cpos_to_screen(
-            committed_tile_center_cpos,
-            world.tile_size,
+        surface.blit(
+            image,
+            pos,
         )
 
-        current_base_x, current_base_y = cpos_to_screen(
-            current_tile_center_cpos,
-            world.tile_size,
-        )
-
-        committed_x, committed_y = project_screen_point(
+    if draw_debug:
+        draw_sprite_debug_overlays(
             world,
-            committed_base_x,
-            committed_base_y,
-        )
-
-        current_x, current_y = project_screen_point(
-            world,
-            current_base_x,
-            current_base_y,
-        )
-
-        actor_x, actor_y = project_screen_point(
-            world,
-            base_x,
-            base_y,
-        )
-
-        pygame.draw.circle(
             surface,
-            "blue",
-            (committed_x, committed_y),
-            debug_radius,
+            debug_draw_list,
         )
-
-        pygame.draw.circle(
-            surface,
-            "black",
-            (current_x, current_y),
-            debug_radius,
-        )
-
-        pygame.draw.circle(
-            surface,
-            "red",
-            (actor_x, actor_y),
-            debug_radius,
-        )
-
-        if entity in world.facing:
-            facing = world.facing[entity]
-
-            arrow_dx, arrow_dy = facing_to_screen_delta(
-                facing,
-                world.tile_size,
-                arrow_length=32,
-            )
-
-            arrow_end_x, arrow_end_y = project_screen_point(
-                world,
-                base_x + arrow_dx,
-                base_y + arrow_dy,
-            )
-
-            pygame.draw.line(
-                surface,
-                "black",
-                (actor_x, actor_y),
-                (arrow_end_x, arrow_end_y),
-                scale_length_by_camera_zoom(world, 2),
-            )
 
 
 def tile_render_system(world, surface, render_alpha=0.0):
@@ -265,3 +184,88 @@ def facing_to_screen_delta(facing: Vec2i, tile_size: int, arrow_length: int) -> 
         dx * arrow_length // max_abs,
         dy * arrow_length // max_abs,
     )
+
+
+def draw_sprite_debug_overlays(world, surface, debug_draw_list):
+    debug_radius = scale_length_by_camera_zoom(world, 4)
+
+    for entity, base_x, base_y in debug_draw_list:
+        transform = world.transform[entity]
+
+        committed_tile = transform.tile
+        current_tile = tile_from_cpos(transform.cpos)
+
+        committed_tile_center_cpos = tile_center(committed_tile)
+        current_tile_center_cpos = tile_center(current_tile)
+
+        committed_base_x, committed_base_y = cpos_to_screen(
+            committed_tile_center_cpos,
+            world.tile_size,
+        )
+
+        current_base_x, current_base_y = cpos_to_screen(
+            current_tile_center_cpos,
+            world.tile_size,
+        )
+
+        committed_x, committed_y = project_screen_point(
+            world,
+            committed_base_x,
+            committed_base_y,
+        )
+
+        current_x, current_y = project_screen_point(
+            world,
+            current_base_x,
+            current_base_y,
+        )
+
+        actor_x, actor_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "blue",
+            (committed_x, committed_y),
+            debug_radius,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "black",
+            (current_x, current_y),
+            debug_radius,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "red",
+            (actor_x, actor_y),
+            debug_radius,
+        )
+
+        if entity in world.facing:
+            facing = world.facing[entity]
+
+            arrow_dx, arrow_dy = facing_to_screen_delta(
+                facing,
+                world.tile_size,
+                arrow_length=32,
+            )
+
+            arrow_end_x, arrow_end_y = project_screen_point(
+                world,
+                base_x + arrow_dx,
+                base_y + arrow_dy,
+            )
+
+            pygame.draw.line(
+                surface,
+                "black",
+                (actor_x, actor_y),
+                (arrow_end_x, arrow_end_y),
+                scale_length_by_camera_zoom(world, 2),
+            )

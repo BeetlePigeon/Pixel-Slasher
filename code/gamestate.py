@@ -359,5 +359,5 @@ class StateGameplay(State):
     def draw(self, surface, render_alpha):
         camera_system(self.game.world, surface, render_alpha)
         tile_render_system(self.game.world, surface, render_alpha)
-        sprite_system(self.game.world, surface, render_alpha)
+        sprite_system(self.game.world, surface, render_alpha, draw_debug=self.game.debug_mode)
         self.gameplay_ui.draw(surface)
