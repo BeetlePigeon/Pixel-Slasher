@@ -170,3 +170,6 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local user settings
+/config/settings.json

@@ -18,22 +18,21 @@ class Display:
             "borderless",
             "fullscreen",
         ]
-        self.display_mode_index = 0
-        self.display_mode = self.display_modes[self.display_mode_index]
+
         self.scale = 1
-        self.windowed_scale = 1
         self.window_flags = 0
         self.window_size = self.internal_size
         self.window = None
         self.toggle = True
-        self.vsync_enabled = True
-        self.fps_caps = [30, 180, 0]    # 0 = uncapped. Later add values that match common monitor refresh rates. Along with tooltip explaining in Video Settings Menu.
-        self.fps_cap_index = 0
-        self.fps_cap = self.fps_caps[self.fps_cap_index]
+
+        self.fps_caps = [30, 180, 0]  # 0 = uncapped.
+        self.windowed_scales = self.build_windowed_scales()
+
         self.debug_font = pygame.font.Font(None, 18)
-        self.windowed_scales = [1, 2, 3]
-        self.windowed_scale_index = 0
+
+        self.load_display_settings_from_game_settings()
         self.apply_display_settings()
+        self.save_display_settings_to_game_settings()
 
 
     def get_centered_window_position(self, window_size):
@@ -139,13 +138,16 @@ class Display:
         # Pygame may return the actual display/window size.
         self.window_size = self.window.get_size()
 
-
     def set_windowed_scale(self, scale: int):
-        self.windowed_scale = scale
+        self.windowed_scale = self.clamp_windowed_scale(scale)
+        self.windowed_scale_index = self.windowed_scales.index(
+            self.windowed_scale
+        )
 
         if self.display_mode == "windowed":
             self.apply_display_settings()
 
+        self.save_display_settings_to_game_settings()
 
     def cycle_windowed_scale(self):
         self.windowed_scale_index = (
@@ -158,11 +160,10 @@ class Display:
 
         self.set_windowed_scale(new_scale)
 
-
     def toggle_vsync(self):
         self.vsync_enabled = not self.vsync_enabled
         self.apply_display_settings()
-
+        self.save_display_settings_to_game_settings()
 
     def cycle_display_mode(self):
         self.display_mode_index = (
@@ -174,6 +175,97 @@ class Display:
         ]
 
         self.apply_display_settings()
+        self.save_display_settings_to_game_settings()
+
+
+    def cycle_fps_cap(self):
+        self.fps_cap_index = (
+                                     self.fps_cap_index + 1
+                             ) % len(self.fps_caps)
+
+        self.fps_cap = self.fps_caps[self.fps_cap_index]
+        self.save_display_settings_to_game_settings()
+
+    def build_windowed_scales(self):
+        desktop_width, desktop_height = self.get_desktop_size()
+
+        max_scale = self.get_max_integer_scale_for_size(
+            (
+                desktop_width,
+                desktop_height,
+            )
+        )
+
+        # Allow at least the old useful 1x/2x behavior on small laptop displays.
+        # The clamp still prevents obviously unusable huge scales.
+        max_scale = max(
+            2,
+            max_scale,
+        )
+
+        return list(
+            range(
+                1,
+                max_scale + 1,
+            )
+        )
+
+
+    def load_display_settings_from_game_settings(self):
+        display_settings = self.game.settings["display"]
+
+        display_mode = display_settings.get("display_mode", "windowed")
+        if display_mode not in self.display_modes:
+            display_mode = "windowed"
+
+        self.display_mode = display_mode
+        self.display_mode_index = self.display_modes.index(display_mode)
+
+        requested_scale = display_settings.get("windowed_scale", 1)
+        self.windowed_scale = self.clamp_windowed_scale(requested_scale)
+        self.windowed_scale_index = self.windowed_scales.index(
+            self.windowed_scale
+        )
+
+        self.vsync_enabled = bool(
+            display_settings.get("vsync_enabled", True)
+        )
+
+        requested_fps_cap = display_settings.get("fps_cap", self.fps_caps[0])
+        if requested_fps_cap not in self.fps_caps:
+            requested_fps_cap = self.fps_caps[0]
+
+        self.fps_cap = requested_fps_cap
+        self.fps_cap_index = self.fps_caps.index(self.fps_cap)
+
+
+    def clamp_windowed_scale(self, scale):
+        try:
+            scale = int(scale)
+        except (TypeError, ValueError):
+            scale = 1
+
+        if not self.windowed_scales:
+            return 1
+
+        return max(
+            self.windowed_scales[0],
+            min(
+                self.windowed_scales[-1],
+                scale,
+            ),
+        )
+
+
+    def save_display_settings_to_game_settings(self):
+        self.game.settings["display"] = {
+            "display_mode": self.display_mode,
+            "windowed_scale": self.windowed_scale,
+            "vsync_enabled": self.vsync_enabled,
+            "fps_cap": self.fps_cap,
+        }
+
+        self.game.save_settings()
 
 
     def set_camera_zoom_index(self, zoom_index):
@@ -223,11 +315,3 @@ class Display:
 
         if not enabled:
             camera["zoom_current_fp"] = camera["zoom_target_fp"]
-
-
-    def cycle_fps_cap(self):
-        self.fps_cap_index = (
-                                     self.fps_cap_index + 1
-                             ) % len(self.fps_caps)
-
-        self.fps_cap = self.fps_caps[self.fps_cap_index]

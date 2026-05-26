@@ -1,4 +1,4 @@
-from settings import MOVEMENT_CANCELING_ACTION_TAGS
+from policies import MOVEMENT_CANCELING_ACTION_TAGS
 from status_ops import (
     get_status_effect_tags,
     get_status_pauses_action_tags,

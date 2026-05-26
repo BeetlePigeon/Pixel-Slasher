@@ -19,11 +19,19 @@ class World:
         self.entities = entities
         self.tick = 0
         self.failed_path_queries = {}
-        self.control_scheme = "modern"      # "modern" -> WoW Style | "traditional" -> D2 Style
+        
+        control_settings = self.game.settings["controls"]
+        self.control_scheme = control_settings["control_scheme"]
         self.gameplay_settings = {
-            "modern_movement_skill_aim_source": "facing",       # "facing" -> Uses player facing direction | "mouse" -> Uses mouse direction
-            "movement_skill_aim_resolution": 16,
-            "projectile_aim_resolution": 128,
+            "modern_movement_skill_aim_source": (
+                control_settings["modern_movement_skill_aim_source"]
+            ),
+            "movement_skill_aim_resolution": (
+                control_settings["movement_skill_aim_resolution"]
+            ),
+            "projectile_aim_resolution": (
+                control_settings["projectile_aim_resolution"]
+            ),
         }
 
         ## Camera

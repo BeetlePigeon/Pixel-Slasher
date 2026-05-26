@@ -44,6 +44,7 @@ from entity import EntityManager
 from skill_handlers import HANDLERS
 from skill_utils import validate_skill_defs, validate_player_skill_loadout
 from skill_registry import SKILL_DEFS, replace_skill_defs, build_skill_defs
+from settings_manager import load_settings, save_settings
 from world import World
 from dataclasses import replace
 
@@ -56,6 +57,9 @@ class Game:
         self.previous_time = time.time()
         self.fps = 0
         self.sim_accumulator = 0.0
+
+        # User Settings
+        self.settings = load_settings()
 
         # Window and Display
         self.display = Display(self)
@@ -119,6 +123,10 @@ class Game:
             input_state,
             mouse_pos=self.window_to_internal_mouse_pos(input_state.mouse_pos),
         )
+
+
+    def save_settings(self):
+        save_settings(self.settings)
 
 
     def reload_skill_defs(self):

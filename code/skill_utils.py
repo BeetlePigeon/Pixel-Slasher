@@ -1,5 +1,5 @@
 from support import Vec2i
-from settings import (
+from policies import (
     ALLOWED_AIM_TIMINGS,
     ALLOWED_TRIGGER_MODES,
     REQUIRED_SKILL_FIELDS,

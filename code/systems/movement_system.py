@@ -1,4 +1,4 @@
-from settings import PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, SETTLE_LOCKED_TAG
+from policies import PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, SETTLE_LOCKED_TAG
 from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
