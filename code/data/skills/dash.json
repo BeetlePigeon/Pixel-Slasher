@@ -1,0 +1,50 @@
+{
+  "id": "dash",
+  "name": "Dash",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": ["stun", "uninterruptible", "dash_windup"],
+  "cancels_action_tags": ["cast", "channel"],
+
+  "required_components": ["transform", "motion_state", "facing"],
+  "required_params": [
+    "duration",
+    "distance",
+    "influence_mode",
+    "slide_min_tangent_ratio"
+  ],
+
+  "allowed_param_values": {
+    "influence_mode": ["normal", "ignore_all"]
+  },
+
+  "aim": {
+    "traditional_source": "mouse",
+    "modern_source": "setting:modern_movement_skill_aim_source",
+    "resolution": "setting:movement_skill_aim_resolution"
+  },
+
+  "cast": {
+    "duration": 3,
+    "tags": ["cast", "dash_windup", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 3,
+        "handler": "execute_dash"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "duration": 10,
+    "distance": 28672,
+    "influence_mode": "ignore_all",
+    "slide_min_tangent_ratio": [1, 3]
+  },
+
+  "handler": "execute_cast_skill"
+}

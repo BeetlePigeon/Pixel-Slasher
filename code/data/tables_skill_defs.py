@@ -1,51 +1,8 @@
 from constants import TILE_UNITS, ANGLE_SCALE
+from skill_loader import load_external_skill_defs
 
 
-SKILL_DEFS = {
-    "dash": {
-        "id": "dash",
-        "name": "Dash",
-
-        "cooldown_ticks": 0,
-        "trigger_mode": "held_repeat",
-
-        "blocked_by_motion_tags": {"dash"},
-        "blocked_by_action_tags": {"stun", "uninterruptible", "dash_windup"},
-        "cancels_action_tags": {"cast", "channel",},
-
-        "required_components": {"transform", "motion_state", "facing"},
-        "required_params": {"duration", "distance", "influence_mode", "slide_min_tangent_ratio",},
-        "allowed_param_values": {"influence_mode": {"normal", "ignore_all"},},
-
-        "aim": {"traditional_source": "mouse", "modern_source": "setting:modern_movement_skill_aim_source", "resolution": "setting:movement_skill_aim_resolution",},
-        "cast": {
-            "duration": 3,
-            "tags": {
-                "cast",
-                "dash_windup",
-                "movement_locked",
-                "skill_locked",
-            },
-            "events": [
-                {
-                    "tick": 3,
-                    "handler": "execute_dash",
-                },
-            ],
-        },
-        "channel": None,
-
-        "params": {
-            "duration": 10,
-            "distance": TILE_UNITS * 7,
-            "influence_mode": "ignore_all",
-            "slide_min_tangent_ratio": (1, 3),
-        },
-
-        "handler": "execute_cast_skill",
-    },
-
-
+PYTHON_SKILL_DEFS = {
     "test_projectile": {
         "id": "test_projectile",
         "name": "Test Projectile",
@@ -779,4 +736,22 @@ SKILL_DEFS = {
 
         "handler": "execute_cast_skill",
     },
+}
+
+EXTERNAL_SKILL_DEFS = load_external_skill_defs()
+
+DUPLICATE_SKILL_IDS = (
+    set(PYTHON_SKILL_DEFS)
+    & set(EXTERNAL_SKILL_DEFS)
+)
+
+if DUPLICATE_SKILL_IDS:
+    raise ValueError(
+        f"Duplicate skill ids defined in Python and external data: "
+        f"{sorted(DUPLICATE_SKILL_IDS)}"
+    )
+
+SKILL_DEFS = {
+    **PYTHON_SKILL_DEFS,
+    **EXTERNAL_SKILL_DEFS,
 }
