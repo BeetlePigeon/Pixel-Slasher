@@ -1,0 +1,58 @@
+{
+  "id": "guard_counter",
+  "name": "Guard Counter",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "guard_counter",
+    "counter_attack",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform", "facing"],
+  "required_params": [],
+
+  "allowed_param_values": {},
+
+  "aim": null,
+
+  "cast": {
+    "type": "guard_counter",
+    "duration": 55,
+    "tags": ["cast", "guard_counter", "movement_locked", "skill_locked"],
+    "phases": [
+      {
+        "name": "startup",
+        "start": 0,
+        "end": 5,
+        "tags": ["guard_counter", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "counter_ready",
+        "start": 5,
+        "end": 40,
+        "tags": ["guard_counter", "counter_ready", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "recovery",
+        "start": 40,
+        "end": 55,
+        "tags": ["recovery", "movement_locked", "skill_locked"]
+      }
+    ],
+    "events": []
+  },
+
+  "channel": null,
+
+  "params": {},
+
+  "handler": "execute_cast_skill"
+}

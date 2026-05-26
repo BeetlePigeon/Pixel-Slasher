@@ -1,0 +1,75 @@
+{
+  "id": "meteor",
+  "name": "Meteor",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform"],
+  "required_params": [
+    "placement_search_radius",
+    "placement_max_miss_tiles",
+    "radius_tiles",
+    "damage",
+    "impact_tick",
+    "lifetime"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": null,
+
+  "cast": {
+    "type": "cast",
+    "duration": 35,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "phases": [
+      {
+        "name": "startup",
+        "start": 0,
+        "end": 20,
+        "tags": ["cast", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "release",
+        "start": 20,
+        "end": 30,
+        "tags": ["cast", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "recovery",
+        "start": 30,
+        "end": 35,
+        "tags": ["recovery", "skill_locked"]
+      }
+    ],
+    "events": [
+      {
+        "tick": 24,
+        "handler": "execute_meteor"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "placement_search_radius": 2,
+    "placement_max_miss_tiles": 2,
+    "radius_tiles": 2,
+    "damage": 3,
+    "impact_tick": 75,
+    "lifetime": 90
+  },
+
+  "handler": "execute_cast_skill"
+}

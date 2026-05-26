@@ -1,0 +1,60 @@
+{
+  "id": "spiral_projectile",
+  "name": "Spiral Projectile",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform"],
+  "required_params": [
+    "projectile_lifetime",
+    "radius_per_tick",
+    "angle_step_fp",
+    "spawn_angle_step_offset"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": null,
+
+  "cast": {
+    "duration": 20,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 10,
+        "handler": "execute_spiral_projectile",
+        "params": {
+          "spawn_angle_step_offset": 0
+        }
+      },
+      {
+        "tick": 10,
+        "handler": "execute_spiral_projectile",
+        "params": {
+          "spawn_angle_step_offset": 32
+        }
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "projectile_lifetime": 300,
+    "radius_per_tick": 128,
+    "angle_step_fp": 256,
+    "spawn_angle_step_offset": 0
+  },
+
+  "handler": "execute_cast_skill"
+}

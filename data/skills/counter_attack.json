@@ -1,0 +1,65 @@
+{
+  "id": "counter_attack",
+  "name": "Counter Attack",
+  "cooldown_ticks": 0,
+  "trigger_mode": "press",
+
+  "blocked_by_motion_tags": [],
+  "blocked_by_action_tags": [],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform", "facing"],
+  "required_params": [
+    "damage",
+    "range_tiles",
+    "debug_highlight_ticks",
+    "debug_highlight_color"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": null,
+
+  "cast": {
+    "type": "counter_attack",
+    "duration": 20,
+    "tags": ["counter_attack", "movement_locked", "skill_locked"],
+    "phases": [
+      {
+        "name": "startup",
+        "start": 0,
+        "end": 4,
+        "tags": ["counter_attack", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "release",
+        "start": 4,
+        "end": 10,
+        "tags": ["counter_attack", "movement_locked", "skill_locked"]
+      },
+      {
+        "name": "recovery",
+        "start": 10,
+        "end": 20,
+        "tags": ["recovery", "movement_locked", "skill_locked"]
+      }
+    ],
+    "events": [
+      {
+        "tick": 4,
+        "handler": "execute_counter_slash"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "damage": 2,
+    "range_tiles": 2,
+    "debug_highlight_ticks": 12,
+    "debug_highlight_color": "orange"
+  },
+
+  "handler": "execute_cast_skill"
+}
