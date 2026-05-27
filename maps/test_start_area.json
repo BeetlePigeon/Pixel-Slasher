@@ -85,11 +85,6 @@
       "id": "training_dummy_1",
       "type": "training_dummy",
       "tile": [7, 5]
-    },
-    {
-      "id": "training_dummy_2",
-      "type": "training_dummy",
-      "tile": [7, 6]
     }
   ],
 

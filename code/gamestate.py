@@ -1,8 +1,10 @@
 import pygame
+from random import randint
+from support import Vec2i
 from utils.camera_utils import internal_screen_to_world_cpos
 from gameplay_ui import GameplayUI
 from skill_registry import SKILL_DEFS
-from utils.tile_vec_utils import tile_from_cpos
+from utils.tile_vec_utils import tile_from_cpos, tile_center
 from systems import (
     snapshot_system,
     action_state_system,
@@ -51,6 +53,7 @@ class StateGameplay(State):
     def __init__(self, game):
         super().__init__(game)
         self.gameplay_ui = GameplayUI()
+        self.debug_dummy_patrol = {}
 
 
     def get_skill_trigger_mode(self, entity, slot):
@@ -280,7 +283,7 @@ class StateGameplay(State):
         }
 
         # AI Intents
-        pass
+        self.append_debug_dummy_patrol_intents(intents)
         # Add AI-generated intents to the intents dict created under Player Intents.
 
         # Debug Inputs Bypass Arbiters
@@ -361,3 +364,73 @@ class StateGameplay(State):
         tile_render_system(self.game.world, surface, render_alpha)
         sprite_system(self.game.world, surface, render_alpha, draw_debug=self.game.debug_mode)
         self.gameplay_ui.draw(surface)
+
+
+    def append_debug_dummy_patrol_intents(self, intents):
+        if not self.game.debug_mode:
+            return
+
+        world = self.game.world
+
+        # Use the first enemy-team entity as a temporary moving blocker.
+        # This is intentionally a debug test driver, not AI.
+        candidates = [
+            entity
+            for entity in sorted(world.team)
+            if (
+                world.team[entity] == "enemy"
+                and entity in world.transform
+                and entity in world.motion_state
+                and entity in world.space_occupier
+            )
+        ]
+
+        if not candidates:
+            return
+
+        dummy = candidates[0]
+
+        motion_state = world.motion_state[dummy]
+
+        # Do not spam new targets while the dummy is already moving
+        # or while a target is waiting to be consumed by the movement arbiter.
+        if motion_state.get("controller") is not None:
+            return
+
+        if dummy in world.move_target:
+            return
+
+        if dummy not in self.debug_dummy_patrol:
+            start_tile = world.transform[dummy].tile
+
+            self.debug_dummy_patrol[dummy] = {
+                "points": [
+                    start_tile,
+                    start_tile + Vec2i(5, 0),
+                ],
+                "index": 1,
+                "next_tick": world.tick,
+                "wait_ticks": 30,
+            }
+
+        patrol = self.debug_dummy_patrol[dummy]
+
+        if world.tick < patrol["next_tick"]:
+            return
+
+        target_tile = patrol["points"][patrol["index"]]
+
+        patrol["index"] = (
+            patrol["index"] + 1
+        ) % len(patrol["points"])
+
+        patrol["next_tick"] = world.tick + patrol["wait_ticks"]
+
+        intents.setdefault(
+            dummy,
+            [],
+        ).append({
+            "type": "move_to_tile",
+            "target_tile": target_tile,
+            "target_cpos": tile_center(target_tile),
+        })
