@@ -1,10 +1,25 @@
 from support import Vec2i
+from utils.occupancy_utils import is_tile_blocked_for_movement
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     manhattan_tile_distance,
     tile_center,
     tiles_crossed_by_segment,
 )
+
+
+def is_tile_valid_for_entity_placement(
+    world,
+    tile: Vec2i,
+    entity=None,
+    include_dynamic=True,
+):
+    return not is_tile_blocked_for_movement(
+        world,
+        tile,
+        mover_entity=entity,
+        include_dynamic=include_dynamic,
+    )
 
 
 def tile_in_bounds(world, tile: Vec2i) -> bool:

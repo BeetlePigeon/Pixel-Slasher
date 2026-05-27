@@ -18,6 +18,7 @@
   "required_params": [
     "target_mode",
     "collision",
+    "placement_policy",
     "target_snap_radius_tiles",
     "ray_fallback_max_miss_tiles",
     "ray_fallback_min_progress_tiles"
@@ -25,7 +26,8 @@
 
   "allowed_param_values": {
     "target_mode": ["mouse_tile_center"],
-    "collision": ["target_snap_then_ray_fallback"]
+    "collision": ["target_snap_then_ray_fallback"],
+    "placement_policy": ["nearest_valid_unblocked"]
   },
 
   "aim": null,
@@ -46,6 +48,7 @@
   "params": {
     "target_mode": "mouse_tile_center",
     "collision": "target_snap_then_ray_fallback",
+    "placement_policy": "nearest_valid_unblocked",
     "target_snap_radius_tiles": 2,
     "ray_fallback_max_miss_tiles": 4,
     "ray_fallback_min_progress_tiles": 1

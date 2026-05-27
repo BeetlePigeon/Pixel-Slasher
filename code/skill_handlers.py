@@ -189,11 +189,13 @@ def execute_teleport(world, caster, context):
 
     final_tile = resolve_path_tolerant_teleport_tile(
         world,
+        entity=caster,
         start_tile=start_tile,
         target_tile=target_tile,
         target_snap_radius_tiles=params["target_snap_radius_tiles"],
         ray_fallback_max_miss_tiles=params["ray_fallback_max_miss_tiles"],
         ray_fallback_min_progress_tiles=params["ray_fallback_min_progress_tiles"],
+        placement_policy=params["placement_policy"],
     )
 
     if final_tile is None:
