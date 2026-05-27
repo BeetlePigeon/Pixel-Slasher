@@ -356,7 +356,7 @@ class World:
 
         self.movement_collision[eid] = {
             "static_tiles": "slide",
-            "dynamic_blockers": "block",
+            "dynamic_blockers": "slide",
 
             # Default/fallback ratio.
             "slide_min_tangent_ratio": (1, 2),
@@ -444,7 +444,7 @@ class World:
             "dynamic_blockers": "block",
 
             "slide_min_tangent_ratio": (1, 2),
-            "corner_cutting": "allow_if_one_side_open",
+            "corner_cutting": "strict",
         }
         self.space_occupier[eid] = {
             "enabled": True,
