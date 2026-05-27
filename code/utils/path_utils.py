@@ -1,5 +1,6 @@
 import heapq
-from tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
+from utils.occupancy_utils import is_tile_static_blocked
+from utils.tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
 
 
@@ -15,18 +16,6 @@ class PathSearchBudget:
         return True
 
 
-def is_static_tile_blocked(world, tile: Vec2i) -> bool:
-    # Out of bounds is blocked.
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
-
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    # Static collision from tilemap.
-    return (tile.x, tile.y) in world.static_collision_tiles
-
-
 def get_corner_cutting_policy(world, entity):
     policy = world.movement_collision.get(entity, {})
     return policy.get("corner_cutting", "strict")
@@ -35,7 +24,7 @@ def get_corner_cutting_policy(world, entity):
 def tile_is_navigable_for_entity(world, entity, tile: Vec2i) -> bool:
     # Future seam:
     # Later, this can check multi-tile/plus-shaped occupancy.
-    return not is_static_tile_blocked(world, tile)
+    return not is_tile_static_blocked(world, tile)
 
 
 def diagonal_step_allowed(world, entity, current_tile: Vec2i, direction: Vec2i) -> bool:

@@ -1,5 +1,5 @@
 from support import Vec2i
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     sign,
     scale_vec,
     clamp_vec_axis,

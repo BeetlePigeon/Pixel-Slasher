@@ -1,8 +1,8 @@
 import pygame
-from camera_utils import project_screen_point, scale_surface_by_camera_zoom, scale_vec_by_camera_zoom, scale_length_by_camera_zoom
+from utils.camera_utils import project_screen_point, scale_surface_by_camera_zoom, scale_vec_by_camera_zoom, scale_length_by_camera_zoom
 from support import Vec2i
 from constants import TILE_UNITS
-from tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_from_cpos, tile_center
+from utils.tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_from_cpos, tile_center
 
 
 def sprite_system(world, surface, render_alpha, draw_debug=False):

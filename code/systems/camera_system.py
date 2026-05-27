@@ -1,11 +1,11 @@
 from support import Vec2i
-from camera_utils import (
+from utils.camera_utils import (
     get_camera_target_cpos,
     get_camera_zoom,
     sample_camera_shake,
     update_camera_zoom,
 )
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     interp_cpos,
     lerp_cpos,
     cpos_to_screen

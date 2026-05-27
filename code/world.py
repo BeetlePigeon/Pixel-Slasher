@@ -8,7 +8,8 @@ from data.tables_area_defs import (
     STARTING_SPAWN_ID,
 )
 from data.tables_player_defs import DEFAULT_PLAYER_STATE
-from tile_vec_utils import tile_center, tile_from_cpos, vec2i_from_pair
+from utils.tile_vec_utils import tile_center, vec2i_from_pair
+from utils.occupancy_utils import mark_dynamic_occupancy_dirty, rebuild_dynamic_occupancy
 from support import Vec2i, Transform
 from map_loader import load_area_map
 
@@ -198,261 +199,8 @@ class World:
             if key[0] == eid:
                 self.skill_cooldown.pop(key, None)
 
-        self.mark_dynamic_occupancy_dirty()
+        mark_dynamic_occupancy_dirty(self)
 
-    def mark_dynamic_occupancy_dirty(self):
-        self.dynamic_occupancy_dirty = True
-
-    def space_occupier_enabled(self, eid):
-        space_occupier = self.space_occupier.get(eid)
-
-        if space_occupier is None:
-            return False
-
-        return space_occupier.get("enabled", True)
-
-    def space_occupier_blocks_movement(self, eid):
-        space_occupier = self.space_occupier.get(eid)
-
-        if space_occupier is None:
-            return False
-
-        if not space_occupier.get("enabled", True):
-            return False
-
-        return space_occupier.get("blocks_movement", False)
-
-    def get_entity_occupied_tiles(self, eid):
-        if eid not in self.transform:
-            return ()
-
-        space_occupier = self.space_occupier.get(eid)
-
-        if space_occupier is None:
-            return ()
-
-        if not space_occupier.get("enabled", True):
-            return ()
-
-        shape = space_occupier.get("shape", "single_tile")
-
-        if shape != "single_tile":
-            raise ValueError(
-                f"Unsupported space occupier shape for entity {eid}: "
-                f"{shape!r}"
-            )
-
-        transform = self.transform[eid]
-
-        # For v1, a space occupier claims its committed logical tile.
-        # Movement destination is handled separately through reservations.
-        return (
-            transform.tile,
-        )
-
-    def get_entity_reserved_tiles(self, eid):
-        if eid not in self.space_occupier:
-            return ()
-
-        if not self.space_occupier_blocks_movement(eid):
-            return ()
-
-        motion_state = self.motion_state.get(eid)
-
-        if motion_state is None:
-            return ()
-
-        controller = motion_state.get("controller")
-
-        if controller is None:
-            return ()
-
-        # GridMoveController and SettleToGridController expose .end.
-        if hasattr(controller, "end"):
-            return (
-                tile_from_cpos(controller.end),
-            )
-
-        # PathFollowController exposes nodes/current_index.
-        if hasattr(controller, "nodes") and hasattr(controller, "current_index"):
-            if controller.current_index < len(controller.nodes):
-                return (
-                    tile_from_cpos(controller.nodes[controller.current_index]),
-                )
-
-        return ()
-
-    def rebuild_dynamic_occupancy(self):
-        dynamic_occupancy = {}
-        dynamic_blocking_occupancy = {}
-        dynamic_reservations = {}
-
-        entities = (
-                set(self.space_occupier)
-                & set(self.transform)
-        )
-
-        for eid in sorted(entities):
-            if not self.space_occupier_enabled(eid):
-                continue
-
-            occupied_tiles = self.get_entity_occupied_tiles(eid)
-
-            for tile in occupied_tiles:
-                dynamic_occupancy.setdefault(
-                    tile,
-                    set(),
-                ).add(eid)
-
-                if self.space_occupier_blocks_movement(eid):
-                    dynamic_blocking_occupancy.setdefault(
-                        tile,
-                        set(),
-                    ).add(eid)
-
-            reserved_tiles = self.get_entity_reserved_tiles(eid)
-
-            for tile in reserved_tiles:
-                dynamic_reservations.setdefault(
-                    tile,
-                    set(),
-                ).add(eid)
-
-        self.dynamic_occupancy = dynamic_occupancy
-        self.dynamic_blocking_occupancy = dynamic_blocking_occupancy
-        self.dynamic_reservations = dynamic_reservations
-        self.dynamic_occupancy_dirty = False
-
-    def ensure_dynamic_occupancy_current(self):
-        if self.dynamic_occupancy_dirty:
-            self.rebuild_dynamic_occupancy()
-
-    def get_entities_occupying_tile(self, tile):
-        self.ensure_dynamic_occupancy_current()
-
-        return tuple(
-            sorted(
-                self.dynamic_occupancy.get(
-                    tile,
-                    (),
-                )
-            )
-        )
-
-    def get_movement_blockers_on_tile(self, tile, mover_entity=None):
-        self.ensure_dynamic_occupancy_current()
-
-        blockers = set(
-            self.dynamic_blocking_occupancy.get(
-                tile,
-                (),
-            )
-        )
-
-        blockers.update(
-            self.dynamic_reservations.get(
-                tile,
-                (),
-            )
-        )
-
-        if mover_entity is None:
-            return tuple(sorted(blockers))
-
-        return self.filter_contact_candidates(
-            mover_entity,
-            blockers,
-        )
-
-    def is_tile_static_blocked(self, tile):
-        if tile.y < 0 or tile.y >= len(self.tilemap):
-            return True
-
-        if tile.x < 0 or tile.x >= len(self.tilemap[tile.y]):
-            return True
-
-        return (tile.x, tile.y) in self.static_collision_tiles
-
-    def is_tile_dynamically_blocked_for_movement(
-            self,
-            tile,
-            mover_entity=None,
-    ):
-        return bool(
-            self.get_movement_blockers_on_tile(
-                tile,
-                mover_entity=mover_entity,
-            )
-        )
-
-    def is_tile_blocked_for_movement(
-            self,
-            tile,
-            mover_entity=None,
-            include_dynamic=True,
-    ):
-        if self.is_tile_static_blocked(tile):
-            return True
-
-        if include_dynamic and self.is_tile_dynamically_blocked_for_movement(
-                tile,
-                mover_entity=mover_entity,
-        ):
-            return True
-
-        return False
-
-    def get_contact_filter(self, eid):
-        return self.contact_filter.get(eid, {})
-
-    def get_entity_collision_group(self, eid):
-        contact_filter = self.get_contact_filter(eid)
-
-        return contact_filter.get("collision_group")
-
-    def contact_candidate_is_valid(self, mover, candidate):
-        if candidate == mover:
-            return False
-
-        mover_filter = self.get_contact_filter(mover)
-
-        ignore_entities = mover_filter.get(
-            "ignore_entities",
-            set(),
-        )
-
-        if candidate in ignore_entities:
-            return False
-
-        candidate_group = self.get_entity_collision_group(candidate)
-
-        ignore_collision_groups = mover_filter.get(
-            "ignore_collision_groups",
-            set(),
-        )
-
-        if candidate_group is not None and candidate_group in ignore_collision_groups:
-            return False
-
-        collides_with_teams = mover_filter.get("collides_with_teams")
-
-        if collides_with_teams is not None:
-            candidate_team = self.team.get(candidate)
-
-            if candidate_team not in collides_with_teams:
-                return False
-
-        return True
-
-    def filter_contact_candidates(self, mover, candidates):
-        return tuple(
-            candidate
-            for candidate in sorted(candidates)
-            if self.contact_candidate_is_valid(
-                mover,
-                candidate,
-            )
-        )
 
     def build_tile_images(self, tile_image_assets):
         tile_images = {}
@@ -515,8 +263,8 @@ class World:
         for entity_def in area_map["placed_entities"]:
             self.spawn_area_entity_from_def(entity_def)
 
-        self.mark_dynamic_occupancy_dirty()
-        self.rebuild_dynamic_occupancy()
+        mark_dynamic_occupancy_dirty(self)
+        rebuild_dynamic_occupancy(self)
 
         self.focus_camera_on_player()
 
@@ -537,7 +285,7 @@ class World:
         self.tile_images = {}
         self.tilemap = []
         self.static_collision_tiles = set()
-        self.mark_dynamic_occupancy_dirty()
+        mark_dynamic_occupancy_dirty(self)
 
 
     def capture_player_state_from_entity(self, player):
@@ -675,7 +423,7 @@ class World:
             "enabled": True,
         }
 
-        self.mark_dynamic_occupancy_dirty()
+        mark_dynamic_occupancy_dirty(self)
 
         return eid
 
@@ -747,6 +495,6 @@ class World:
 
         self.track_area_entity(eid)
 
-        self.mark_dynamic_occupancy_dirty()
+        mark_dynamic_occupancy_dirty(self)
 
         return eid

@@ -40,7 +40,7 @@ def start_counter_attack_action(world, defender, attacker):
         "counter_target": attacker,
     }
 
-    from skill_utils import start_skill_action_from_def
+    from utils.skill_utils import start_skill_action_from_def
 
     return start_skill_action_from_def(
         world,

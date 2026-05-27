@@ -1,20 +1,19 @@
 from support import Vec2i
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     scale_normalized_dir,
     tile_from_cpos,
     tile_center,
 )
-from motion_ops import teleport_entity_to_tile
-from teleport_utils import resolve_path_tolerant_teleport_tile
-from placement_utils import find_nearest_valid_placement_tile_with_line_of_sight
-from camera_utils import internal_screen_to_world_tile, snap_camera_to_entity_now
+from utils.teleport_utils import resolve_path_tolerant_teleport_tile, teleport_entity_to_tile
+from utils.placement_utils import find_nearest_valid_placement_tile_with_line_of_sight
+from utils.camera_utils import internal_screen_to_world_tile, snap_camera_to_entity_now
 from spawners import (
     spawn_test_projectile,
     spawn_spiral_projectile,
     spawn_magnet_orb,
     spawn_meteor,
 )
-from skill_utils import (
+from utils.skill_utils import (
     start_skill_action,
     get_context_intent_for_aim,
     resolve_context_aim_vector,

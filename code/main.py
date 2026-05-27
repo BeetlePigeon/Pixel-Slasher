@@ -50,7 +50,7 @@ from inputbuffer import InputBuffer
 from assets import Assets
 from entity import EntityManager
 from skill_handlers import HANDLERS
-from skill_utils import validate_skill_defs, validate_player_skill_loadout
+from utils.skill_utils import validate_skill_defs, validate_player_skill_loadout
 from skill_registry import SKILL_DEFS, replace_skill_defs, build_skill_defs
 from settings_manager import load_settings, save_settings
 from world import World

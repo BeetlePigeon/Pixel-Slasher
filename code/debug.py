@@ -1,8 +1,7 @@
 import pygame
-from status_ops import apply_status_effect
+from utils.status_utils import apply_status_effect
 from combat_ops import queue_damage_request
-from camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake
-from world import World
+from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake
 
 
 class Debug:

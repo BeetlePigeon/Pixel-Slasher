@@ -1,8 +1,8 @@
 import pygame
-from camera_utils import internal_screen_to_world_cpos
+from utils.camera_utils import internal_screen_to_world_cpos
 from gameplay_ui import GameplayUI
 from skill_registry import SKILL_DEFS
-from tile_vec_utils import tile_from_cpos
+from utils.tile_vec_utils import tile_from_cpos
 from systems import (
     snapshot_system,
     action_state_system,

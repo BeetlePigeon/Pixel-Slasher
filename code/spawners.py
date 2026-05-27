@@ -1,8 +1,8 @@
-import pygame
 from constants import TILE_UNITS
 from systems.effect_delivery_system import build_square_area_tiles
 from support import Vec2i, Transform
-from tile_vec_utils import tile_from_cpos
+from utils.tile_vec_utils import tile_from_cpos
+from utils.occupancy_utils import is_tile_static_blocked
 from motion_controllers import (
     LinearProjectileController,
     SpiralProjectileController,
@@ -257,10 +257,4 @@ def can_spawn_at(world, cpos, static_tiles="reject"):
 
 
 def is_spawn_tile_blocked(world, tile):
-    if tile.y < 0 or tile.y >= len(world.tilemap):
-        return True
-
-    if tile.x < 0 or tile.x >= len(world.tilemap[tile.y]):
-        return True
-
-    return (tile.x, tile.y) in world.static_collision_tiles
+    return is_tile_static_blocked(world, tile)

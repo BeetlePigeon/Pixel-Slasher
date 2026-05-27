@@ -6,13 +6,13 @@ from policies import (
 )
 from constants import TILE_UNITS, AIM_LUT_SIZES, DEFAULT_AIM_OFFSET_RESOLUTION
 from data.tables_dirs import AIM_DIRECTION_LUTS, DIRECTION_VECTORS
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     sign,
     quantize_vector_to_lut_direction,
     normalize_vector_to_dir_scale,
     tile_center,
 )
-from camera_utils import (
+from utils.camera_utils import (
     internal_screen_to_world_tile,
     internal_screen_to_world_cpos,
 )

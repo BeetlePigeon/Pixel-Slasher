@@ -15,7 +15,7 @@ from entity import EntityManager
 from gamestate import StateGameplay
 from inputhandler import InputState
 from skill_handlers import HANDLERS
-from skill_utils import validate_skill_defs
+from utils.skill_utils import validate_skill_defs
 from world import World
 
 

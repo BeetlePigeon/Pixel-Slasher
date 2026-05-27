@@ -1,5 +1,5 @@
 from support import Vec2i
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     manhattan_tile_distance,
     tile_center,

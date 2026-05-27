@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass
 from support import Vec2i
-from tile_vec_utils import (
+from utils.tile_vec_utils import (
     scale_normalized_dir,
     normalize_vector_to_dir_scale,
     lerp_vec,
