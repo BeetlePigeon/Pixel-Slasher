@@ -441,10 +441,10 @@ class World:
         )
         self.movement_collision[eid] = {
             "static_tiles": "slide",
-            "dynamic_blockers": "block",
+            "dynamic_blockers": "slide",
 
             "slide_min_tangent_ratio": (1, 2),
-            "corner_cutting": "strict",
+            "corner_cutting": "allow_if_one_side_open",
         }
         self.space_occupier[eid] = {
             "enabled": True,
@@ -455,6 +455,10 @@ class World:
             "controller": None,
             "last_delta": Vec2i(0, 0),
             "influence_mode": "normal",
+        }
+        self.locomotion[eid] = {
+            "step_duration": 10,
+            "can_move_8way": True,
         }
         self.influence_receiver[eid] = {
             "accepts": {"wind", "magnet"},

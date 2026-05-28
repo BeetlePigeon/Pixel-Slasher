@@ -424,7 +424,8 @@ class StateGameplay(State):
             patrol["index"] + 1
         ) % len(patrol["points"])
 
-        patrol["next_tick"] = world.tick + patrol["wait_ticks"]
+        wait_ticks = randint(0, 200)
+        patrol["next_tick"] = world.tick + wait_ticks
 
         intents.setdefault(
             dummy,
