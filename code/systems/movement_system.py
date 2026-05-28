@@ -1619,21 +1619,7 @@ def stop_directional_continuous_controller(world, entity):
     start_requested_settle_if_allowed(world, entity)
 
 
-def start_path_follow_controller(world, entity, target):
-    nodes = build_path_follow_nodes(
-        world,
-        entity,
-        target,
-    )
-
-    if nodes is None:
-        clear_move_target(world, entity)
-        return False
-
-    if not nodes:
-        clear_move_target(world, entity)
-        return False
-
+def install_path_follow_controller(world, entity, target, nodes):
     locomotion = world.locomotion[entity]
     motion_state = world.motion_state[entity]
 
@@ -1658,6 +1644,29 @@ def start_path_follow_controller(world, entity, target):
     return True
 
 
+def start_path_follow_controller(world, entity, target):
+    nodes = build_path_follow_nodes(
+        world,
+        entity,
+        target,
+    )
+
+    if nodes is None:
+        clear_move_target(world, entity)
+        return False
+
+    if not nodes:
+        clear_move_target(world, entity)
+        return False
+
+    return install_path_follow_controller(
+        world,
+        entity,
+        target,
+        nodes,
+    )
+
+
 def discard_pending_controller_advance(controller):
     if hasattr(controller, "_pending_index"):
         delattr(controller, "_pending_index")
@@ -1672,11 +1681,15 @@ def should_refresh_path_follow_controller(world, entity, controller):
     if target["type"] != "target_tile":
         return False
 
-    if target["target_tile"] == controller.target_tile:
+    path_policy = get_path_policy(world, target)
+
+    refresh_ticks = path_policy.get("refresh_ticks")
+
+    if refresh_ticks is None:
         return False
 
-    path_policy = get_path_policy(world, target)
-    refresh_ticks = path_policy.get("refresh_ticks", 15)
+    if refresh_ticks <= 0:
+        return False
 
     return world.tick - controller.created_tick >= refresh_ticks
 
@@ -1694,10 +1707,26 @@ def refresh_path_follow_controller_if_needed(world, entity, controller):
     if target is None:
         return False
 
-    return start_path_follow_controller(
+    nodes = build_path_follow_nodes(
         world,
         entity,
         target,
+    )
+
+    # Refresh is non-destructive. If the current world state cannot
+    # produce a usable replacement path, keep following the existing
+    # controller and let the normal movement pipeline continue.
+    if nodes is None:
+        return False
+
+    if not nodes:
+        return False
+
+    return install_path_follow_controller(
+        world,
+        entity,
+        target,
+        nodes,
     )
 
 

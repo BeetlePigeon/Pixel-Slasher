@@ -232,7 +232,7 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
 #        pygame.draw.circle(surface,"blue",(committed_x, committed_y), debug_radius)
 
         # Current Tile
-        pygame.draw.circle(surface,"black",(current_x, current_y), debug_radius)
+        pygame.draw.circle(surface,"black",(current_x, current_y), debug_radius*2)
 
         # Current Cpos
         pygame.draw.circle(surface,"red",(actor_x, actor_y), debug_radius)
