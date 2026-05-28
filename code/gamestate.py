@@ -401,14 +401,13 @@ class StateGameplay(State):
 
             if dummy not in self.debug_dummy_patrol:
                 start_tile = current_tile
-                rand_x = randint(-3, 3)
-                rand_y = randint(-3, 3)
-                rand_dir = Vec2i(rand_x, rand_y)
+                rand_center_tile = Vec2i(randint(15, 20), randint(15, 20))
+                rand_close_tile = start_tile + Vec2i(randint(-3, 3), randint(-3, 3))
                 rand_wait_ticks = randint(0, 25)
                 self.debug_dummy_patrol[dummy] = {
                     "points": [
                         start_tile,
-                        start_tile + rand_dir,
+                        rand_close_tile,
                     ],
                     "target_index": 1,
                     "next_tick": world.tick,
