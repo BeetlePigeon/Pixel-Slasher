@@ -43,9 +43,9 @@ MOVEMENT_CANCELING_ACTION_TAGS = {
 
 PATH_POLICIES = {
     "traditional_click_move": {
-        "max_expansions": 1000,
+        "max_expansions": 300,
         "max_path_length": 30,
-        "smooth_max_path_length": 20,
+        "smooth_max_path_length": 28,
         "target_snap_radius": 2,
         # While LMB is held, allow the active path to refresh periodically.
         # 15 ticks = 0.25 seconds at 60 sim FPS.
@@ -57,7 +57,7 @@ PATH_POLICIES = {
         "stall_ticks_before_repath": 10,
         "repath_cooldown_ticks": 12,
         "max_repath_attempts": 4,
-        "max_follow_ticks": 240,
+        "max_follow_ticks": 340,
         "progress_min_cpos": 256,   # Change back to 128 maybe
 
         "direct_fallback_on_fail": True,

@@ -367,10 +367,9 @@ class StateGameplay(State):
 
 
     def append_debug_dummy_patrol_intents(self, intents):
+        # Temporary logic for testing move blockers.
         world = self.game.world
 
-        # Use the first enemy-team entity as a temporary moving blocker.
-        # This is intentionally a debug test driver, not AI.
         candidates = [
             entity
             for entity in sorted(world.team)
@@ -379,6 +378,7 @@ class StateGameplay(State):
                 and entity in world.transform
                 and entity in world.motion_state
                 and entity in world.space_occupier
+                and entity in world.locomotion
             )
         ]
 
@@ -396,32 +396,46 @@ class StateGameplay(State):
             if dummy in world.move_target:
                 continue
 
-            if dummy not in self.debug_dummy_patrol:
-                start_tile = world.transform[dummy].tile
+            transform = world.transform[dummy]
+            current_tile = tile_from_cpos(transform.cpos)
 
+            if dummy not in self.debug_dummy_patrol:
+                start_tile = current_tile
+                rand_x = randint(-3, 3)
+                rand_y = randint(-3, 3)
+                rand_dir = Vec2i(rand_x, rand_y)
+                rand_wait_ticks = randint(0, 25)
                 self.debug_dummy_patrol[dummy] = {
                     "points": [
                         start_tile,
-                        start_tile + Vec2i(-3, 0),
+                        start_tile + rand_dir,
                     ],
-                    "index": 1,
+                    "target_index": 1,
                     "next_tick": world.tick,
-                    "wait_ticks": 30,
+                    "wait_ticks": rand_wait_ticks,
                 }
 
             patrol = self.debug_dummy_patrol[dummy]
+            points = patrol["points"]
+            target_tile = points[patrol["target_index"]]
+
+            # Advance the patrol target only after the dummy actually reaches
+            # the current patrol point. Do not advance merely because a target
+            # was issued.
+            if current_tile == target_tile:
+                patrol["target_index"] = (
+                        patrol["target_index"] + 1
+                ) % len(points)
+
+                patrol["next_tick"] = (
+                        world.tick
+                        + patrol["wait_ticks"]
+                )
+
+                continue
 
             if world.tick < patrol["next_tick"]:
                 continue
-
-            target_tile = patrol["points"][patrol["index"]]
-
-            patrol["index"] = (
-                patrol["index"] + 1
-            ) % len(patrol["points"])
-
-            wait_ticks = patrol["wait_ticks"]
-            patrol["next_tick"] = world.tick + wait_ticks
 
             intents.setdefault(
                 dummy,

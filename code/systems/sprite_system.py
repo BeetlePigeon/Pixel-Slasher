@@ -190,6 +190,8 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
     debug_radius = scale_length_by_camera_zoom(world, 4)
 
     for entity, base_x, base_y in debug_draw_list:
+        draw_debug_path_target_overlay(world, surface, entity)
+
         transform = world.transform[entity]
 
         committed_tile = transform.tile
@@ -226,26 +228,14 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
             base_y,
         )
 
-        pygame.draw.circle(
-            surface,
-            "blue",
-            (committed_x, committed_y),
-            debug_radius,
-        )
+        # Committed Tile
+#        pygame.draw.circle(surface,"blue",(committed_x, committed_y), debug_radius)
 
-        pygame.draw.circle(
-            surface,
-            "black",
-            (current_x, current_y),
-            debug_radius,
-        )
+        # Current Tile
+        pygame.draw.circle(surface,"black",(current_x, current_y), debug_radius)
 
-        pygame.draw.circle(
-            surface,
-            "red",
-            (actor_x, actor_y),
-            debug_radius,
-        )
+        # Current Cpos
+        pygame.draw.circle(surface,"red",(actor_x, actor_y), debug_radius)
 
         if entity in world.facing:
             facing = world.facing[entity]
@@ -269,3 +259,165 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
                 (arrow_end_x, arrow_end_y),
                 scale_length_by_camera_zoom(world, 2),
             )
+
+
+def cpos_to_projected_screen(world, cpos):
+    base_x, base_y = cpos_to_screen(cpos, world.tile_size)
+
+    return project_screen_point(
+        world,
+        base_x,
+        base_y,
+    )
+
+
+def draw_dashed_line(
+    surface,
+    color,
+    start_pos,
+    end_pos,
+    dash_length=8,
+    gap_length=5,
+    width=1,
+):
+    start_x, start_y = start_pos
+    end_x, end_y = end_pos
+
+    dx = end_x - start_x
+    dy = end_y - start_y
+
+    length_sq = dx * dx + dy * dy
+
+    if length_sq == 0:
+        return
+
+    length = length_sq ** 0.5
+
+    step_length = dash_length + gap_length
+    dash_count = max(1, int(length // step_length))
+
+    for index in range(dash_count + 1):
+        dash_start_distance = index * step_length
+        dash_end_distance = min(
+            dash_start_distance + dash_length,
+            length,
+        )
+
+        if dash_start_distance >= length:
+            break
+
+        start_t = dash_start_distance / length
+        end_t = dash_end_distance / length
+
+        dash_start = (
+            round(start_x + dx * start_t),
+            round(start_y + dy * start_t),
+        )
+
+        dash_end = (
+            round(start_x + dx * end_t),
+            round(start_y + dy * end_t),
+        )
+
+        pygame.draw.line(
+            surface,
+            color,
+            dash_start,
+            dash_end,
+            width,
+        )
+
+
+def draw_debug_path_target_overlay(world, surface, entity):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return
+
+    if target.get("type") != "target_tile":
+        return
+
+    target_tile = target["target_tile"]
+    target_center_cpos = tile_center(target_tile)
+    target_screen = cpos_to_projected_screen(
+        world,
+        target_center_cpos,
+    )
+
+    target_radius = scale_length_by_camera_zoom(world, 4)
+
+    pygame.draw.circle(
+        surface,
+        "green",
+        target_screen,
+        target_radius,
+    )
+
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return
+
+    if not (
+        hasattr(controller, "nodes")
+        and hasattr(controller, "current_index")
+    ):
+        return
+
+    transform = world.transform.get(entity)
+
+    if transform is None:
+        return
+
+    remaining_nodes = controller.nodes[controller.current_index:]
+
+    if not remaining_nodes:
+        return
+
+    points = [
+        transform.cpos,
+        *remaining_nodes,
+    ]
+
+    line_width = scale_length_by_camera_zoom(world, 1)
+    dash_length = scale_length_by_camera_zoom(world, 8)
+    gap_length = scale_length_by_camera_zoom(world, 5)
+
+    for start_cpos, end_cpos in zip(points, points[1:]):
+        start_screen = cpos_to_projected_screen(
+            world,
+            start_cpos,
+        )
+
+        end_screen = cpos_to_projected_screen(
+            world,
+            end_cpos,
+        )
+
+        draw_dashed_line(
+            surface,
+            "green",
+            start_screen,
+            end_screen,
+            dash_length=dash_length,
+            gap_length=gap_length,
+            width=line_width,
+        )
+
+    last_node = remaining_nodes[-1]
+
+    if last_node != target_center_cpos:
+        draw_dashed_line(
+            surface,
+            "green",
+            cpos_to_projected_screen(world, last_node),
+            target_screen,
+            dash_length=dash_length,
+            gap_length=gap_length,
+            width=line_width,
+        )

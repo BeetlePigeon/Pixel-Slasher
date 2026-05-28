@@ -444,7 +444,7 @@ class World:
             "dynamic_blockers": "slide",
 
             "slide_min_tangent_ratio": (1, 2),
-            "corner_cutting": "allow_if_one_side_open",
+            "corner_cutting": "strict",
         }
         self.space_occupier[eid] = {
             "enabled": True,
