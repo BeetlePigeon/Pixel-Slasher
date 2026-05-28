@@ -43,7 +43,7 @@ MOVEMENT_CANCELING_ACTION_TAGS = {
 
 PATH_POLICIES = {
     "traditional_click_move": {
-        "max_expansions": 300,
+        "max_expansions": 100,
         "max_path_length": 30,
         "smooth_max_path_length": 28,
         "target_snap_radius": 2,

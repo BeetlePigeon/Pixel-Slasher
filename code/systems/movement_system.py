@@ -143,18 +143,22 @@ def movement_arbiter_system(world):
 
         if isinstance(controller, DirectionalMoveController):
             if entity in world.move_intent:
+                cancel_move_target_for_directional_input(world, entity)
+
                 updated = update_directional_continuous_controller(
                     world,
                     entity,
                     controller,
                     world.move_intent[entity],
                 )
-
                 if not updated:
                     stop_directional_continuous_controller(
                         world,
                         entity,
                     )
+                else:
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
 
                 continue
 
@@ -167,12 +171,18 @@ def movement_arbiter_system(world):
             continue
 
         if isinstance(controller, PathFollowController):
-            # Manual directional movement should interrupt active click path.
+            # Manual directional movement should cancel active click path.
             if (
                     entity in world.move_intent
                     and motion_state.get("controller_source") == "move_target"
             ):
+                cancel_move_target_for_directional_input(world, entity)
+
                 clear_motion_controller(motion_state)
+
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
             else:
@@ -199,6 +209,8 @@ def movement_arbiter_system(world):
             continue
 
         if entity in world.move_intent:
+            cancel_move_target_for_directional_input(world, entity)
+
             desired_direction = world.move_intent[entity]
 
             if DIRECTIONAL_MOVEMENT_MODE == "continuous":
@@ -207,6 +219,8 @@ def movement_arbiter_system(world):
                     entity,
                     desired_direction,
                 )
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
                 continue
 
             started = start_directional_movement_controller(
@@ -215,7 +229,6 @@ def movement_arbiter_system(world):
                 desired_direction,
                 using_buffered_intent=False,
             )
-
             if not started:
                 continue
 
@@ -304,6 +317,12 @@ def remember_failed_path_query(world, query_key, retry_ticks):
 
 def clear_failed_path_query(world, query_key):
     world.failed_path_queries.pop(query_key, None)
+
+
+def clear_failed_path_queries_for_entity(world, entity):
+    for query_key in list(world.failed_path_queries):
+        if query_key[0] == entity:
+            world.failed_path_queries.pop(query_key, None)
 
 
 def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
@@ -967,6 +986,10 @@ def clear_move_target(world, entity):
     world.move_target.pop(entity, None)
 
 
+def cancel_move_target_for_directional_input(world, entity):
+    clear_move_target(world, entity)
+    clear_failed_path_queries_for_entity(world, entity)
+
 
 def mark_settle_after_influence_if_needed(
     transform,
@@ -1589,6 +1612,9 @@ def stop_directional_continuous_controller(world, entity):
 
     clear_motion_controller(motion_state)
 
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+
     request_settle_when_allowed(world, entity)
     start_requested_settle_if_allowed(world, entity)
 
@@ -1766,17 +1792,11 @@ def movement_system(world):
 
                 motion_state["last_delta"] = transform.cpos - start_cpos
 
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
                 if controller is not None:
                     # Directional movement is allowed to keep trying while input is held.
-                    # If the player is pushing into a wall, do not clear/restart the
-                    # controller every tick.
-                    if is_directional_move_controller(controller):
-                        continue
-
-                    clear_motion_controller(motion_state)
-
-                    # Path-follow should replan from its actual cpos-derived tile.
-                    # Do not immediately attempt to settle, because the move_target still exists.
                     if is_path_follow_controller(controller):
                         continue
 

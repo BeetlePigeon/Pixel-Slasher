@@ -25,7 +25,7 @@ class Camera:
             "shake_ticks": 0,
             "shake_duration": 0,
             "shake_strength": 0,
-            "shake_max_strength": 20,
+            "shake_max_strength": 3,
             "zoom_levels": [
                 (1, 2),
                 (3, 4),
