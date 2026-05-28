@@ -58,7 +58,7 @@ PATH_POLICIES = {
         "repath_cooldown_ticks": 12,
         "max_repath_attempts": 4,
         "max_follow_ticks": 240,
-        "progress_min_cpos": 128,
+        "progress_min_cpos": 256,   # Change back to 128 maybe
 
         "direct_fallback_on_fail": True,
         "direct_fallback_max_tiles": 30,

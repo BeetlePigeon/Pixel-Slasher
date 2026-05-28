@@ -391,10 +391,10 @@ class StateGameplay(State):
             # Do not spam new targets while the dummy is already moving
             # or while a target is waiting to be consumed by the movement arbiter.
             if motion_state.get("controller") is not None:
-                return
+                continue
 
             if dummy in world.move_target:
-                return
+                continue
 
             if dummy not in self.debug_dummy_patrol:
                 start_tile = world.transform[dummy].tile
@@ -412,7 +412,7 @@ class StateGameplay(State):
             patrol = self.debug_dummy_patrol[dummy]
 
             if world.tick < patrol["next_tick"]:
-                return
+                continue
 
             target_tile = patrol["points"][patrol["index"]]
 

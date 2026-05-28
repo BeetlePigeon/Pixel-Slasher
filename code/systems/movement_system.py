@@ -1632,6 +1632,11 @@ def start_path_follow_controller(world, entity, target):
     return True
 
 
+def discard_pending_controller_advance(controller):
+    if hasattr(controller, "_pending_index"):
+        delattr(controller, "_pending_index")
+
+
 def should_refresh_path_follow_controller(world, entity, controller):
     target = world.move_target.get(entity)
 
@@ -1805,7 +1810,11 @@ def movement_system(world):
                     requested_cpos,
                     resolved_cpos,
             ):
-                clear_motion_controller(motion_state)
+                discard_pending_controller_advance(controller)
+
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
                 continue
 
         else:
