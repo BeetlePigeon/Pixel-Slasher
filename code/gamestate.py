@@ -367,9 +367,6 @@ class StateGameplay(State):
 
 
     def append_debug_dummy_patrol_intents(self, intents):
-        if not self.game.debug_mode:
-            return
-
         world = self.game.world
 
         # Use the first enemy-team entity as a temporary moving blocker.
@@ -388,50 +385,49 @@ class StateGameplay(State):
         if not candidates:
             return
 
-        dummy = candidates[0]
+        for dummy in candidates:
+            motion_state = world.motion_state[dummy]
 
-        motion_state = world.motion_state[dummy]
+            # Do not spam new targets while the dummy is already moving
+            # or while a target is waiting to be consumed by the movement arbiter.
+            if motion_state.get("controller") is not None:
+                return
 
-        # Do not spam new targets while the dummy is already moving
-        # or while a target is waiting to be consumed by the movement arbiter.
-        if motion_state.get("controller") is not None:
-            return
+            if dummy in world.move_target:
+                return
 
-        if dummy in world.move_target:
-            return
+            if dummy not in self.debug_dummy_patrol:
+                start_tile = world.transform[dummy].tile
 
-        if dummy not in self.debug_dummy_patrol:
-            start_tile = world.transform[dummy].tile
+                self.debug_dummy_patrol[dummy] = {
+                    "points": [
+                        start_tile,
+                        start_tile + Vec2i(-3, 0),
+                    ],
+                    "index": 1,
+                    "next_tick": world.tick,
+                    "wait_ticks": 30,
+                }
 
-            self.debug_dummy_patrol[dummy] = {
-                "points": [
-                    start_tile,
-                    start_tile + Vec2i(5, 0),
-                ],
-                "index": 1,
-                "next_tick": world.tick,
-                "wait_ticks": 30,
-            }
+            patrol = self.debug_dummy_patrol[dummy]
 
-        patrol = self.debug_dummy_patrol[dummy]
+            if world.tick < patrol["next_tick"]:
+                return
 
-        if world.tick < patrol["next_tick"]:
-            return
+            target_tile = patrol["points"][patrol["index"]]
 
-        target_tile = patrol["points"][patrol["index"]]
+            patrol["index"] = (
+                patrol["index"] + 1
+            ) % len(patrol["points"])
 
-        patrol["index"] = (
-            patrol["index"] + 1
-        ) % len(patrol["points"])
+            wait_ticks = patrol["wait_ticks"]
+            patrol["next_tick"] = world.tick + wait_ticks
 
-        wait_ticks = randint(0, 200)
-        patrol["next_tick"] = world.tick + wait_ticks
-
-        intents.setdefault(
-            dummy,
-            [],
-        ).append({
-            "type": "move_to_tile",
-            "target_tile": target_tile,
-            "target_cpos": tile_center(target_tile),
-        })
+            intents.setdefault(
+                dummy,
+                [],
+            ).append({
+                "type": "move_to_tile",
+                "target_tile": target_tile,
+                "target_cpos": tile_center(target_tile),
+            })

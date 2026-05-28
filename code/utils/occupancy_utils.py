@@ -1,5 +1,7 @@
-from utils.tile_vec_utils import tile_from_cpos
+from constants import TILE_UNITS
+from support import Vec2i
 from utils.contact_filtering_utils import filter_contact_candidates
+from utils.tile_vec_utils import sign, tile_from_cpos
 
 
 def mark_dynamic_occupancy_dirty(world):
@@ -49,11 +51,97 @@ def get_entity_occupied_tiles(world, eid):
 
     transform = world.transform[eid]
 
-    # For v1, a space occupier claims its committed logical tile.
-    # Movement destination is handled separately through reservations.
     return (
-        transform.tile,
+        tile_from_cpos(transform.cpos),
     )
+
+
+def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
+    current_tile = tile_from_cpos(start_cpos)
+
+    dx = target_cpos.x - start_cpos.x
+    dy = target_cpos.y - start_cpos.y
+
+    step_x = sign(dx)
+    step_y = sign(dy)
+
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+
+    if step_x == 0 and step_y == 0:
+        return None
+
+    if step_x > 0:
+        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
+        next_cross_x = next_x_boundary - start_cpos.x
+    elif step_x < 0:
+        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_cross_x = start_cpos.x - next_x_boundary
+    else:
+        next_cross_x = None
+
+    if step_y > 0:
+        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
+        next_cross_y = next_y_boundary - start_cpos.y
+    elif step_y < 0:
+        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_cross_y = start_cpos.y - next_y_boundary
+    else:
+        next_cross_y = None
+
+    if next_cross_x is None:
+        return current_tile + Vec2i(0, step_y)
+
+    if next_cross_y is None:
+        return current_tile + Vec2i(step_x, 0)
+
+    left = next_cross_x * abs_dy
+    right = next_cross_y * abs_dx
+
+    if left < right:
+        return current_tile + Vec2i(step_x, 0)
+
+    if right < left:
+        return current_tile + Vec2i(0, step_y)
+
+    return current_tile + Vec2i(step_x, step_y)
+
+
+
+def get_controller_immediate_next_tile(current_cpos, controller):
+    if hasattr(controller, "end"):
+        return get_first_tile_entered_from_cpos(
+            current_cpos,
+            controller.end,
+        )
+
+    if hasattr(controller, "nodes") and hasattr(controller, "current_index"):
+        index = controller.current_index
+
+        while index < len(controller.nodes):
+            target_cpos = controller.nodes[index]
+
+            if target_cpos == current_cpos:
+                index += 1
+                continue
+
+            return get_first_tile_entered_from_cpos(
+                current_cpos,
+                target_cpos,
+            )
+
+    if hasattr(controller, "raw_direction"):
+        current_tile = tile_from_cpos(current_cpos)
+
+        dx = sign(controller.raw_direction.x)
+        dy = sign(controller.raw_direction.y)
+
+        if dx == 0 and dy == 0:
+            return None
+
+        return current_tile + Vec2i(dx, dy)
+
+    return None
 
 
 def get_entity_reserved_tiles(world, eid):
@@ -61,6 +149,11 @@ def get_entity_reserved_tiles(world, eid):
         return ()
 
     if not space_occupier_blocks_movement(world, eid):
+        return ()
+
+    transform = world.transform.get(eid)
+
+    if transform is None:
         return ()
 
     motion_state = world.motion_state.get(eid)
@@ -73,20 +166,28 @@ def get_entity_reserved_tiles(world, eid):
     if controller is None:
         return ()
 
-    # GridMoveController and SettleToGridController expose .end.
-    if hasattr(controller, "end"):
-        return (
-            tile_from_cpos(controller.end),
-        )
+    current_tile = tile_from_cpos(transform.cpos)
 
-    # PathFollowController exposes nodes/current_index.
-    if hasattr(controller, "nodes") and hasattr(controller, "current_index"):
-        if controller.current_index < len(controller.nodes):
-            return (
-                tile_from_cpos(controller.nodes[controller.current_index]),
-            )
+    next_tile = get_controller_immediate_next_tile(
+        transform.cpos,
+        controller,
+    )
 
-    return ()
+    if next_tile is None:
+        return ()
+
+    if next_tile == current_tile:
+        return ()
+
+    if abs(next_tile.x - current_tile.x) > 1:
+        return ()
+
+    if abs(next_tile.y - current_tile.y) > 1:
+        return ()
+
+    return (
+        next_tile,
+    )
 
 
 def rebuild_dynamic_occupancy(world):

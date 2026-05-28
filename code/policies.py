@@ -54,6 +54,12 @@ PATH_POLICIES = {
         # while the mouse is still held.
         "failed_retry_ticks": 30,
 
+        "stall_ticks_before_repath": 10,
+        "repath_cooldown_ticks": 12,
+        "max_repath_attempts": 4,
+        "max_follow_ticks": 240,
+        "progress_min_cpos": 128,
+
         "direct_fallback_on_fail": True,
         "direct_fallback_max_tiles": 30,
         "direct_fallback_min_tiles": 1,

@@ -169,23 +169,28 @@ def movement_arbiter_system(world):
         if isinstance(controller, PathFollowController):
             # Manual directional movement should interrupt active click path.
             if (
-                entity in world.move_intent
-                and motion_state.get("controller_source") == "move_target"
+                    entity in world.move_intent
+                    and motion_state.get("controller_source") == "move_target"
             ):
                 clear_motion_controller(motion_state)
-
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
-
             else:
-                if refresh_path_follow_controller_if_needed(
-                    world,
-                    entity,
-                    controller,
+                if recover_stale_path_follow_if_needed(
+                        world,
+                        entity,
+                        controller,
                 ):
                     continue
 
-                continue
+                if refresh_path_follow_controller_if_needed(
+                        world,
+                        entity,
+                        controller,
+                ):
+                    continue
+
+            continue
 
         if movement_start_suppressed_this_tick(world, entity):
             continue
@@ -257,6 +262,7 @@ def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
     motion_state.pop("controller_source", None)
+    motion_state.pop("path_follow_progress", None)
 
 
 def make_path_query_key(entity, start_tile, target_tile, path_policy_name):
@@ -298,6 +304,193 @@ def remember_failed_path_query(world, query_key, retry_ticks):
 
 def clear_failed_path_query(world, query_key):
     world.failed_path_queries.pop(query_key, None)
+
+
+def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
+    dx = a.x - b.x
+    dy = a.y - b.y
+
+    return dx * dx + dy * dy
+
+
+def get_path_follow_current_node(controller):
+    if controller.current_index >= len(controller.nodes):
+        return None
+
+    return controller.nodes[controller.current_index]
+
+
+def initialize_path_follow_progress(world, entity, controller):
+    motion_state = world.motion_state[entity]
+    transform = world.transform[entity]
+
+    current_node = get_path_follow_current_node(controller)
+
+    if current_node is None:
+        distance_sq = 0
+    else:
+        distance_sq = cpos_distance_sq(
+            transform.cpos,
+            current_node,
+        )
+
+    motion_state["path_follow_progress"] = {
+        "last_progress_tick": world.tick,
+        "last_index": controller.current_index,
+        "last_distance_sq": distance_sq,
+    }
+
+
+def update_path_follow_progress(world, entity, controller):
+    motion_state = world.motion_state[entity]
+    transform = world.transform[entity]
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return
+
+    path_policy = get_path_policy(world, target)
+
+    progress_min_cpos = path_policy.get(
+        "progress_min_cpos",
+        128,
+    )
+
+    progress_min_sq = progress_min_cpos * progress_min_cpos
+
+    progress = motion_state.get("path_follow_progress")
+
+    if progress is None:
+        initialize_path_follow_progress(
+            world,
+            entity,
+            controller,
+        )
+        return
+
+    current_node = get_path_follow_current_node(controller)
+
+    if current_node is None:
+        progress["last_progress_tick"] = world.tick
+        progress["last_index"] = controller.current_index
+        progress["last_distance_sq"] = 0
+        return
+
+    distance_sq = cpos_distance_sq(
+        transform.cpos,
+        current_node,
+    )
+
+    index_advanced = controller.current_index > progress["last_index"]
+
+    distance_decreased = (
+        distance_sq + progress_min_sq
+        < progress["last_distance_sq"]
+    )
+
+    if index_advanced or distance_decreased:
+        progress["last_progress_tick"] = world.tick
+        progress["last_index"] = controller.current_index
+        progress["last_distance_sq"] = distance_sq
+
+
+def abandon_move_target(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    clear_move_target(world, entity)
+
+    if motion_state is None:
+        return
+
+    clear_motion_controller(motion_state)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+
+def path_follow_exceeded_lifetime(world, target, path_policy):
+    created_tick = target.get(
+        "created_tick",
+        world.tick,
+    )
+
+    max_follow_ticks = path_policy.get("max_follow_ticks")
+
+    if max_follow_ticks is None:
+        return False
+
+    return world.tick - created_tick >= max_follow_ticks
+
+
+def path_follow_is_stalled(world, entity, path_policy):
+    progress = world.motion_state[entity].get("path_follow_progress")
+
+    if progress is None:
+        return False
+
+    stall_ticks = path_policy.get(
+        "stall_ticks_before_repath",
+        10,
+    )
+
+    return (
+        world.tick - progress["last_progress_tick"]
+        >= stall_ticks
+    )
+
+
+def recover_stale_path_follow_if_needed(world, entity, controller):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return False
+
+    if target["type"] != "target_tile":
+        return False
+
+    path_policy = get_path_policy(world, target)
+
+    if path_follow_exceeded_lifetime(
+        world,
+        target,
+        path_policy,
+    ):
+        abandon_move_target(world, entity)
+        return True
+
+    if not path_follow_is_stalled(
+        world,
+        entity,
+        path_policy,
+    ):
+        return False
+
+    if world.tick < target.get("next_repath_tick", world.tick):
+        return False
+
+    max_repath_attempts = path_policy.get(
+        "max_repath_attempts",
+        4,
+    )
+
+    if target.get("repath_attempts", 0) >= max_repath_attempts:
+        abandon_move_target(world, entity)
+        return True
+
+    target["repath_attempts"] = target.get("repath_attempts", 0) + 1
+    target["next_repath_tick"] = (
+        world.tick
+        + path_policy.get("repath_cooldown_ticks", 12)
+    )
+
+    motion_state = world.motion_state[entity]
+
+    clear_motion_controller(motion_state)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+    return True
 
 
 def cancel_active_voluntary_motion_if_needed(world, entity):
@@ -764,6 +957,9 @@ def set_move_target(
         "target_tile": target_tile,
         "target_cpos": target_cpos,
         "path_policy": path_policy,
+        "created_tick": world.tick,
+        "repath_attempts": 0,
+        "next_repath_tick": world.tick,
     }
 
 
@@ -1425,6 +1621,12 @@ def start_path_follow_controller(world, entity, target):
 
     motion_state["controller_source"] = "move_target"
 
+    initialize_path_follow_progress(
+        world,
+        entity,
+        motion_state["controller"],
+    )
+
     rebuild_dynamic_occupancy(world)
 
     return True
@@ -1580,6 +1782,13 @@ def movement_system(world):
 
             transform.cpos = resolved_cpos
 
+            if isinstance(controller, PathFollowController):
+                update_path_follow_progress(
+                    world,
+                    entity,
+                    controller,
+                )
+
             if transform.position_mode == "free" or influence_active:
                 transform.tile = tile_from_cpos(transform.cpos)
 
@@ -1617,6 +1826,13 @@ def movement_system(world):
 
         if controller is not None:
             controller.advance()
+
+            if isinstance(controller, PathFollowController):
+                update_path_follow_progress(
+                    world,
+                    entity,
+                    controller,
+                )
 
             if controller.finished():
                 if hasattr(controller, "end"):
