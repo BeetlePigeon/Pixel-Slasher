@@ -366,13 +366,13 @@ class World:
             # Direct grid movement: WASD / buffered WASD.
             "grid_slide_min_tangent_ratio": (1, 2),
             # Traditional click-to-move target movement.
-            "mouse_slide_min_tangent_ratio": (5, 2),
+            "mouse_slide_min_tangent_ratio": (2, 3),
             "corner_cutting": "allow_if_one_side_open",
         }
 
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "movement_footprint": "single_tile",
+            "movement_footprint": "plus5",
         }
 
         self.motion_state[eid] = {

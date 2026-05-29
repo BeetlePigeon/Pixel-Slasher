@@ -9,6 +9,7 @@ from utils.occupancy_utils import (
     is_tile_static_blocked,
     is_tile_blocked_for_movement,
     get_movement_blockers_on_tile,
+    get_movement_footprint_tiles_for_origin_tile,
 )
 from motion_controllers import (
     GridMoveController,
@@ -713,11 +714,18 @@ def passes_slide_threshold(tangent: int, normal: int, ratio) -> bool:
 
 
 def is_tile_blocked(world, tile: Vec2i, mover_entity=None) -> bool:
-    return is_tile_blocked_for_movement(
+    if mover_entity is None:
+        return is_tile_blocked_for_movement(
+            world,
+            tile,
+            mover_entity=None,
+        )
+
+    return handle_movement_tile_collision(
         world,
+        mover_entity,
         tile,
-        mover_entity=mover_entity,
-    )
+    ) != "allow"
 
 
 def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
@@ -1180,6 +1188,14 @@ def resolve_corner_crossing_collision(
     raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
 
 
+def get_movement_placement_tiles(world, entity, origin_tile):
+    return get_movement_footprint_tiles_for_origin_tile(
+        world,
+        entity,
+        origin_tile,
+    )
+
+
 def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision.get(entity)
 
@@ -1188,10 +1204,15 @@ def handle_static_tile_collision(world, entity, next_tile):
 
     behavior = policy.get("static_tiles", "allow")
 
-    if not is_tile_static_blocked(world, next_tile):
-        return "allow"
+    for footprint_tile in get_movement_placement_tiles(
+        world,
+        entity,
+        next_tile,
+    ):
+        if is_tile_static_blocked(world, footprint_tile):
+            return behavior
 
-    return behavior
+    return "allow"
 
 
 def handle_dynamic_movement_collision(world, entity, next_tile):
@@ -1208,19 +1229,27 @@ def handle_dynamic_movement_collision(world, entity, next_tile):
     if behavior == "allow":
         return "allow"
 
-    blockers = get_movement_blockers_on_tile(
+    for footprint_tile in get_movement_placement_tiles(
         world,
+        entity,
         next_tile,
-        mover_entity=entity,
-    )
+    ):
+        blockers = get_movement_blockers_on_tile(
+            world,
+            footprint_tile,
+            mover_entity=entity,
+        )
 
-    if not blockers:
-        return "allow"
+        if blockers:
+            return behavior
 
-    return behavior
+    return "allow"
 
 
 def handle_movement_tile_collision(world, entity, next_tile):
+    # next_tile is the proposed logical-center tile.
+    # Collision must validate the entity's whole movement footprint
+    # placed around that logical tile.
     static_result = handle_static_tile_collision(
         world,
         entity,
