@@ -284,7 +284,7 @@ class StateGameplay(State):
         }
 
         # AI Intents
-#        self.append_debug_dummy_patrol_intents(intents)
+        self.append_debug_dummy_patrol_intents(intents)
         # Add AI-generated intents to the intents dict created under Player Intents.
 
         # Debug Inputs Bypass Arbiters

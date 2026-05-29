@@ -9,7 +9,7 @@ class Debug:
         self.game = game
         self.debug_frame_ms_history = []
         self.debug_sim_ticks_history = []
-        self.debug_frame_history_max = 180
+        self.debug_frame_history_max = 600
 
         self.entity_size_index = 0
         self.entity_sizes = ["single_tile", "plus5", "square3"]
@@ -239,7 +239,7 @@ class Debug:
 
         graph_x = 4
         graph_y = self.game.display.internal_height - 64
-        graph_w = min(180, self.game.display.internal_width - 8)
+        graph_w = min(self.debug_frame_history_max, self.game.display.internal_width - 8)
         graph_h = 44
 
         pygame.draw.rect(
@@ -356,9 +356,11 @@ class Debug:
 
 
     def toggle_entity_sizes(self, world):
-        self.entity_size_index = (self.entity_size_index + 1) % 3
+        self.entity_size_index = (self.entity_size_index + 1) % len(self.entity_sizes)
         curr_size = self.entity_sizes[self.entity_size_index]
         for eid in world.space_occupier:
-            world.space_occupier[eid]["shape"] = curr_size
+            world.space_occupier[eid]["movement_footprint"] = curr_size
 
-        print(f"Entity occupying shapes set to {curr_size}")
+        world.dynamic_occupancy_dirty = True
+
+        print(f"Entity movement footprints set to {curr_size}")

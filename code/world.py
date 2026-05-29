@@ -372,7 +372,7 @@ class World:
 
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "shape": "plus5",
+            "movement_footprint": "single_tile",
         }
 
         self.motion_state[eid] = {
@@ -450,7 +450,7 @@ class World:
         }
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "shape": "plus5",
+            "movement_footprint": "single_tile",
         }
         self.motion_state[eid] = {
             "controller": None,

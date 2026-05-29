@@ -2,6 +2,7 @@ import pygame
 from utils.camera_utils import project_screen_point, scale_surface_by_camera_zoom, scale_vec_by_camera_zoom, scale_length_by_camera_zoom
 from support import Vec2i
 from constants import TILE_UNITS
+from utils.occupancy_utils import get_entity_occupied_tiles
 from utils.tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_from_cpos, tile_center
 
 
@@ -191,51 +192,27 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
 
     for entity, base_x, base_y in debug_draw_list:
         draw_debug_path_target_overlay(world, surface, entity)
-
-        transform = world.transform[entity]
-
-        committed_tile = transform.tile
-        current_tile = tile_from_cpos(transform.cpos)
-
-        committed_tile_center_cpos = tile_center(committed_tile)
-        current_tile_center_cpos = tile_center(current_tile)
-
-        committed_base_x, committed_base_y = cpos_to_screen(
-            committed_tile_center_cpos,
-            world.tile_size,
-        )
-
-        current_base_x, current_base_y = cpos_to_screen(
-            current_tile_center_cpos,
-            world.tile_size,
-        )
-
-        committed_x, committed_y = project_screen_point(
-            world,
-            committed_base_x,
-            committed_base_y,
-        )
-
-        current_x, current_y = project_screen_point(
-            world,
-            current_base_x,
-            current_base_y,
-        )
-
+        
         actor_x, actor_y = project_screen_point(
             world,
             base_x,
             base_y,
         )
 
-        # Committed Tile
-#        pygame.draw.circle(surface,"blue",(committed_x, committed_y), debug_radius)
+        # Movement footprint tiles.
+        draw_debug_entity_occupied_tiles(
+            world,
+            surface,
+            entity,
+        )
 
-        # Current Tile
-        pygame.draw.circle(surface,"black",(current_x, current_y), debug_radius*2)
-
-        # Current Cpos
-        pygame.draw.circle(surface,"red",(actor_x, actor_y), debug_radius)
+        # Current cpos / logical center.
+        pygame.draw.circle(
+            surface,
+            "red",
+            (actor_x, actor_y),
+            debug_radius,
+        )
 
         if entity in world.facing:
             facing = world.facing[entity]
@@ -259,6 +236,38 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
                 (arrow_end_x, arrow_end_y),
                 scale_length_by_camera_zoom(world, 2),
             )
+
+
+def draw_debug_entity_occupied_tiles(world, surface, entity):
+    occupied_tiles = get_entity_occupied_tiles(
+        world,
+        entity,
+    )
+
+    radius = scale_length_by_camera_zoom(world, 5)
+    width = scale_length_by_camera_zoom(world, 2)
+
+    for tile in occupied_tiles:
+        tile_center_cpos = tile_center(tile)
+
+        base_x, base_y = cpos_to_screen(
+            tile_center_cpos,
+            world.tile_size,
+        )
+
+        screen_x, screen_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
+        pygame.draw.circle(
+            surface,
+            "black",
+            (screen_x, screen_y),
+            radius,
+            width,
+        )
 
 
 def cpos_to_projected_screen(world, cpos):

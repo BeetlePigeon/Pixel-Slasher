@@ -24,7 +24,7 @@ def get_entity_movement_footprint_name(world, eid):
     if space_occupier is None:
         return "single_tile"
 
-    return space_occupier.get("movement_footprint", "single_tile")
+    return space_occupier.get("movement_footprint")
 
 
 def get_entity_movement_footprint_offsets(world, eid):
