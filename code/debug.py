@@ -100,6 +100,7 @@ class Debug:
         if pygame.K_F4 in input_state.keys_pressed:
             current_area = self.game.world.current_area.area_id
             if current_area == "test_start_area":
+#                self.game.world.load_area("destacker_arena", "default")
                 self.game.world.load_area("test_dungeon", "default")
             else:
                 self.game.world.load_area("test_start_area", "default")

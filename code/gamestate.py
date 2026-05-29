@@ -11,6 +11,7 @@ from systems import (
     lifetime_system,
     movement_arbiter_system,
     movement_system,
+    destacking_system,
     event_system,
     skill_intent_resolution_system,
     skill_execution_system,
@@ -340,6 +341,7 @@ class StateGameplay(State):
         influence_system(self.game.world)
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
+        destacking_system(self.game.world)
 
         # Phase 4: lifetime, camera, and events.
         #

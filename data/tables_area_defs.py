@@ -7,11 +7,13 @@ AREA_DEFS = {
         "id": "test_start_area",
         "map_file": "test_start_area.json",
     },
-
-
     "test_dungeon": {
         "id": "test_dungeon",
         "map_file": "test_dungeon.json",
+    },
+    "destacker_arena": {
+        "id": "destacker_arena",
+        "map_file": "destacker_arena.json",
     }
 }
 

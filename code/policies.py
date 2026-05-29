@@ -66,6 +66,20 @@ PATH_POLICIES = {
     },
 }
 
+
+DESTACK_POLICIES = {
+    "default": {
+        "max_search_radius": 4,
+        "max_passes": 8,
+        "debug_print": True,
+
+        # Higher priority stays on the contested tile.
+        "player_stay_priority": 100,
+        "default_stay_priority": 50,
+    },
+}
+
+
 # game configuration settings
 data_file = {
     # Audio Options
