@@ -62,6 +62,87 @@ class Debug:
             y += 14
 
 
+    def draw_debug_perf_overlay(self):
+        profiler = getattr(
+            self.game,
+            "perf_profiler",
+            None,
+        )
+
+        if profiler is None:
+            return
+
+        rows = profiler.get_summary_rows(
+            limit=14,
+        )
+
+        if not rows:
+            return
+
+        x = self.game.display.internal_width - 245
+        y = 4
+        line_height = 9
+
+        header = "Perf avg/peak/maxcall/calls"
+
+        header_surface = self.game.display.debug_font.render(
+            header,
+            False,
+            "white",
+        )
+
+        self.game.display.render_surface.blit(
+            header_surface,
+            (x, y),
+        )
+
+        y += line_height
+
+        for row in rows:
+            label = (
+                f"{row['name'][:15]:15} "
+                f"{row['avg_total_ms']:5.2f} "
+                f"{row['peak_total_ms']:5.2f} "
+                f"{row['peak_call_ms']:5.2f} "
+                f"{row['avg_calls']:4.1f}"
+            )
+
+            text_surface = self.game.display.debug_font.render(
+                label,
+                False,
+                "white",
+            )
+
+            self.game.display.render_surface.blit(
+                text_surface,
+                (x, y),
+            )
+
+            y += line_height
+
+
+    def draw_debug_pause_overlay(self):
+        if not getattr(
+                self.game,
+                "simulation_paused",
+                False,
+        ):
+            return
+
+        label = "SIM PAUSED  P: resume  O: step"
+
+        text_surface = self.game.display.debug_font.render(
+            label,
+            False,
+            "yellow",
+        )
+
+        self.game.display.render_surface.blit(
+            text_surface,
+            (4, self.game.display.internal_height - 14),
+        )
+
+
     def get_first_enemy_entity(self):
         world = self.game.world
 
@@ -84,6 +165,15 @@ class Debug:
 
 
     def process_top_level_debug_input(self, input_state):
+        if pygame.K_p in input_state.keys_pressed:
+            # Toggle pause
+            self.game.simulation_paused = not self.game.simulation_paused
+            # Avoid a huge accumulated catch-up when unpausing.
+            self.game.sim_accumulator = 0.0
+            print("[debug] simulation "f"{'paused' if self.game.simulation_paused else 'resumed'}")
+        if pygame.K_o in input_state.keys_pressed:
+            if self.game.simulation_paused:
+                self.game.single_step_requested = True
         if pygame.K_LEFTBRACKET in input_state.keys_pressed:
             self.game.display.adjust_brightness(-5)
         if pygame.K_RIGHTBRACKET in input_state.keys_pressed:

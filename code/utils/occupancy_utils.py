@@ -1,6 +1,7 @@
 from constants import TILE_UNITS
 from data.tables_movement_footprints import get_movement_footprint_offsets
 from support import Vec2i
+from utils.perf_profiler import profiled
 from utils.contact_filtering_utils import filter_contact_candidates
 from utils.tile_vec_utils import sign, tile_from_cpos
 
@@ -189,6 +190,7 @@ def get_entity_reserved_tiles(world, eid):
     )
 
 
+@profiled("occupancy.rebuild")
 def rebuild_dynamic_occupancy(world):
     dynamic_occupancy = {}
     dynamic_blocking_occupancy = {}

@@ -3,6 +3,7 @@ from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
 from support import Vec2i
+from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
     mark_dynamic_occupancy_dirty,
@@ -109,6 +110,7 @@ def entity_can_start_voluntary_movement(world, entity):
     return not tags_block_voluntary_movement(active_action_tags)
 
 
+@profiled("movement_arbiter")
 def movement_arbiter_system(world):
     rebuild_dynamic_occupancy(world)
 
@@ -1366,6 +1368,7 @@ def build_direct_fallback_nodes(world, entity, target, path_policy):
     return path_tiles_to_cpos_nodes(fallback_tiles)
 
 
+@profiled("path.build")
 def build_path_follow_nodes(world, entity, target):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
@@ -1787,6 +1790,7 @@ def path_follow_movement_was_modified(
     return resolved_cpos != requested_cpos
 
 
+@profiled("movement_system")
 def movement_system(world):
     rebuild_dynamic_occupancy(world)
 

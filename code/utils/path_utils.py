@@ -1,4 +1,5 @@
 import heapq
+from utils.perf_profiler import profiled
 from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
@@ -127,6 +128,7 @@ def reconstruct_path(came_from, start_tile: Vec2i, goal_tile: Vec2i):
     return path
 
 
+@profiled("path.find")
 def find_static_tile_path(
     world,
     entity,
@@ -286,6 +288,7 @@ def iter_target_snap_candidates(
         yield candidate[5]
 
 
+@profiled("path.find_to_target")
 def find_static_tile_path_to_target(
     world,
     entity,
@@ -324,6 +327,7 @@ def find_static_tile_path_to_target(
     return None
 
 
+@profiled("path.segment")
 def path_segment_clear(world, entity, start_tile: Vec2i, end_tile: Vec2i) -> bool:
     start_cpos = tile_center(start_tile)
     end_cpos = tile_center(end_tile)
@@ -340,6 +344,7 @@ def path_segment_clear(world, entity, start_tile: Vec2i, end_tile: Vec2i) -> boo
     return True
 
 
+@profiled("path.smooth")
 def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles):
     if not path_tiles:
         return []

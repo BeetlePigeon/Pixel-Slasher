@@ -3,7 +3,7 @@ from utils.camera_utils import project_screen_point, scale_surface_by_camera_zoo
 from support import Vec2i
 from constants import TILE_UNITS
 from utils.occupancy_utils import get_entity_occupied_tiles
-from utils.tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_from_cpos, tile_center
+from utils.tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_center
 
 
 def sprite_system(world, surface, render_alpha, draw_debug=False):
@@ -192,7 +192,7 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
 
     for entity, base_x, base_y in debug_draw_list:
         draw_debug_path_target_overlay(world, surface, entity)
-        
+
         actor_x, actor_y = project_screen_point(
             world,
             base_x,

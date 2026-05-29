@@ -5,16 +5,8 @@
 # R Click: Channel Projectile
 # SPACE: Test Projectile
 # LSHIFT: Toggle Camera Mode
-# 1: Teleport
-# 2: Wide Projectiles
-# 3: Magnet
-# 4: Dash
-# 5: Spiral Projectile
-# 6: Debug Slash
-# 7: *FREE*
-# 8: Guard Counter
-# 9: Meteor
-# 0: *FREE*
+# P: Pause
+# O: Single Tick Step
 # B: Stun Player
 # N: Freeze Player
 # H: Make Enemy Damage Player
@@ -26,6 +18,16 @@
 # ,: Gamma Down
 # .: Gamma Up
 # /: Reset Display Calibration
+# 1: Teleport
+# 2: Wide Projectiles
+# 3: Magnet
+# 4: Dash
+# 5: Spiral Projectile
+# 6: Debug Slash
+# 7: *FREE*
+# 8: Guard Counter
+# 9: Meteor
+# 0: *FREE*
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions
 # F4: Area Toggle
@@ -41,6 +43,7 @@
 import sys
 import pygame
 import time
+from utils.perf_profiler import PerfProfiler
 from constants import SIM_DT, MAX_FRAME_DT
 from data.tables_player_defs import DEFAULT_PLAYER_STATE
 from display import Display
@@ -67,8 +70,15 @@ class Game:
         self.fps = 0
         self.sim_accumulator = 0.0
 
+        # Simulation Control Variables (Debug Only)
+        self.simulation_paused = False
+        self.single_step_requested = False
+
         # User Settings
         self.settings = load_settings()
+
+        # In-game Performance Profiler
+        self.perf_profiler = PerfProfiler(history_frames=240)
 
         # Window and Display
         self.display = Display(self)
@@ -209,6 +219,8 @@ class Game:
         if self.debug_mode:
             self.debug.draw_debug_overlay()
             self.debug.draw_debug_frame_graph()
+            self.debug.draw_debug_perf_overlay()
+            self.debug.draw_debug_pause_overlay()
 
         scaled_width = self.display.internal_size[0] * self.display.scale
         scaled_height = self.display.internal_size[1] * self.display.scale
@@ -239,39 +251,56 @@ class Game:
                 self.done = True
 
             # Store edge-triggered input until the next simulation tick.
-            self.input_buffer.add_frame_input(input_state)
+            # While simulation is paused, do not accumulate gameplay edges
+            # unless the user requested a single-step tick.
+            if not self.simulation_paused or self.single_step_requested:
+                self.input_buffer.add_frame_input(input_state)
 
-            # Debug/window hotkeys can still act immediately on raw input. Toggle debug mode with ~.
+            # Toggle debug mode with '~' key.
             if pygame.K_BACKQUOTE in input_state.keys_pressed:
                 self.debug_mode = not self.debug_mode
+
+            # Debug/window hotkeys can still act immediately on raw input when in debug mode.
             if self.debug_mode:
                 self.debug.process_top_level_debug_input(input_state)
 
-            self.sim_accumulator += frame_dt
+            self.perf_profiler.enabled = self.debug_mode
 
             used_edges_this_frame = False
             sim_ticks_this_frame = 0
 
-            while self.sim_accumulator >= SIM_DT:
-                sim_input_state = self.input_buffer.build_sim_input_state(
-                    input_state,
-                    include_edges=not used_edges_this_frame,
-                )
+            should_run_single_step = self.simulation_paused and self.single_step_requested
 
-                self.update_state(SIM_DT, sim_input_state)
-                sim_ticks_this_frame += 1
+            if self.simulation_paused:
+                self.sim_accumulator = 0.0
+            else:
+                self.sim_accumulator += frame_dt
 
-                if not used_edges_this_frame:
-                    self.input_buffer.clear_edges()
+            should_run_ticks = not self.simulation_paused or should_run_single_step
 
-                used_edges_this_frame = True
-                self.sim_accumulator -= SIM_DT
+            if should_run_ticks:
+                if should_run_single_step:
+                    ticks_to_run = 1
+                else:
+                    ticks_to_run = 0
+                    while self.sim_accumulator >= SIM_DT:
+                        ticks_to_run += 1
+                        self.sim_accumulator -= SIM_DT
+
+                for _ in range(ticks_to_run):
+                    self.perf_profiler.begin_frame()
+                    sim_input_state = self.input_buffer.build_sim_input_state(input_state, include_edges=not used_edges_this_frame)
+                    self.update_state(SIM_DT, sim_input_state)
+                    self.perf_profiler.end_frame()
+                    sim_ticks_this_frame += 1
+                    if not used_edges_this_frame:
+                        self.input_buffer.clear_edges()
+                        used_edges_this_frame = True
+
+            self.single_step_requested = False
 
             if self.debug_mode:
-                self.debug.record_debug_frame_sample(
-                    raw_frame_dt,
-                    sim_ticks_this_frame,
-                )
+                self.debug.record_debug_frame_sample(raw_frame_dt, sim_ticks_this_frame)
 
             render_alpha = self.sim_accumulator / SIM_DT
             render_alpha = max(0.0, min(1.0, render_alpha))
