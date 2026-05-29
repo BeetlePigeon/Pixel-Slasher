@@ -15,6 +15,10 @@ def intent_system(world, intents):
                     entity,
                     intent["target_tile"],
                     intent.get("target_cpos"),
+                    path_policy=intent.get(
+                        "path_policy",
+                        "actor_move",
+                    ),
                 )
                 continue
 

@@ -328,6 +328,75 @@ def clear_failed_path_queries_for_entity(world, entity):
             world.failed_path_queries.pop(query_key, None)
 
 
+def get_path_policy_name(target):
+    return target.get(
+        "path_policy",
+        "actor_move",
+    )
+
+
+def get_path_policy(world, target):
+    return PATH_POLICIES[
+        get_path_policy_name(target)
+    ]
+
+
+def get_path_build_cooldown_ticks(world, target):
+    path_policy = get_path_policy(
+        world,
+        target,
+    )
+
+    return path_policy.get(
+        "path_build_cooldown_ticks",
+        10,
+    )
+
+
+def get_entity_path_build_state(world, entity):
+    return world.path_build_state.setdefault(
+        entity,
+        {
+            "next_allowed_tick": 0,
+            "last_attempt_tick": None,
+        },
+    )
+
+
+def entity_can_attempt_path_build(world, entity, target):
+    path_build_state = get_entity_path_build_state(
+        world,
+        entity,
+    )
+
+    return (
+        world.tick
+        >= path_build_state.get("next_allowed_tick", 0)
+    )
+
+
+def mark_path_build_attempted(world, entity, target):
+    cooldown_ticks = get_path_build_cooldown_ticks(
+        world,
+        target,
+    )
+
+    path_build_state = get_entity_path_build_state(
+        world,
+        entity,
+    )
+
+    path_build_state["last_attempt_tick"] = world.tick
+    path_build_state["next_allowed_tick"] = (
+        world.tick
+        + cooldown_ticks
+    )
+
+
+def clear_path_build_state(world, entity):
+    world.path_build_state.pop(entity, None)
+
+
 def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
     dx = a.x - b.x
     dy = a.y - b.y
@@ -490,6 +559,13 @@ def recover_stale_path_follow_if_needed(world, entity, controller):
     if world.tick < target.get("next_repath_tick", world.tick):
         return False
 
+    if not entity_can_attempt_path_build(
+            world,
+            entity,
+            target,
+    ):
+        return False
+
     max_repath_attempts = path_policy.get(
         "max_repath_attempts",
         4,
@@ -503,6 +579,12 @@ def recover_stale_path_follow_if_needed(world, entity, controller):
     target["next_repath_tick"] = (
         world.tick
         + path_policy.get("repath_cooldown_ticks", 12)
+    )
+
+    mark_path_build_attempted(
+        world,
+        entity,
+        target,
     )
 
     motion_state = world.motion_state[entity]
@@ -976,24 +1058,47 @@ def set_move_target(
     entity,
     target_tile: Vec2i,
     target_cpos=None,
-    path_policy="traditional_click_move",
+    path_policy="actor_move",
 ):
     if target_cpos is None:
         target_cpos = tile_center(target_tile)
+
+    existing_target = world.move_target.get(entity)
+
+    if existing_target is None:
+        created_tick = world.tick
+        repath_attempts = 0
+        next_repath_tick = world.tick
+    else:
+        created_tick = existing_target.get(
+            "created_tick",
+            world.tick,
+        )
+
+        repath_attempts = existing_target.get(
+            "repath_attempts",
+            0,
+        )
+
+        next_repath_tick = existing_target.get(
+            "next_repath_tick",
+            world.tick,
+        )
 
     world.move_target[entity] = {
         "type": "target_tile",
         "target_tile": target_tile,
         "target_cpos": target_cpos,
         "path_policy": path_policy,
-        "created_tick": world.tick,
-        "repath_attempts": 0,
-        "next_repath_tick": world.tick,
+        "created_tick": created_tick,
+        "repath_attempts": repath_attempts,
+        "next_repath_tick": next_repath_tick,
     }
 
 
 def clear_move_target(world, entity):
     world.move_target.pop(entity, None)
+    clear_path_build_state(world, entity)
 
 
 def cancel_move_target_for_directional_input(world, entity):
@@ -1379,11 +1484,8 @@ def build_path_follow_nodes(world, entity, target):
     if current_tile == target_tile:
         return []
 
-    path_policy_name = target.get(
-        "path_policy",
-        "traditional_click_move",
-    )
-    path_policy = PATH_POLICIES[path_policy_name]
+    path_policy_name = get_path_policy_name(target)
+    path_policy = get_path_policy(world, target)
 
     query_key = make_path_query_key(
         entity,
@@ -1677,6 +1779,19 @@ def install_path_follow_controller(world, entity, target, nodes):
 
 
 def start_path_follow_controller(world, entity, target):
+    if not entity_can_attempt_path_build(
+        world,
+        entity,
+        target,
+    ):
+        return False
+
+    mark_path_build_attempted(
+        world,
+        entity,
+        target,
+    )
+
     nodes = build_path_follow_nodes(
         world,
         entity,
@@ -1713,17 +1828,11 @@ def should_refresh_path_follow_controller(world, entity, controller):
     if target["type"] != "target_tile":
         return False
 
-    path_policy = get_path_policy(world, target)
-
-    refresh_ticks = path_policy.get("refresh_ticks")
-
-    if refresh_ticks is None:
-        return False
-
-    if refresh_ticks <= 0:
-        return False
-
-    return world.tick - controller.created_tick >= refresh_ticks
+    return entity_can_attempt_path_build(
+        world,
+        entity,
+        target,
+    )
 
 
 def refresh_path_follow_controller_if_needed(world, entity, controller):
@@ -1738,6 +1847,12 @@ def refresh_path_follow_controller_if_needed(world, entity, controller):
 
     if target is None:
         return False
+
+    mark_path_build_attempted(
+        world,
+        entity,
+        target,
+    )
 
     nodes = build_path_follow_nodes(
         world,

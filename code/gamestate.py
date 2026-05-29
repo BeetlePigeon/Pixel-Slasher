@@ -209,6 +209,7 @@ class StateGameplay(State):
                 "target_tile": target_tile,
                 "target_cpos": target_cpos,
                 "mouse_pos": input_state.mouse_pos,
+                "path_policy": "player_click_move",
             })
 
         self.append_keyboard_skill_intents(intents, input_state)
@@ -445,4 +446,5 @@ class StateGameplay(State):
                 "type": "move_to_tile",
                 "target_tile": target_tile,
                 "target_cpos": tile_center(target_tile),
+                "path_policy": "actor_move",
             })

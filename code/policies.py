@@ -41,31 +41,59 @@ MOVEMENT_CANCELING_ACTION_TAGS = {
     "root",
 }
 
-PATH_POLICIES = {
-    "traditional_click_move": {
-        "max_expansions": 100,
-        "max_path_length": 30,
-        "smooth_max_path_length": 28,
-        "target_snap_radius": 2,
-        # While LMB is held, allow the active path to refresh periodically.
-        # 15 ticks = 0.25 seconds at 60 sim FPS.
-        "refresh_ticks": 10,
-        # If a path query fails, don't retry the same start/target immediately
-        # while the mouse is still held.
-        "failed_retry_ticks": 30,
+BASE_CLICK_MOVE_PATH_POLICY = {
+    "max_expansions": 100,
+    "max_path_length": 30,
+    "smooth_max_path_length": 28,
+    "target_snap_radius": 2,
 
-        "stall_ticks_before_repath": 10,
-        "repath_cooldown_ticks": 12,
-        "max_repath_attempts": 4,
-        "max_follow_ticks": 340,
-        "progress_min_cpos": 256,   # Change back to 128 maybe
+    # Minimum ticks between expensive path-build attempts for this entity.
+    #
+    # This applies to:
+    # - initial path creation when the entity has a move_target and no controller
+    # - periodic refresh of an active path
+    # - stale-path recovery repaths
+    #
+    # Move targets may still update every tick; this only gates A*/path build work.
+    "path_build_cooldown_ticks": 10,
 
-        "direct_fallback_on_fail": True,
-        "direct_fallback_max_tiles": 30,
-        "direct_fallback_min_tiles": 1,
-    },
+    # If a path query fails, don't retry the exact same
+    # start/target/policy query immediately.
+    "failed_retry_ticks": 30,
+
+    "stall_ticks_before_repath": 10,
+    "repath_cooldown_ticks": 12,
+    "max_repath_attempts": 4,
+    "max_follow_ticks": 340,
+    "progress_min_cpos": 256,
+
+    "direct_fallback_on_fail": True,
+    "direct_fallback_max_tiles": 30,
+    "direct_fallback_min_tiles": 1,
 }
 
+PATH_POLICIES = {
+    # Player input should feel more responsive.
+    "player_click_move": {
+        **BASE_CLICK_MOVE_PATH_POLICY,
+        "path_build_cooldown_ticks": 6,
+        "max_expansions": 100,
+    },
+
+    # Kept as a compatibility alias while old callers are migrated.
+    "traditional_click_move": {
+        **BASE_CLICK_MOVE_PATH_POLICY,
+        "path_build_cooldown_ticks": 6,
+        "max_expansions": 100,
+    },
+
+    # Non player actors should not repath as aggressively as the player.
+    "actor_move": {
+        **BASE_CLICK_MOVE_PATH_POLICY,
+        "path_build_cooldown_ticks": 15,
+        "max_expansions": 80,
+    },
+}
 
 DESTACK_POLICIES = {
     "default": {

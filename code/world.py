@@ -20,6 +20,7 @@ class World:
         self.entities = entities
         self.tick = 0
         self.failed_path_queries = {}
+        self.path_build_state = {}
 
         control_settings = self.game.settings["controls"]
         self.control_scheme = control_settings["control_scheme"]
@@ -149,6 +150,7 @@ class World:
             self.facing,
             self.move_intent,
             self.buffered_move_intent,
+            self.path_build_state,
             self.move_target,
             self.aim_state,
             self.intent,
