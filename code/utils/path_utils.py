@@ -1,5 +1,5 @@
 import heapq
-from utils.occupancy_utils import is_tile_blocked_for_movement
+from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
 
@@ -22,15 +22,14 @@ def get_corner_cutting_policy(world, entity):
 
 
 def tile_is_navigable_for_entity(world, entity, tile: Vec2i) -> bool:
-    # Future seam:
-    # Later, this can check multi-tile/plus-shaped occupancy.
-    #
-    # For now, navigation treats valid dynamic blockers/reservations
-    # as temporary blocked tiles for this specific entity.
-    return not is_tile_blocked_for_movement(
+    # Pathfinding searches possible logical-center tiles.
+    # A candidate is navigable only if the entity's full movement
+    # footprint can be placed there.
+    return is_tile_valid_for_entity_placement(
         world,
         tile,
-        mover_entity=entity,
+        entity=entity,
+        include_dynamic=True,
     )
 
 

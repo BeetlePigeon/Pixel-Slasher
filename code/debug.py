@@ -11,6 +11,9 @@ class Debug:
         self.debug_sim_ticks_history = []
         self.debug_frame_history_max = 180
 
+        self.entity_size_index = 0
+        self.entity_sizes = ["single_tile", "plus5", "square3"]
+
 
     def draw_debug_overlay(self):
         statuses = self.game.world.status_effects.get(self.game.world.player, {})
@@ -95,6 +98,8 @@ class Debug:
             self.game.display.adjust_gamma(5)
         if pygame.K_SLASH in input_state.keys_pressed:
             self.game.display.reset_visual_calibration()
+        if pygame.K_F2 in input_state.keys_pressed:
+            self.toggle_entity_sizes(self.game.world)
         if pygame.K_F3 in input_state.keys_pressed:
             self.game.reload_skill_defs()
         if pygame.K_F4 in input_state.keys_pressed:
@@ -348,3 +353,12 @@ class Debug:
                 active_highlights.append(highlight)
 
         world.debug_tile_highlights = active_highlights
+
+
+    def toggle_entity_sizes(self, world):
+        self.entity_size_index = (self.entity_size_index + 1) % 3
+        curr_size = self.entity_sizes[self.entity_size_index]
+        for eid in world.space_occupier:
+            world.space_occupier[eid]["shape"] = curr_size
+
+        print(f"Entity occupying shapes set to {curr_size}")

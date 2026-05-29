@@ -1,4 +1,5 @@
 from constants import TILE_UNITS
+from data.tables_movement_footprints import get_movement_footprint_offsets
 from support import Vec2i
 from utils.contact_filtering_utils import filter_contact_candidates
 from utils.tile_vec_utils import sign, tile_from_cpos
@@ -8,51 +9,51 @@ def mark_dynamic_occupancy_dirty(world):
     world.dynamic_occupancy_dirty = True
 
 
-def space_occupier_enabled(world, eid):
-    space_occupier = world.space_occupier.get(eid)
-
-    if space_occupier is None:
-        return False
-
-    return space_occupier.get("enabled", True)
-
-
 def space_occupier_blocks_movement(world, eid):
     space_occupier = world.space_occupier.get(eid)
 
     if space_occupier is None:
         return False
 
-    if not space_occupier.get("enabled", True):
-        return False
+    return bool(space_occupier.get("blocks_movement", True))
 
-    return space_occupier.get("blocks_movement", False)
+
+def get_entity_movement_footprint_name(world, eid):
+    space_occupier = world.space_occupier.get(eid)
+
+    if space_occupier is None:
+        return "single_tile"
+
+    return space_occupier.get("movement_footprint", "single_tile")
+
+
+def get_entity_movement_footprint_offsets(world, eid):
+    footprint_name = get_entity_movement_footprint_name(world, eid)
+
+    return get_movement_footprint_offsets(footprint_name)
+
+
+def get_movement_footprint_tiles_for_origin_tile(world, eid, origin_tile):
+    return tuple(
+        origin_tile + offset
+        for offset in get_entity_movement_footprint_offsets(world, eid)
+    )
 
 
 def get_entity_occupied_tiles(world, eid):
     if eid not in world.transform:
         return ()
 
-    space_occupier = world.space_occupier.get(eid)
-
-    if space_occupier is None:
+    if not space_occupier_blocks_movement(world, eid):
         return ()
-
-    if not space_occupier.get("enabled", True):
-        return ()
-
-    shape = space_occupier.get("shape", "single_tile")
-
-    if shape != "single_tile":
-        raise ValueError(
-            f"Unsupported space occupier shape for entity {eid}: "
-            f"{shape!r}"
-        )
 
     transform = world.transform[eid]
+    origin_tile = tile_from_cpos(transform.cpos)
 
-    return (
-        tile_from_cpos(transform.cpos),
+    return get_movement_footprint_tiles_for_origin_tile(
+        world,
+        eid,
+        origin_tile,
     )
 
 
@@ -107,7 +108,6 @@ def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
     return current_tile + Vec2i(step_x, step_y)
 
 
-
 def get_controller_immediate_next_tile(current_cpos, controller):
     if hasattr(controller, "end"):
         return get_first_tile_entered_from_cpos(
@@ -145,9 +145,6 @@ def get_controller_immediate_next_tile(current_cpos, controller):
 
 
 def get_entity_reserved_tiles(world, eid):
-    if eid not in world.space_occupier:
-        return ()
-
     if not space_occupier_blocks_movement(world, eid):
         return ()
 
@@ -185,7 +182,9 @@ def get_entity_reserved_tiles(world, eid):
     if abs(next_tile.y - current_tile.y) > 1:
         return ()
 
-    return (
+    return get_movement_footprint_tiles_for_origin_tile(
+        world,
+        eid,
         next_tile,
     )
 
@@ -196,12 +195,12 @@ def rebuild_dynamic_occupancy(world):
     dynamic_reservations = {}
 
     entities = (
-            set(world.space_occupier)
-            & set(world.transform)
+        set(world.space_occupier)
+        & set(world.transform)
     )
 
     for eid in sorted(entities):
-        if not space_occupier_enabled(world, eid):
+        if not space_occupier_blocks_movement(world, eid):
             continue
 
         occupied_tiles = get_entity_occupied_tiles(world, eid)
@@ -212,11 +211,10 @@ def rebuild_dynamic_occupancy(world):
                 set(),
             ).add(eid)
 
-            if space_occupier_blocks_movement(world, eid):
-                dynamic_blocking_occupancy.setdefault(
-                    tile,
-                    set(),
-                ).add(eid)
+            dynamic_blocking_occupancy.setdefault(
+                tile,
+                set(),
+            ).add(eid)
 
         reserved_tiles = get_entity_reserved_tiles(world, eid)
 
@@ -288,9 +286,9 @@ def is_tile_static_blocked(world, tile):
 
 
 def is_tile_dynamically_blocked_for_movement(
-        world,
-        tile,
-        mover_entity=None,
+    world,
+    tile,
+    mover_entity=None,
 ):
     return bool(
         get_movement_blockers_on_tile(
@@ -302,18 +300,18 @@ def is_tile_dynamically_blocked_for_movement(
 
 
 def is_tile_blocked_for_movement(
-        world,
-        tile,
-        mover_entity=None,
-        include_dynamic=True,
+    world,
+    tile,
+    mover_entity=None,
+    include_dynamic=True,
 ):
     if is_tile_static_blocked(world, tile):
         return True
 
     if include_dynamic and is_tile_dynamically_blocked_for_movement(
-            world,
-            tile,
-            mover_entity=mover_entity,
+        world,
+        tile,
+        mover_entity=mover_entity,
     ):
         return True
 

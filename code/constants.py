@@ -2,7 +2,7 @@
 # The game draws to this fixed-size surface first, then the display code scales
 # that surface to the actual window/fullscreen size.
 INTERNAL_WIDTH = 640
-INTERNAL_HEIGHT = 360
+INTERNAL_HEIGHT = 480
 INTERNAL_RES = (INTERNAL_WIDTH, INTERNAL_HEIGHT)
 
 

@@ -26,6 +26,7 @@
 # ,: Gamma Down
 # .: Gamma Up
 # /: Reset Display Calibration
+# F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions
 # F4: Area Toggle
 # F5: Cycle Windowed Scale

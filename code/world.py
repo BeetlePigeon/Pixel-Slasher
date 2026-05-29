@@ -73,9 +73,12 @@ class World:
         self.damage_requests = []
         self.movement_collision = {}
 
-        # Space occupancy is passive physical presence:
-        # which gameplay tile(s) an entity claims, and whether that
-        # occupancy blocks movement.
+        # Movement occupancy is passive physical presence:
+        # which gameplay tile footprint an entity claims for movement blocking.
+        #
+        # transform.cpos remains the logical center / action origin.
+        # space_occupier.movement_footprint defines centered tile offsets
+        # around tile_from_cpos(transform.cpos).
         self.space_occupier = {}
 
         # Derived dynamic spatial caches. These are rebuilt from
@@ -368,9 +371,8 @@ class World:
         }
 
         self.space_occupier[eid] = {
-            "enabled": True,
             "blocks_movement": True,
-            "shape": "single_tile",
+            "shape": "plus5",
         }
 
         self.motion_state[eid] = {
@@ -447,9 +449,8 @@ class World:
             "corner_cutting": "strict",
         }
         self.space_occupier[eid] = {
-            "enabled": True,
             "blocks_movement": True,
-            "shape": "single_tile",
+            "shape": "plus5",
         }
         self.motion_state[eid] = {
             "controller": None,

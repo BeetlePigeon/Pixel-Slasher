@@ -1,5 +1,5 @@
 from support import Vec2i
-from utils.occupancy_utils import is_tile_blocked_for_movement
+from utils.occupancy_utils import is_tile_blocked_for_movement, get_movement_footprint_tiles_for_origin_tile
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     manhattan_tile_distance,
@@ -8,18 +8,39 @@ from utils.tile_vec_utils import (
 )
 
 
+def get_entity_placement_tiles(world, tile: Vec2i, entity=None):
+    if entity is None:
+        return (
+            tile,
+        )
+
+    return get_movement_footprint_tiles_for_origin_tile(
+        world,
+        entity,
+        tile,
+    )
+
+
 def is_tile_valid_for_entity_placement(
     world,
     tile: Vec2i,
     entity=None,
     include_dynamic=True,
 ):
-    return not is_tile_blocked_for_movement(
+    for occupied_tile in get_entity_placement_tiles(
         world,
         tile,
-        mover_entity=entity,
-        include_dynamic=include_dynamic,
-    )
+        entity=entity,
+    ):
+        if is_tile_blocked_for_movement(
+            world,
+            occupied_tile,
+            mover_entity=entity,
+            include_dynamic=include_dynamic,
+        ):
+            return False
+
+    return True
 
 
 def tile_in_bounds(world, tile: Vec2i) -> bool:

@@ -6,13 +6,16 @@ from systems.movement_system import (
     clear_move_target,
 )
 from utils.occupancy_utils import (
-    is_tile_blocked_for_movement,
+    get_entity_occupied_tiles,
     mark_dynamic_occupancy_dirty,
     rebuild_dynamic_occupancy,
     space_occupier_blocks_movement,
 )
-from utils.placement_utils import iter_tile_ring
-from utils.tile_vec_utils import tile_center, tile_from_cpos
+from utils.placement_utils import (
+    is_tile_valid_for_entity_placement,
+    iter_tile_ring,
+)
+from utils.tile_vec_utils import tile_center
 
 
 def destacking_system(world, policy_name="default"):
@@ -52,16 +55,6 @@ def entity_can_participate_in_destacking(world, entity):
     if not space_occupier_blocks_movement(world, entity):
         return False
 
-    space_occupier = world.space_occupier.get(entity)
-
-    if space_occupier is None:
-        return False
-
-    # V1 only supports single-tile occupiers, but this keeps the
-    # destacking pipeline shape-aware for future multi-tile occupancy.
-    if space_occupier.get("shape", "single_tile") != "single_tile":
-        return False
-
     return True
 
 
@@ -69,10 +62,9 @@ def get_entity_occupied_tiles_for_destacking(world, entity):
     if not entity_can_participate_in_destacking(world, entity):
         return ()
 
-    transform = world.transform[entity]
-
-    return (
-        tile_from_cpos(transform.cpos),
+    return get_entity_occupied_tiles(
+        world,
+        entity,
     )
 
 
@@ -160,10 +152,10 @@ def get_stacked_occupant_groups(world):
 
 
 def destack_placement_is_valid(world, entity, tile):
-    return not is_tile_blocked_for_movement(
+    return is_tile_valid_for_entity_placement(
         world,
         tile,
-        mover_entity=entity,
+        entity=entity,
         include_dynamic=True,
     )
 
