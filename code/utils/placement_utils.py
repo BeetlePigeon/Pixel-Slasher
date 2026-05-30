@@ -1,4 +1,5 @@
 from support import Vec2i
+from utils.perf_profiler import record_counter_for_world
 from utils.occupancy_utils import is_tile_blocked_for_movement, get_movement_footprint_tiles_for_origin_tile
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
@@ -27,18 +28,38 @@ def is_tile_valid_for_entity_placement(
     entity=None,
     include_dynamic=True,
 ):
+    record_counter_for_world(
+        world,
+        "placement.checks",
+    )
+
+    footprint_tiles_checked = 0
+
     for occupied_tile in get_entity_placement_tiles(
         world,
         tile,
         entity=entity,
     ):
+        footprint_tiles_checked += 1
+
         if is_tile_blocked_for_movement(
             world,
             occupied_tile,
             mover_entity=entity,
             include_dynamic=include_dynamic,
         ):
+            record_counter_for_world(
+                world,
+                "placement.foot_tiles",
+                footprint_tiles_checked,
+            )
             return False
+
+    record_counter_for_world(
+        world,
+        "placement.foot_tiles",
+        footprint_tiles_checked,
+    )
 
     return True
 

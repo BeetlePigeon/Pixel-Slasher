@@ -5,6 +5,7 @@
 # R Click: Channel Projectile
 # SPACE: Test Projectile
 # LSHIFT: Toggle Camera Mode
+# I: Print Profiler Rows
 # P: Pause
 # O: Single Tick Step
 # B: Stun Player

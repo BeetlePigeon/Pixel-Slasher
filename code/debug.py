@@ -61,7 +61,6 @@ class Debug:
             self.game.display.render_surface.blit(text_surface, (4, y))
             y += 14
 
-
     def draw_debug_perf_overlay(self):
         profiler = getattr(
             self.game,
@@ -73,63 +72,108 @@ class Debug:
             return
 
         rows = profiler.get_summary_rows(
-            limit=14,
+            limit=10,
         )
 
-        if not rows:
+        counter_rows = profiler.get_counter_summary_rows(
+            limit=10,
+        )
+
+        if not rows and not counter_rows:
             return
 
-        x = self.game.display.internal_width - 245
+        x = self.game.display.internal_width - 265
         y = 4
         line_height = 9
 
-        header = "Perf avg/peak/maxcall/calls"
+        if rows:
+            header = "Perf avg/peak/maxcall/calls"
 
-        header_surface = self.game.display.debug_font.render(
-            header,
-            False,
-            "white",
-        )
-
-        self.game.display.render_surface.blit(
-            header_surface,
-            (x, y),
-        )
-
-        y += line_height
-
-        for row in rows:
-            label = (
-                f"{row['name'][:15]:15} "
-                f"{row['avg_total_ms']:5.2f} "
-                f"{row['peak_total_ms']:5.2f} "
-                f"{row['peak_call_ms']:5.2f} "
-                f"{row['avg_calls']:4.1f}"
-            )
-
-            text_surface = self.game.display.debug_font.render(
-                label,
+            header_surface = self.game.display.debug_font.render(
+                header,
                 False,
                 "white",
             )
 
             self.game.display.render_surface.blit(
-                text_surface,
+                header_surface,
                 (x, y),
             )
 
             y += line_height
 
+            for row in rows:
+                label = (
+                    f"{row['name'][:15]:15} "
+                    f"{row['avg_total_ms']:5.2f} "
+                    f"{row['peak_total_ms']:5.2f} "
+                    f"{row['peak_call_ms']:5.2f} "
+                    f"{row['avg_calls']:4.1f}"
+                )
+
+                text_surface = self.game.display.debug_font.render(
+                    label,
+                    False,
+                    "white",
+                )
+
+                self.game.display.render_surface.blit(
+                    text_surface,
+                    (x, y),
+                )
+
+                y += line_height
+
+        if counter_rows:
+            y += line_height
+
+            header = "Ctr avg/peak/max/records"
+
+            header_surface = self.game.display.debug_font.render(
+                header,
+                False,
+                "yellow",
+            )
+
+            self.game.display.render_surface.blit(
+                header_surface,
+                (x, y),
+            )
+
+            y += line_height
+
+            for row in counter_rows:
+                label = (
+                    f"{row['name'][:15]:15} "
+                    f"{row['avg_total']:6.1f} "
+                    f"{row['peak_total']:6.1f} "
+                    f"{row['peak_value']:6.1f} "
+                    f"{row['avg_records']:4.1f}"
+                )
+
+                text_surface = self.game.display.debug_font.render(
+                    label,
+                    False,
+                    "yellow",
+                )
+
+                self.game.display.render_surface.blit(
+                    text_surface,
+                    (x, y),
+                )
+
+                y += line_height
+
 
     def draw_debug_pause_overlay(self):
         if not getattr(
-                self.game,
-                "simulation_paused",
-                False,
+            self.game,
+            "simulation_paused",
+            False,
         ):
             return
 
-        label = "SIM PAUSED  P: resume  O: step"
+        label = "SIM PAUSED P: resume O: step I: print profiler"
 
         text_surface = self.game.display.debug_font.render(
             label,
@@ -139,8 +183,91 @@ class Debug:
 
         self.game.display.render_surface.blit(
             text_surface,
-            (4, self.game.display.internal_height - 14),
+            (
+                4,
+                self.game.display.internal_height - 14,
+            ),
         )
+
+
+    def format_perf_row_for_console(self, row):
+        return (
+            f"{row['name']:<24} "
+            f"avg={row['avg_total_ms']:8.3f}ms "
+            f"peak={row['peak_total_ms']:8.3f}ms "
+            f"maxcall={row['peak_call_ms']:8.3f}ms "
+            f"calls={row['avg_calls']:6.2f} "
+            f"last={row.get('last_total_ms', 0.0):8.3f}ms "
+            f"last_calls={row.get('last_calls', 0):3}"
+        )
+
+    def format_counter_row_for_console(self, row):
+        return (
+            f"{row['name']:<24} "
+            f"avg={row['avg_total']:8.1f} "
+            f"peak={row['peak_total']:8.1f} "
+            f"max={row['peak_value']:8.1f} "
+            f"records={row['avg_records']:6.2f} "
+            f"last={row.get('last_total', 0.0):8.1f} "
+            f"last_records={row.get('last_records', 0):3}"
+        )
+
+    def print_debug_perf_report(self):
+        profiler = getattr(
+            self.game,
+            "perf_profiler",
+            None,
+        )
+
+        if profiler is None:
+            print("[profiler] no profiler attached")
+            return
+
+        timing_rows = profiler.get_summary_rows(
+            limit=64,
+        )
+
+        if hasattr(profiler, "get_counter_summary_rows"):
+            counter_rows = profiler.get_counter_summary_rows(
+                limit=64,
+            )
+        else:
+            counter_rows = []
+
+        print("")
+        print("=" * 88)
+        print(
+            "[profiler] "
+            f"tick={self.game.world.tick} "
+            f"paused={self.game.simulation_paused}"
+        )
+
+        print("")
+        print("TIMINGS avg/peak/maxcall/calls/last")
+        print("-" * 88)
+
+        if timing_rows:
+            for row in timing_rows:
+                print(
+                    self.format_perf_row_for_console(row)
+                )
+        else:
+            print("(no timing rows)")
+
+        print("")
+        print("COUNTERS avg/peak/max/records/last")
+        print("-" * 88)
+
+        if counter_rows:
+            for row in counter_rows:
+                print(
+                    self.format_counter_row_for_console(row)
+                )
+        else:
+            print("(no counter rows)")
+
+        print("=" * 88)
+        print("")
 
 
     def get_first_enemy_entity(self):
@@ -165,6 +292,9 @@ class Debug:
 
 
     def process_top_level_debug_input(self, input_state):
+        if pygame.K_i in input_state.keys_pressed:
+            if self.game.simulation_paused:
+                self.print_debug_perf_report()
         if pygame.K_p in input_state.keys_pressed:
             # Toggle pause
             self.game.simulation_paused = not self.game.simulation_paused

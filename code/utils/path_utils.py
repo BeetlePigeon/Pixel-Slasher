@@ -1,5 +1,5 @@
 import heapq
-from utils.perf_profiler import profiled
+from utils.perf_profiler import profiled, record_counter_for_world
 from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
@@ -26,6 +26,11 @@ def tile_is_navigable_for_entity(world, entity, tile: Vec2i) -> bool:
     # Pathfinding searches possible logical-center tiles.
     # A candidate is navigable only if the entity's full movement
     # footprint can be placed there.
+    record_counter_for_world(
+        world,
+        "path.nav_checks",
+    )
+
     return is_tile_valid_for_entity_placement(
         world,
         tile,
@@ -104,16 +109,37 @@ def step_is_navigable_for_entity(
 def iter_path_neighbors(world, entity, tile: Vec2i, can_move_8way: bool):
     directions = CHEBY_DIRS if can_move_8way else CARDINAL_DIRS
 
-    for direction in directions:
-        if not step_is_navigable_for_entity(
-            world,
-            entity,
-            tile,
-            direction,
-        ):
-            continue
+    tests = 0
+    accepted = 0
 
-        yield tile + direction
+    try:
+        for direction in directions:
+            tests += 1
+
+            if not step_is_navigable_for_entity(
+                world,
+                entity,
+                tile,
+                direction,
+            ):
+                continue
+
+            accepted += 1
+
+            yield tile + direction
+
+    finally:
+        record_counter_for_world(
+            world,
+            "path.neighbor_tests",
+            tests,
+        )
+
+        record_counter_for_world(
+            world,
+            "path.neighbor_ok",
+            accepted,
+        )
 
 
 def reconstruct_path(came_from, start_tile: Vec2i, goal_tile: Vec2i):
@@ -128,6 +154,28 @@ def reconstruct_path(came_from, start_tile: Vec2i, goal_tile: Vec2i):
     return path
 
 
+def record_path_find_result(
+    world,
+    result_name,
+    expansions,
+):
+    record_counter_for_world(
+        world,
+        "path.find_calls",
+    )
+
+    record_counter_for_world(
+        world,
+        "path.expansions",
+        expansions,
+    )
+
+    record_counter_for_world(
+        world,
+        f"path.result.{result_name}",
+    )
+
+
 @profiled("path.find")
 def find_static_tile_path(
     world,
@@ -138,16 +186,33 @@ def find_static_tile_path(
     search_budget: PathSearchBudget,
     max_path_length,
 ):
+    expansions = 0
+
     if start_tile == goal_tile:
+        record_path_find_result(
+            world,
+            "start_is_goal",
+            expansions,
+        )
         return []
 
     if not tile_is_navigable_for_entity(world, entity, goal_tile):
+        record_path_find_result(
+            world,
+            "goal_invalid",
+            expansions,
+        )
         return None
 
     if max_path_length is not None:
         # Chebyshev distance is a lower bound for 8-way movement.
         # If even the best possible direct path is too long, do not search.
         if chebyshev_tile_distance(start_tile, goal_tile) > max_path_length:
+            record_path_find_result(
+                world,
+                "too_long_precheck",
+                expansions,
+            )
             return None
 
     frontier = []
@@ -174,7 +239,14 @@ def find_static_tile_path(
         _, current_cost, _, _, _, current_tile = heapq.heappop(frontier)
 
         if not search_budget.consume():
+            record_path_find_result(
+                world,
+                "budget_exhausted",
+                expansions,
+            )
             return None
+
+        expansions += 1
 
         if max_path_length is not None and current_cost >= max_path_length:
             continue
@@ -187,8 +259,18 @@ def find_static_tile_path(
             )
 
             if max_path_length is not None and len(path) > max_path_length:
+                record_path_find_result(
+                    world,
+                    "too_long_result",
+                    expansions,
+                )
                 return None
 
+            record_path_find_result(
+                world,
+                "success",
+                expansions,
+            )
             return path
 
         for neighbor in iter_path_neighbors(
@@ -211,6 +293,7 @@ def find_static_tile_path(
             )
 
             priority = new_cost + heuristic
+
             push_counter += 1
 
             heapq.heappush(
@@ -225,6 +308,12 @@ def find_static_tile_path(
                 ),
             )
 
+    record_path_find_result(
+        world,
+        "no_path",
+        expansions,
+    )
+
     return None
 
 
@@ -236,6 +325,9 @@ def iter_target_snap_candidates(
     snap_radius: int,
 ):
     candidates = []
+
+    candidate_tests = 0
+    candidate_valid = 0
 
     for radius in range(snap_radius + 1):
         for dy in range(-radius, radius + 1):
@@ -253,12 +345,16 @@ def iter_target_snap_candidates(
                 if distance_from_target != radius:
                     continue
 
+                candidate_tests += 1
+
                 if not tile_is_navigable_for_entity(
                     world,
                     entity,
                     candidate,
                 ):
                     continue
+
+                candidate_valid += 1
 
                 distance_from_start = chebyshev_tile_distance(
                     candidate,
@@ -273,6 +369,18 @@ def iter_target_snap_candidates(
                     candidate.x,
                     candidate,
                 ))
+
+    record_counter_for_world(
+        world,
+        "path.snap_tests",
+        candidate_tests,
+    )
+
+    record_counter_for_world(
+        world,
+        "path.snap_valid",
+        candidate_valid,
+    )
 
     candidates.sort(
         key=lambda item: (
@@ -301,6 +409,8 @@ def find_static_tile_path_to_target(
 ):
     search_budget = PathSearchBudget(max_expansions)
 
+    candidate_goals_tried = 0
+
     for candidate_goal in iter_target_snap_candidates(
         world,
         entity,
@@ -309,7 +419,20 @@ def find_static_tile_path_to_target(
         target_snap_radius,
     ):
         if search_budget.remaining <= 0:
+            record_counter_for_world(
+                world,
+                "path.goals_tried",
+                candidate_goals_tried,
+            )
+
+            record_counter_for_world(
+                world,
+                "path.to_target.budget_empty",
+            )
+
             return None
+
+        candidate_goals_tried += 1
 
         path = find_static_tile_path(
             world,
@@ -322,7 +445,29 @@ def find_static_tile_path_to_target(
         )
 
         if path is not None:
+            record_counter_for_world(
+                world,
+                "path.goals_tried",
+                candidate_goals_tried,
+            )
+
+            record_counter_for_world(
+                world,
+                "path.to_target.success",
+            )
+
             return path
+
+    record_counter_for_world(
+        world,
+        "path.goals_tried",
+        candidate_goals_tried,
+    )
+
+    record_counter_for_world(
+        world,
+        "path.to_target.failed",
+    )
 
     return None
 
