@@ -9,6 +9,7 @@ from systems import (
     snapshot_system,
     action_state_system,
     lifetime_system,
+    ai_system,
     movement_arbiter_system,
     movement_system,
     destacking_system,
@@ -284,9 +285,13 @@ class StateGameplay(State):
             player: player_intents,
         }
 
-        # AI Intents
+        # Debug /Test Move Enemy Intents
         self.append_debug_dummy_patrol_intents(intents)
-        # Add AI-generated intents to the intents dict created under Player Intents.
+        # AI Intents.
+        #
+        # AI is another input source. It reads world state and appends
+        # intents; existing intent/movement/skill systems execute them.
+        ai_system(self.game.world, intents)
 
         # Debug Inputs Bypass Arbiters
         if self.game.debug_mode:
@@ -378,6 +383,7 @@ class StateGameplay(State):
             for entity in sorted(world.team)
             if (
                 world.team[entity] == "enemy"
+                and entity not in world.ai_agent
                 and entity in world.transform
                 and entity in world.motion_state
                 and entity in world.space_occupier

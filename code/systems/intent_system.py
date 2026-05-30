@@ -1,5 +1,5 @@
 from support import Vec2i
-from systems.movement_system import set_move_target, clear_move_target, buffer_move_intent
+from systems.movement_system import set_move_target, clear_move_target, buffer_move_intent, cancel_voluntary_movement
 
 
 def intent_system(world, intents):
@@ -9,6 +9,20 @@ def intent_system(world, intents):
         found_move_intent = False
 
         for intent in entity_intents:
+            if intent["type"] == "stop_moving":
+                cancel_voluntary_movement(
+                    world,
+                    entity,
+                )
+                continue
+
+            if intent["type"] == "clear_move_target":
+                clear_move_target(
+                    world,
+                    entity,
+                )
+                continue
+
             if intent["type"] == "move_to_tile":
                 set_move_target(
                     world,

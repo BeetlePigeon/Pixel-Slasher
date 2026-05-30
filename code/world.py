@@ -69,6 +69,7 @@ class World:
         self.health = {}
         self.effect_delivery = {}
         self.team = {}
+        self.ai_agent = {}
         self.contact_filter = {}
         self.hittable = {}
         self.damage_requests = []
@@ -164,6 +165,7 @@ class World:
             self.health,
             self.effect_delivery,
             self.team,
+            self.ai_agent,
             self.contact_filter,
             self.hittable,
             self.movement_collision,
@@ -473,6 +475,22 @@ class World:
         }
 
         self.team[eid] = "enemy"
+        self.ai_agent[eid] = {
+            "type": "melee_pawn",
+            "enabled": True,
+            "state": "idle",
+            "target_entity": None,
+
+            "think_interval_ticks": 10,
+            "next_think_tick": self.tick + (eid % 6),
+
+            "params": {
+                "detect_radius_tiles": 12,
+                "lose_radius_tiles": 16,
+                "desired_range_tiles": 1,
+                "path_policy": "actor_move",
+            }
+        }
         self.health[eid] = {
             "current": 10,
             "max": 10,
