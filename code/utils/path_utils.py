@@ -17,15 +17,79 @@ class PathSearchBudget:
         return True
 
 
+class PathNavCache:
+    def __init__(self, world, entity):
+        self.world = world
+        self.entity = entity
+        self.results = {}
+
+    def is_navigable(self, tile: Vec2i) -> bool:
+        record_counter_for_world(
+            self.world,
+            "path.nav_requests",
+        )
+
+        if tile in self.results:
+            record_counter_for_world(
+                self.world,
+                "path.nav_cache_hit",
+            )
+
+            return self.results[tile]
+
+        record_counter_for_world(
+            self.world,
+            "path.nav_cache_miss",
+        )
+
+        # This now means "actual uncached placement-backed nav check."
+        record_counter_for_world(
+            self.world,
+            "path.nav_checks",
+        )
+
+        result = is_tile_valid_for_entity_placement(
+            self.world,
+            tile,
+            entity=self.entity,
+            include_dynamic=True,
+        )
+
+        self.results[tile] = result
+
+        return result
+
+
+def record_nav_cache_entries(world, name, nav_cache):
+    record_counter_for_world(
+        world,
+        name,
+        len(nav_cache.results),
+    )
+
+
 def get_corner_cutting_policy(world, entity):
     policy = world.movement_collision.get(entity, {})
     return policy.get("corner_cutting", "strict")
 
 
-def tile_is_navigable_for_entity(world, entity, tile: Vec2i) -> bool:
+def tile_is_navigable_for_entity(
+    world,
+    entity,
+    tile: Vec2i,
+    nav_cache=None,
+) -> bool:
     # Pathfinding searches possible logical-center tiles.
     # A candidate is navigable only if the entity's full movement
     # footprint can be placed there.
+    if nav_cache is not None:
+        return nav_cache.is_navigable(tile)
+
+    record_counter_for_world(
+        world,
+        "path.nav_requests",
+    )
+
     record_counter_for_world(
         world,
         "path.nav_checks",
@@ -39,14 +103,37 @@ def tile_is_navigable_for_entity(world, entity, tile: Vec2i) -> bool:
     )
 
 
-def diagonal_step_allowed(world, entity, current_tile: Vec2i, direction: Vec2i) -> bool:
+def diagonal_step_allowed(
+    world,
+    entity,
+    current_tile: Vec2i,
+    direction: Vec2i,
+    nav_cache=None,
+    target_open=None,
+) -> bool:
     if direction.x == 0 or direction.y == 0:
         return True
 
-    target_tile = current_tile + direction
+    if target_open is None:
+        target_tile = current_tile + direction
 
-    if not tile_is_navigable_for_entity(world, entity, target_tile):
+        target_open = tile_is_navigable_for_entity(
+            world,
+            entity,
+            target_tile,
+            nav_cache=nav_cache,
+        )
+
+    if not target_open:
         return False
+
+    corner_policy = get_corner_cutting_policy(
+        world,
+        entity,
+    )
+
+    if corner_policy == "allow":
+        return True
 
     side_x_tile = Vec2i(
         current_tile.x + direction.x,
@@ -62,15 +149,15 @@ def diagonal_step_allowed(world, entity, current_tile: Vec2i, direction: Vec2i) 
         world,
         entity,
         side_x_tile,
+        nav_cache=nav_cache,
     )
 
     side_y_open = tile_is_navigable_for_entity(
         world,
         entity,
         side_y_tile,
+        nav_cache=nav_cache,
     )
-
-    corner_policy = get_corner_cutting_policy(world, entity)
 
     if corner_policy == "strict":
         return side_x_open and side_y_open
@@ -78,10 +165,9 @@ def diagonal_step_allowed(world, entity, current_tile: Vec2i, direction: Vec2i) 
     if corner_policy == "allow_if_one_side_open":
         return side_x_open or side_y_open
 
-    if corner_policy == "allow":
-        return True
-
-    raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
+    raise ValueError(
+        f"Unknown corner_cutting policy: {corner_policy}"
+    )
 
 
 def step_is_navigable_for_entity(
@@ -89,10 +175,18 @@ def step_is_navigable_for_entity(
     entity,
     current_tile: Vec2i,
     direction: Vec2i,
+    nav_cache=None,
 ) -> bool:
     next_tile = current_tile + direction
 
-    if not tile_is_navigable_for_entity(world, entity, next_tile):
+    next_tile_open = tile_is_navigable_for_entity(
+        world,
+        entity,
+        next_tile,
+        nav_cache=nav_cache,
+    )
+
+    if not next_tile_open:
         return False
 
     if not diagonal_step_allowed(
@@ -100,13 +194,21 @@ def step_is_navigable_for_entity(
         entity,
         current_tile,
         direction,
+        nav_cache=nav_cache,
+        target_open=next_tile_open,
     ):
         return False
 
     return True
 
 
-def iter_path_neighbors(world, entity, tile: Vec2i, can_move_8way: bool):
+def iter_path_neighbors(
+    world,
+    entity,
+    tile: Vec2i,
+    can_move_8way: bool,
+    nav_cache=None,
+):
     directions = CHEBY_DIRS if can_move_8way else CARDINAL_DIRS
 
     tests = 0
@@ -121,6 +223,7 @@ def iter_path_neighbors(world, entity, tile: Vec2i, can_move_8way: bool):
                 entity,
                 tile,
                 direction,
+                nav_cache=nav_cache,
             ):
                 continue
 
@@ -185,6 +288,7 @@ def find_static_tile_path(
     can_move_8way: bool,
     search_budget: PathSearchBudget,
     max_path_length,
+    nav_cache=None,
 ):
     expansions = 0
 
@@ -196,7 +300,12 @@ def find_static_tile_path(
         )
         return []
 
-    if not tile_is_navigable_for_entity(world, entity, goal_tile):
+    if not tile_is_navigable_for_entity(
+        world,
+        entity,
+        goal_tile,
+        nav_cache=nav_cache,
+    ):
         record_path_find_result(
             world,
             "goal_invalid",
@@ -278,6 +387,7 @@ def find_static_tile_path(
             entity,
             current_tile,
             can_move_8way,
+            nav_cache=nav_cache,
         ):
             new_cost = current_cost + 1
 
@@ -323,6 +433,7 @@ def iter_target_snap_candidates(
     target_tile: Vec2i,
     start_tile: Vec2i,
     snap_radius: int,
+    nav_cache=None,
 ):
     candidates = []
 
@@ -351,6 +462,7 @@ def iter_target_snap_candidates(
                     world,
                     entity,
                     candidate,
+                    nav_cache=nav_cache,
                 ):
                     continue
 
@@ -408,85 +520,129 @@ def find_static_tile_path_to_target(
     target_snap_radius: int,
 ):
     search_budget = PathSearchBudget(max_expansions)
+    nav_cache = PathNavCache(
+        world,
+        entity,
+    )
 
     candidate_goals_tried = 0
 
-    for candidate_goal in iter_target_snap_candidates(
-        world,
-        entity,
-        target_tile,
-        start_tile,
-        target_snap_radius,
-    ):
-        if search_budget.remaining <= 0:
-            record_counter_for_world(
-                world,
-                "path.goals_tried",
-                candidate_goals_tried,
-            )
-
-            record_counter_for_world(
-                world,
-                "path.to_target.budget_empty",
-            )
-
-            return None
-
-        candidate_goals_tried += 1
-
-        path = find_static_tile_path(
+    try:
+        for candidate_goal in iter_target_snap_candidates(
             world,
-            entity=entity,
-            start_tile=start_tile,
-            goal_tile=candidate_goal,
-            can_move_8way=can_move_8way,
-            search_budget=search_budget,
-            max_path_length=max_path_length,
+            entity,
+            target_tile,
+            start_tile,
+            target_snap_radius,
+            nav_cache=nav_cache,
+        ):
+            if search_budget.remaining <= 0:
+                record_counter_for_world(
+                    world,
+                    "path.goals_tried",
+                    candidate_goals_tried,
+                )
+
+                record_counter_for_world(
+                    world,
+                    "path.to_target.budget_empty",
+                )
+
+                return None
+
+            candidate_goals_tried += 1
+
+            path = find_static_tile_path(
+                world,
+                entity=entity,
+                start_tile=start_tile,
+                goal_tile=candidate_goal,
+                can_move_8way=can_move_8way,
+                search_budget=search_budget,
+                max_path_length=max_path_length,
+                nav_cache=nav_cache,
+            )
+
+            if path is not None:
+                record_counter_for_world(
+                    world,
+                    "path.goals_tried",
+                    candidate_goals_tried,
+                )
+
+                record_counter_for_world(
+                    world,
+                    "path.to_target.success",
+                )
+
+                return path
+
+        record_counter_for_world(
+            world,
+            "path.goals_tried",
+            candidate_goals_tried,
         )
 
-        if path is not None:
-            record_counter_for_world(
-                world,
-                "path.goals_tried",
-                candidate_goals_tried,
-            )
+        record_counter_for_world(
+            world,
+            "path.to_target.failed",
+        )
 
-            record_counter_for_world(
-                world,
-                "path.to_target.success",
-            )
+        return None
 
-            return path
-
-    record_counter_for_world(
-        world,
-        "path.goals_tried",
-        candidate_goals_tried,
-    )
-
-    record_counter_for_world(
-        world,
-        "path.to_target.failed",
-    )
-
-    return None
+    finally:
+        record_nav_cache_entries(
+            world,
+            "path.query_nav_cache_entries",
+            nav_cache,
+        )
 
 
 @profiled("path.segment")
-def path_segment_clear(world, entity, start_tile: Vec2i, end_tile: Vec2i) -> bool:
-    start_cpos = tile_center(start_tile)
-    end_cpos = tile_center(end_tile)
+def path_segment_clear(
+    world,
+    entity,
+    start_tile: Vec2i,
+    end_tile: Vec2i,
+    nav_cache=None,
+) -> bool:
+    owns_cache = False
 
-    crossed_tiles = tiles_crossed_by_segment(
-        start_cpos,
-        end_cpos,
-    )
+    if nav_cache is None:
+        nav_cache = PathNavCache(
+            world,
+            entity,
+        )
 
-    for tile in crossed_tiles:
-        if not tile_is_navigable_for_entity(world, entity, tile):
-            return False
+        owns_cache = True
 
-    return True
+    try:
+        start_cpos = tile_center(start_tile)
+        end_cpos = tile_center(end_tile)
+
+        crossed_tiles = tiles_crossed_by_segment(
+            start_cpos,
+            end_cpos,
+        )
+
+        for tile in crossed_tiles:
+            if not tile_is_navigable_for_entity(
+                world,
+                entity,
+                tile,
+                nav_cache=nav_cache,
+            ):
+                return False
+
+        return True
+
+    finally:
+        if owns_cache:
+            record_nav_cache_entries(
+                world,
+                "path.segment_nav_cache_entries",
+                nav_cache,
+            )
 
 
 @profiled("path.smooth")
@@ -494,28 +650,42 @@ def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles):
     if not path_tiles:
         return []
 
-    full_path = [start_tile] + list(path_tiles)
+    nav_cache = PathNavCache(
+        world,
+        entity,
+    )
 
-    smoothed = []
-    anchor_index = 0
+    try:
+        full_path = [start_tile] + list(path_tiles)
 
-    while anchor_index < len(full_path) - 1:
-        farthest_index = anchor_index + 1
+        smoothed = []
+        anchor_index = 0
 
-        for test_index in range(len(full_path) - 1, anchor_index, -1):
-            if path_segment_clear(
-                world,
-                entity,
-                full_path[anchor_index],
-                full_path[test_index],
-            ):
-                farthest_index = test_index
-                break
+        while anchor_index < len(full_path) - 1:
+            farthest_index = anchor_index + 1
 
-        smoothed.append(full_path[farthest_index])
-        anchor_index = farthest_index
+            for test_index in range(len(full_path) - 1, anchor_index, -1):
+                if path_segment_clear(
+                    world,
+                    entity,
+                    full_path[anchor_index],
+                    full_path[test_index],
+                    nav_cache=nav_cache,
+                ):
+                    farthest_index = test_index
+                    break
 
-    return smoothed
+            smoothed.append(full_path[farthest_index])
+            anchor_index = farthest_index
+
+        return smoothed
+
+    finally:
+        record_nav_cache_entries(
+            world,
+            "path.smooth_nav_cache_entries",
+            nav_cache,
+        )
 
 
 def path_tiles_to_cpos_nodes(path_tiles):

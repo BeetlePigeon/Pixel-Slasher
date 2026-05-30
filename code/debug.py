@@ -20,7 +20,7 @@ class Debug:
         stun = True if statuses.get("debug_stun") else False
         freeze = True if statuses.get("debug_freeze") else False
         lines = [
-#            f"FPS: {self.game.fps:.1f}",
+            f"FPS: {self.game.fps:.1f}",
 #            f"Entities next_id: {self.game.entities.next_id}",
 #            f"Transforms: {len(self.game.world.transform)}",
             f"MotionState: {len(self.game.world.motion_state)}",
