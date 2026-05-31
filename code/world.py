@@ -88,11 +88,24 @@ class World:
         # projectile/contact collision. Those belong to combat_body.
         self.space_occupier = {}
 
-        # Derived dynamic spatial caches. These are rebuilt from
-        # transform + space_occupier + active movement controllers.
+        # Derived dynamic spatial caches.
+        #
+        # Movement footprints are split into:
+        # - center tiles
+        # - body tiles, meaning center + wings
+        #
+        # Dynamic movement blocks center/body overlap, not wing/wing overlap.
+        self.dynamic_center_occupancy = {}
+        self.dynamic_body_occupancy = {}
+
+        self.dynamic_reserved_centers = {}
+        self.dynamic_reserved_bodies = {}
+
+        # Compatibility aliases for older debug/query code.
         self.dynamic_occupancy = {}
         self.dynamic_blocking_occupancy = {}
         self.dynamic_reservations = {}
+
         self.dynamic_occupancy_dirty = True
 
         self.influence_emitter = {}
@@ -382,7 +395,7 @@ class World:
 
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "obstacle_footprint": "single_tile",
+            "movement_footprint": "single_tile",
         }
 
         self.motion_state[eid] = {
@@ -463,7 +476,7 @@ class World:
         }
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "obstacle_footprint": "single_tile",
+            "movement_footprint": "single_tile",
         }
         self.motion_state[eid] = {
             "controller": None,

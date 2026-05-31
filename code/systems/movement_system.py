@@ -3,6 +3,10 @@ from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
 from support import Vec2i
+from utils.placement_utils import (
+    is_dynamic_movement_placement_blocked,
+    is_static_movement_placement_blocked,
+)
 from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
@@ -1295,14 +1299,6 @@ def resolve_corner_crossing_collision(
     raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
 
 
-def get_movement_placement_tiles(world, entity, origin_tile):
-    return get_obstacle_footprint_tiles_for_origin_tile(
-        world,
-        entity,
-        origin_tile,
-    )
-
-
 def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision.get(entity)
 
@@ -1311,13 +1307,15 @@ def handle_static_tile_collision(world, entity, next_tile):
 
     behavior = policy.get("static_tiles", "allow")
 
-    for footprint_tile in get_movement_placement_tiles(
+    if behavior == "allow":
+        return "allow"
+
+    if is_static_movement_placement_blocked(
         world,
         entity,
         next_tile,
     ):
-        if is_tile_static_blocked(world, footprint_tile):
-            return behavior
+        return behavior
 
     return "allow"
 
@@ -1336,27 +1334,24 @@ def handle_dynamic_movement_collision(world, entity, next_tile):
     if behavior == "allow":
         return "allow"
 
-    for footprint_tile in get_movement_placement_tiles(
+    if is_dynamic_movement_placement_blocked(
         world,
         entity,
         next_tile,
     ):
-        blockers = get_movement_blockers_on_tile(
-            world,
-            footprint_tile,
-            mover_entity=entity,
-        )
-
-        if blockers:
-            return behavior
+        return behavior
 
     return "allow"
 
 
 def handle_movement_tile_collision(world, entity, next_tile):
     # next_tile is the proposed logical-center tile.
-    # Collision must validate the entity's whole movement footprint
-    # placed around that logical tile.
+    #
+    # Movement footprints are center + wings:
+    # - static collision is controlled by STATIC_WING_COLLISION_POLICY
+    # - dynamic collision blocks center/body overlap
+    # - dynamic wing/wing overlap is allowed
+
     static_result = handle_static_tile_collision(
         world,
         entity,
@@ -1366,11 +1361,16 @@ def handle_movement_tile_collision(world, entity, next_tile):
     if static_result != "allow":
         return static_result
 
-    return handle_dynamic_movement_collision(
+    dynamic_result = handle_dynamic_movement_collision(
         world,
         entity,
         next_tile,
     )
+
+    if dynamic_result != "allow":
+        return dynamic_result
+
+    return "allow"
 
 
 def get_path_policy(world, target):

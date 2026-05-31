@@ -1,6 +1,13 @@
 from support import Vec2i
 from utils.perf_profiler import record_counter_for_world
-from utils.occupancy_utils import is_tile_blocked_for_movement, get_obstacle_footprint_tiles_for_origin_tile
+from policies import STATIC_WING_COLLISION_POLICY
+from utils.occupancy_utils import (
+    get_dynamic_movement_blockers_for_placement,
+    get_movement_body_tiles_for_origin_tile,
+    get_movement_wing_tiles_for_origin_tile,
+    is_tile_blocked_for_movement,
+    is_tile_static_blocked,
+)
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     manhattan_tile_distance,
@@ -9,16 +16,102 @@ from utils.tile_vec_utils import (
 )
 
 
-def get_entity_placement_tiles(world, tile: Vec2i, entity=None):
-    if entity is None:
-        return (
-            tile,
-        )
+def get_entity_placement_center_tile(tile: Vec2i):
+    return tile
 
-    return get_obstacle_footprint_tiles_for_origin_tile(
+
+def get_entity_placement_body_tiles(world, tile: Vec2i, entity=None):
+    if entity is None:
+        return (tile,)
+
+    return get_movement_body_tiles_for_origin_tile(
         world,
         entity,
         tile,
+    )
+
+
+def get_entity_placement_wing_tiles(world, tile: Vec2i, entity=None):
+    if entity is None:
+        return ()
+
+    return get_movement_wing_tiles_for_origin_tile(
+        world,
+        entity,
+        tile,
+    )
+
+
+# Compatibility name used by pathfinding/older code.
+def get_entity_placement_tiles(world, tile: Vec2i, entity=None):
+    return get_entity_placement_body_tiles(
+        world,
+        tile,
+        entity=entity,
+    )
+
+
+def static_wing_collision_blocks():
+    if STATIC_WING_COLLISION_POLICY == "allow":
+        return False
+
+    if STATIC_WING_COLLISION_POLICY == "block":
+        return True
+
+    raise ValueError(
+        "Unknown STATIC_WING_COLLISION_POLICY: "
+        f"{STATIC_WING_COLLISION_POLICY!r}"
+    )
+
+
+def is_static_movement_placement_blocked(world, entity, tile: Vec2i):
+    center_tile = get_entity_placement_center_tile(tile)
+
+    if is_tile_static_blocked(world, center_tile):
+        return True
+
+    if entity is None:
+        return False
+
+    if not static_wing_collision_blocks():
+        return False
+
+    for wing_tile in get_entity_placement_wing_tiles(
+        world,
+        tile,
+        entity=entity,
+    ):
+        if is_tile_static_blocked(world, wing_tile):
+            return True
+
+    return False
+
+
+def is_dynamic_movement_placement_blocked(world, entity, tile: Vec2i):
+    if entity is None:
+        return is_tile_blocked_for_movement(
+            world,
+            tile,
+            mover_entity=None,
+            include_dynamic=True,
+        )
+
+    center_tile = get_entity_placement_center_tile(tile)
+
+    body_tiles = get_entity_placement_body_tiles(
+        world,
+        tile,
+        entity=entity,
+    )
+
+    return bool(
+        get_dynamic_movement_blockers_for_placement(
+            world,
+            mover_entity=entity,
+            proposed_center_tile=center_tile,
+            proposed_body_tiles=body_tiles,
+            include_reservations=True,
+        )
     )
 
 
@@ -33,33 +126,31 @@ def is_tile_valid_for_entity_placement(
         "placement.checks",
     )
 
-    footprint_tiles_checked = 0
-
-    for occupied_tile in get_entity_placement_tiles(
+    body_tiles = get_entity_placement_body_tiles(
         world,
         tile,
         entity=entity,
-    ):
-        footprint_tiles_checked += 1
-
-        if is_tile_blocked_for_movement(
-            world,
-            occupied_tile,
-            mover_entity=entity,
-            include_dynamic=include_dynamic,
-        ):
-            record_counter_for_world(
-                world,
-                "placement.foot_tiles",
-                footprint_tiles_checked,
-            )
-            return False
+    )
 
     record_counter_for_world(
         world,
         "placement.foot_tiles",
-        footprint_tiles_checked,
+        len(body_tiles),
     )
+
+    if is_static_movement_placement_blocked(
+        world,
+        entity,
+        tile,
+    ):
+        return False
+
+    if include_dynamic and is_dynamic_movement_placement_blocked(
+        world,
+        entity,
+        tile,
+    ):
+        return False
 
     return True
 

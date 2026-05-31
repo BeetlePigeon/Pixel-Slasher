@@ -1,8 +1,8 @@
 from constants import TILE_UNITS
 from data.tables_tile_footprints import get_footprint_offsets
 from support import Vec2i
-from utils.perf_profiler import profiled
 from utils.contact_filtering_utils import filter_contact_candidates
+from utils.perf_profiler import profiled
 from utils.tile_vec_utils import sign, tile_from_cpos
 
 
@@ -19,43 +19,114 @@ def space_occupier_blocks_movement(world, eid):
     return bool(space_occupier.get("blocks_movement", True))
 
 
-def get_entity_obstacle_footprint_name(world, eid):
+def get_entity_movement_footprint_name(world, eid):
     space_occupier = world.space_occupier.get(eid)
 
     if space_occupier is None:
         return "single_tile"
 
-    return space_occupier.get("obstacle_footprint")
-
-
-def get_entity_obstacle_footprint_offsets(world, eid):
-    obstacle_footprint_name = get_entity_obstacle_footprint_name(world, eid)
-
-    return get_footprint_offsets(obstacle_footprint_name)
-
-
-def get_obstacle_footprint_tiles_for_origin_tile(world, eid, origin_tile):
-    return tuple(
-        origin_tile + offset
-        for offset in get_entity_obstacle_footprint_offsets(world, eid)
+    return space_occupier.get(
+        "movement_footprint",
+        space_occupier.get(
+            "obstacle_footprint",
+            "single_tile",
+        ),
     )
 
 
-def get_entity_occupied_tiles(world, eid):
-    if eid not in world.transform:
+def get_entity_movement_footprint_offsets(world, eid):
+    return get_footprint_offsets(
+        get_entity_movement_footprint_name(world, eid)
+    )
+
+
+def get_movement_center_tile_for_origin_tile(origin_tile):
+    return origin_tile
+
+
+def get_movement_body_tiles_for_origin_tile(world, eid, origin_tile):
+    return tuple(
+        origin_tile + offset
+        for offset in get_entity_movement_footprint_offsets(world, eid)
+    )
+
+
+def get_movement_wing_tiles_for_origin_tile(world, eid, origin_tile):
+    center_tile = get_movement_center_tile_for_origin_tile(origin_tile)
+
+    return tuple(
+        tile
+        for tile in get_movement_body_tiles_for_origin_tile(
+            world,
+            eid,
+            origin_tile,
+        )
+        if tile != center_tile
+    )
+
+
+# Compatibility names for older call sites.
+def get_entity_obstacle_footprint_name(world, eid):
+    return get_entity_movement_footprint_name(world, eid)
+
+
+def get_entity_obstacle_footprint_offsets(world, eid):
+    return get_entity_movement_footprint_offsets(world, eid)
+
+
+def get_obstacle_footprint_tiles_for_origin_tile(world, eid, origin_tile):
+    return get_movement_body_tiles_for_origin_tile(
+        world,
+        eid,
+        origin_tile,
+    )
+
+
+def get_entity_movement_center_tile(world, eid):
+    transform = world.transform.get(eid)
+
+    if transform is None:
+        return None
+
+    return tile_from_cpos(transform.cpos)
+
+
+def get_entity_movement_body_tiles(world, eid):
+    center_tile = get_entity_movement_center_tile(world, eid)
+
+    if center_tile is None:
         return ()
 
     if not space_occupier_blocks_movement(world, eid):
         return ()
 
-    transform = world.transform[eid]
-    origin_tile = tile_from_cpos(transform.cpos)
-
-    return get_obstacle_footprint_tiles_for_origin_tile(
+    return get_movement_body_tiles_for_origin_tile(
         world,
         eid,
-        origin_tile,
+        center_tile,
     )
+
+
+def get_entity_movement_wing_tiles(world, eid):
+    center_tile = get_entity_movement_center_tile(world, eid)
+
+    if center_tile is None:
+        return ()
+
+    if not space_occupier_blocks_movement(world, eid):
+        return ()
+
+    return get_movement_wing_tiles_for_origin_tile(
+        world,
+        eid,
+        center_tile,
+    )
+
+
+# Compatibility: this now means "movement body tiles",
+# not "fully hard occupied tiles".
+def get_entity_occupied_tiles(world, eid):
+    return get_entity_movement_body_tiles(world, eid)
 
 
 def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
@@ -133,7 +204,6 @@ def get_controller_immediate_next_tile(current_cpos, controller):
 
     if hasattr(controller, "raw_direction"):
         current_tile = tile_from_cpos(current_cpos)
-
         dx = sign(controller.raw_direction.x)
         dy = sign(controller.raw_direction.y)
 
@@ -145,24 +215,24 @@ def get_controller_immediate_next_tile(current_cpos, controller):
     return None
 
 
-def get_entity_reserved_tiles(world, eid):
+def get_entity_reserved_center_tile(world, eid):
     if not space_occupier_blocks_movement(world, eid):
-        return ()
+        return None
 
     transform = world.transform.get(eid)
 
     if transform is None:
-        return ()
+        return None
 
     motion_state = world.motion_state.get(eid)
 
     if motion_state is None:
-        return ()
+        return None
 
     controller = motion_state.get("controller")
 
     if controller is None:
-        return ()
+        return None
 
     current_tile = tile_from_cpos(transform.cpos)
 
@@ -172,29 +242,44 @@ def get_entity_reserved_tiles(world, eid):
     )
 
     if next_tile is None:
-        return ()
+        return None
 
     if next_tile == current_tile:
-        return ()
+        return None
 
     if abs(next_tile.x - current_tile.x) > 1:
-        return ()
+        return None
 
     if abs(next_tile.y - current_tile.y) > 1:
+        return None
+
+    return next_tile
+
+
+def get_entity_reserved_body_tiles(world, eid):
+    reserved_center_tile = get_entity_reserved_center_tile(world, eid)
+
+    if reserved_center_tile is None:
         return ()
 
-    return get_obstacle_footprint_tiles_for_origin_tile(
+    return get_movement_body_tiles_for_origin_tile(
         world,
         eid,
-        next_tile,
+        reserved_center_tile,
     )
+
+
+# Compatibility name.
+def get_entity_reserved_tiles(world, eid):
+    return get_entity_reserved_body_tiles(world, eid)
 
 
 @profiled("occupancy.rebuild")
 def rebuild_dynamic_occupancy(world):
-    dynamic_occupancy = {}
-    dynamic_blocking_occupancy = {}
-    dynamic_reservations = {}
+    dynamic_center_occupancy = {}
+    dynamic_body_occupancy = {}
+    dynamic_reserved_centers = {}
+    dynamic_reserved_bodies = {}
 
     entities = (
         set(world.space_occupier)
@@ -205,30 +290,50 @@ def rebuild_dynamic_occupancy(world):
         if not space_occupier_blocks_movement(world, eid):
             continue
 
-        occupied_tiles = get_entity_occupied_tiles(world, eid)
+        center_tile = get_entity_movement_center_tile(world, eid)
 
-        for tile in occupied_tiles:
-            dynamic_occupancy.setdefault(
-                tile,
+        if center_tile is None:
+            continue
+
+        dynamic_center_occupancy.setdefault(
+            center_tile,
+            set(),
+        ).add(eid)
+
+        for body_tile in get_entity_movement_body_tiles(world, eid):
+            dynamic_body_occupancy.setdefault(
+                body_tile,
                 set(),
             ).add(eid)
 
-            dynamic_blocking_occupancy.setdefault(
-                tile,
+        reserved_center_tile = get_entity_reserved_center_tile(world, eid)
+
+        if reserved_center_tile is not None:
+            dynamic_reserved_centers.setdefault(
+                reserved_center_tile,
                 set(),
             ).add(eid)
 
-        reserved_tiles = get_entity_reserved_tiles(world, eid)
+            for reserved_body_tile in get_entity_reserved_body_tiles(
+                world,
+                eid,
+            ):
+                dynamic_reserved_bodies.setdefault(
+                    reserved_body_tile,
+                    set(),
+                ).add(eid)
 
-        for tile in reserved_tiles:
-            dynamic_reservations.setdefault(
-                tile,
-                set(),
-            ).add(eid)
+    world.dynamic_center_occupancy = dynamic_center_occupancy
+    world.dynamic_body_occupancy = dynamic_body_occupancy
 
-    world.dynamic_occupancy = dynamic_occupancy
-    world.dynamic_blocking_occupancy = dynamic_blocking_occupancy
-    world.dynamic_reservations = dynamic_reservations
+    world.dynamic_reserved_centers = dynamic_reserved_centers
+    world.dynamic_reserved_bodies = dynamic_reserved_bodies
+
+    # Compatibility aliases.
+    world.dynamic_occupancy = dynamic_body_occupancy
+    world.dynamic_blocking_occupancy = dynamic_body_occupancy
+    world.dynamic_reservations = dynamic_reserved_bodies
+
     world.dynamic_occupancy_dirty = False
 
 
@@ -242,7 +347,7 @@ def get_entities_occupying_tile(world, tile):
 
     return tuple(
         sorted(
-            world.dynamic_occupancy.get(
+            world.dynamic_body_occupancy.get(
                 tile,
                 (),
             )
@@ -250,27 +355,94 @@ def get_entities_occupying_tile(world, tile):
     )
 
 
+def get_relevant_dynamic_blockers(world, mover_entity, candidates):
+    candidates = set(candidates)
+    candidates.discard(mover_entity)
+
+    if mover_entity is None:
+        return tuple(sorted(candidates))
+
+    return filter_contact_candidates(
+        world,
+        mover_entity,
+        candidates,
+    )
+
+
 def get_movement_blockers_on_tile(world, tile, mover_entity=None):
+    # Tile-level query means:
+    # "Would a mover center be blocked if it entered this tile?"
+    #
+    # Therefore this checks occupied/reserved bodies.
     ensure_dynamic_occupancy_current(world)
 
     blockers = set(
-        world.dynamic_blocking_occupancy.get(
+        world.dynamic_body_occupancy.get(
             tile,
             (),
         )
     )
 
     blockers.update(
-        world.dynamic_reservations.get(
+        world.dynamic_reserved_bodies.get(
             tile,
             (),
         )
     )
 
-    if mover_entity is None:
-        return tuple(sorted(blockers))
+    return get_relevant_dynamic_blockers(
+        world,
+        mover_entity,
+        blockers,
+    )
 
-    return filter_contact_candidates(
+
+def get_dynamic_movement_blockers_for_placement(
+    world,
+    mover_entity,
+    proposed_center_tile,
+    proposed_body_tiles,
+    include_reservations=True,
+):
+    ensure_dynamic_occupancy_current(world)
+
+    blockers = set()
+
+    # Mover center may not overlap another entity's body.
+    blockers.update(
+        world.dynamic_body_occupancy.get(
+            proposed_center_tile,
+            (),
+        )
+    )
+
+    if include_reservations:
+        blockers.update(
+            world.dynamic_reserved_bodies.get(
+                proposed_center_tile,
+                (),
+            )
+        )
+
+    # Mover body may not overlap another entity's center.
+    for body_tile in proposed_body_tiles:
+        blockers.update(
+            world.dynamic_center_occupancy.get(
+                body_tile,
+                (),
+            )
+        )
+
+        if include_reservations:
+            blockers.update(
+                world.dynamic_reserved_centers.get(
+                    body_tile,
+                    (),
+                )
+            )
+
+    # Wing-wing overlap is intentionally not checked.
+    return get_relevant_dynamic_blockers(
         world,
         mover_entity,
         blockers,

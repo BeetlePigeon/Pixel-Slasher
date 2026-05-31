@@ -120,3 +120,18 @@ data_file = {
     'screen_resolution': [1920, 1080],
     'fullscreen': False,
 }
+
+# Movement footprints are center + wings.
+#
+# Dynamic entity-vs-entity movement collision always allows
+# wing-wing overlap.
+#
+# Static map collision is globally configurable:
+#
+# "allow":
+#   Only the center tile is blocked by static map collision.
+#   Wing tiles may overlap static blockers.
+#
+# "block":
+#   The full movement footprint is blocked by static map collision.
+STATIC_WING_COLLISION_POLICY = "block"

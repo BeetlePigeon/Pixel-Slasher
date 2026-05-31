@@ -7,7 +7,9 @@ from systems.movement_system import (
     clear_move_target,
 )
 from utils.occupancy_utils import (
-    get_entity_occupied_tiles,
+    get_dynamic_movement_blockers_for_placement,
+    get_entity_movement_body_tiles,
+    get_entity_movement_center_tile,
     mark_dynamic_occupancy_dirty,
     rebuild_dynamic_occupancy,
     space_occupier_blocks_movement,
@@ -60,16 +62,6 @@ def entity_can_participate_in_destacking(world, entity):
     return True
 
 
-def get_entity_occupied_tiles_for_destacking(world, entity):
-    if not entity_can_participate_in_destacking(world, entity):
-        return ()
-
-    return get_entity_occupied_tiles(
-        world,
-        entity,
-    )
-
-
 def get_destack_stay_priority(world, entity, policy):
     if entity == getattr(world, "player", None):
         return policy["player_stay_priority"]
@@ -101,56 +93,6 @@ def get_destack_movers(world, entities, anchor, policy):
     )
 
 
-def get_destack_occupants_on_tile(world, tile):
-    occupants = []
-
-    for entity in sorted(world.space_occupier):
-        if not entity_can_participate_in_destacking(world, entity):
-            continue
-
-        occupied_tiles = get_entity_occupied_tiles_for_destacking(
-            world,
-            entity,
-        )
-
-        if tile in occupied_tiles:
-            occupants.append(entity)
-
-    return occupants
-
-
-def get_stacked_occupant_groups(world):
-    tile_to_entities = {}
-
-    for entity in sorted(world.space_occupier):
-        if not entity_can_participate_in_destacking(world, entity):
-            continue
-
-        for tile in get_entity_occupied_tiles_for_destacking(world, entity):
-            tile_to_entities.setdefault(
-                tile,
-                [],
-            ).append(entity)
-
-    groups = []
-
-    for tile, entities in tile_to_entities.items():
-        if len(entities) < 2:
-            continue
-
-        groups.append((
-            tile,
-            sorted(entities),
-        ))
-
-    groups.sort(
-        key=lambda item: (
-            item[0].y,
-            item[0].x,
-        ),
-    )
-
-    return groups
 
 
 def destack_placement_is_valid(world, entity, tile):
@@ -213,10 +155,120 @@ def snap_entity_to_destack_placement(world, entity, destination_tile):
     rebuild_dynamic_occupancy(world)
 
 
-def resolve_stacked_occupants(world, origin_tile, entities, policy):
-    current_entities = get_destack_occupants_on_tile(
+def get_destack_conflicts_for_entity(world, entity):
+    if not entity_can_participate_in_destacking(
         world,
-        origin_tile,
+        entity,
+    ):
+        return ()
+
+    center_tile = get_entity_movement_center_tile(
+        world,
+        entity,
+    )
+
+    if center_tile is None:
+        return ()
+
+    body_tiles = get_entity_movement_body_tiles(
+        world,
+        entity,
+    )
+
+    return get_dynamic_movement_blockers_for_placement(
+        world,
+        mover_entity=entity,
+        proposed_center_tile=center_tile,
+        proposed_body_tiles=body_tiles,
+        include_reservations=False,
+    )
+
+
+def get_destack_origin_tile(world, entities):
+    for entity in sorted(entities):
+        center_tile = get_entity_movement_center_tile(
+            world,
+            entity,
+        )
+
+        if center_tile is not None:
+            return center_tile
+
+    return None
+
+
+def get_stacked_occupant_groups(world):
+    groups = []
+    seen_groups = set()
+
+    for entity in sorted(world.space_occupier):
+        if not entity_can_participate_in_destacking(
+            world,
+            entity,
+        ):
+            continue
+
+        conflicts = get_destack_conflicts_for_entity(
+            world,
+            entity,
+        )
+
+        if not conflicts:
+            continue
+
+        group = tuple(
+            sorted(
+                set(conflicts)
+                | {entity}
+            )
+        )
+
+        if group in seen_groups:
+            continue
+
+        seen_groups.add(group)
+
+        origin_tile = get_destack_origin_tile(
+            world,
+            group,
+        )
+
+        if origin_tile is None:
+            continue
+
+        groups.append((
+            origin_tile,
+            list(group),
+        ))
+
+    groups.sort(
+        key=lambda item: (
+            item[0].y,
+            item[0].x,
+            tuple(item[1]),
+        ),
+    )
+
+    return groups
+
+
+def resolve_stacked_occupants(world, origin_tile, entities, policy):
+    current_entities = set()
+
+    for entity in entities:
+        conflicts = get_destack_conflicts_for_entity(
+            world,
+            entity,
+        )
+
+        if conflicts:
+            current_entities.add(entity)
+            current_entities.update(conflicts)
+
+    current_entities = sorted(
+        entity
+        for entity in current_entities
+        if entity_can_participate_in_destacking(world, entity)
     )
 
     if len(current_entities) < 2:
@@ -238,23 +290,26 @@ def resolve_stacked_occupants(world, origin_tile, entities, policy):
     moved_any = False
 
     for mover in movers:
-        # Another move earlier in this pass may already have changed the
-        # stack, so re-check before resolving this entity.
-        current_entities = get_destack_occupants_on_tile(
+        conflicts = get_destack_conflicts_for_entity(
             world,
-            origin_tile,
+            mover,
         )
 
-        if mover not in current_entities:
+        if not conflicts:
             continue
 
-        if len(current_entities) < 2:
-            break
+        mover_origin_tile = get_entity_movement_center_tile(
+            world,
+            mover,
+        )
+
+        if mover_origin_tile is None:
+            continue
 
         destination_tile = find_valid_destack_placement(
             world,
             mover,
-            origin_tile,
+            mover_origin_tile,
             policy,
         )
 
@@ -262,14 +317,15 @@ def resolve_stacked_occupants(world, origin_tile, entities, policy):
             if policy.get("debug_print", False):
                 print(
                     "[destack] failed to move entity "
-                    f"{mover} from stacked tile {origin_tile}"
+                    f"{mover} from conflict near {mover_origin_tile}"
                 )
+
             continue
 
         if policy.get("debug_print", False):
             print(
                 "[destack] moved entity "
-                f"{mover} from tile {origin_tile} "
+                f"{mover} from tile {mover_origin_tile} "
                 f"to tile {destination_tile}"
             )
 
