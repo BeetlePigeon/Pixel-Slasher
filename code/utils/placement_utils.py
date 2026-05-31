@@ -1,6 +1,6 @@
 from support import Vec2i
 from utils.perf_profiler import record_counter_for_world
-from utils.occupancy_utils import is_tile_blocked_for_movement, get_movement_footprint_tiles_for_origin_tile
+from utils.occupancy_utils import is_tile_blocked_for_movement, get_obstacle_footprint_tiles_for_origin_tile
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     manhattan_tile_distance,
@@ -15,7 +15,7 @@ def get_entity_placement_tiles(world, tile: Vec2i, entity=None):
             tile,
         )
 
-    return get_movement_footprint_tiles_for_origin_tile(
+    return get_obstacle_footprint_tiles_for_origin_tile(
         world,
         entity,
         tile,

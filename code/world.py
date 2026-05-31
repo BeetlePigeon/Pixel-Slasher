@@ -72,15 +72,20 @@ class World:
         self.ai_agent = {}
         self.contact_filter = {}
         self.hittable = {}
+        self.combat_body = {}
         self.damage_requests = []
         self.movement_collision = {}
 
         # Movement occupancy is passive physical presence:
-        # which gameplay tile footprint an entity claims for movement blocking.
+        # which gameplay tile footprint an entity claims for hard movement
+        # blocking.
         #
         # transform.cpos remains the logical center / action origin.
         # space_occupier.movement_footprint defines centered tile offsets
         # around tile_from_cpos(transform.cpos).
+        #
+        # Do not use obstacle_footprint for attack range, targeting, or
+        # projectile/contact collision. Those belong to combat_body.
         self.space_occupier = {}
 
         # Derived dynamic spatial caches. These are rebuilt from
@@ -168,6 +173,7 @@ class World:
             self.ai_agent,
             self.contact_filter,
             self.hittable,
+            self.combat_body,
             self.movement_collision,
             self.space_occupier,
             self.influence_emitter,
@@ -376,7 +382,7 @@ class World:
 
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "movement_footprint": "plus5",
+            "obstacle_footprint": "single_tile",
         }
 
         self.motion_state[eid] = {
@@ -428,7 +434,10 @@ class World:
         self.hittable[eid] = {
             "enabled": True,
         }
-
+        self.combat_body[eid] = {
+            "engagement_footprint": "plus5",
+            "collision_footprint": "plus5",
+        }
         mark_dynamic_occupancy_dirty(self)
 
         return eid
@@ -454,7 +463,7 @@ class World:
         }
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "movement_footprint": "single_tile",
+            "obstacle_footprint": "single_tile",
         }
         self.motion_state[eid] = {
             "controller": None,
@@ -489,7 +498,10 @@ class World:
                 "lose_radius_tiles": 16,
                 "desired_range_tiles": 1,
                 "path_policy": "actor_move",
-            }
+            },
+
+            # Runtime memory for behavior-specific state.
+            "blackboard": {},
         }
         self.health[eid] = {
             "current": 10,
@@ -497,6 +509,10 @@ class World:
         }
         self.hittable[eid] = {
             "enabled": True,
+        }
+        self.combat_body = {
+            "engagement_footprint": "single_tile",
+            "collision_footprint": "single_tile",
         }
 
         # Reuse player art for now. Replace later with enemy/dummy art.

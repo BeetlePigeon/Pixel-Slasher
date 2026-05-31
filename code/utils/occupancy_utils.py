@@ -1,5 +1,5 @@
 from constants import TILE_UNITS
-from data.tables_movement_footprints import get_movement_footprint_offsets
+from data.tables_tile_footprints import get_footprint_offsets
 from support import Vec2i
 from utils.perf_profiler import profiled
 from utils.contact_filtering_utils import filter_contact_candidates
@@ -19,25 +19,25 @@ def space_occupier_blocks_movement(world, eid):
     return bool(space_occupier.get("blocks_movement", True))
 
 
-def get_entity_movement_footprint_name(world, eid):
+def get_entity_obstacle_footprint_name(world, eid):
     space_occupier = world.space_occupier.get(eid)
 
     if space_occupier is None:
         return "single_tile"
 
-    return space_occupier.get("movement_footprint")
+    return space_occupier.get("obstacle_footprint")
 
 
-def get_entity_movement_footprint_offsets(world, eid):
-    footprint_name = get_entity_movement_footprint_name(world, eid)
+def get_entity_obstacle_footprint_offsets(world, eid):
+    obstacle_footprint_name = get_entity_obstacle_footprint_name(world, eid)
 
-    return get_movement_footprint_offsets(footprint_name)
+    return get_footprint_offsets(obstacle_footprint_name)
 
 
-def get_movement_footprint_tiles_for_origin_tile(world, eid, origin_tile):
+def get_obstacle_footprint_tiles_for_origin_tile(world, eid, origin_tile):
     return tuple(
         origin_tile + offset
-        for offset in get_entity_movement_footprint_offsets(world, eid)
+        for offset in get_entity_obstacle_footprint_offsets(world, eid)
     )
 
 
@@ -51,7 +51,7 @@ def get_entity_occupied_tiles(world, eid):
     transform = world.transform[eid]
     origin_tile = tile_from_cpos(transform.cpos)
 
-    return get_movement_footprint_tiles_for_origin_tile(
+    return get_obstacle_footprint_tiles_for_origin_tile(
         world,
         eid,
         origin_tile,
@@ -183,7 +183,7 @@ def get_entity_reserved_tiles(world, eid):
     if abs(next_tile.y - current_tile.y) > 1:
         return ()
 
-    return get_movement_footprint_tiles_for_origin_tile(
+    return get_obstacle_footprint_tiles_for_origin_tile(
         world,
         eid,
         next_tile,

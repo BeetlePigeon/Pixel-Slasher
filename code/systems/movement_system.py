@@ -10,7 +10,7 @@ from utils.occupancy_utils import (
     is_tile_static_blocked,
     is_tile_blocked_for_movement,
     get_movement_blockers_on_tile,
-    get_movement_footprint_tiles_for_origin_tile,
+    get_obstacle_footprint_tiles_for_origin_tile,
 )
 from motion_controllers import (
     GridMoveController,
@@ -1296,7 +1296,7 @@ def resolve_corner_crossing_collision(
 
 
 def get_movement_placement_tiles(world, entity, origin_tile):
-    return get_movement_footprint_tiles_for_origin_tile(
+    return get_obstacle_footprint_tiles_for_origin_tile(
         world,
         entity,
         origin_tile,
