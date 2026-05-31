@@ -305,6 +305,13 @@ class Debug:
         if pygame.K_o in input_state.keys_pressed:
             if self.game.simulation_paused:
                 self.game.single_step_requested = True
+        if pygame.K_k in input_state.keys_pressed:
+            from systems.movement_system import print_entity_movement_diagnostics
+
+            print_entity_movement_diagnostics(
+                self.game.world,
+                self.game.world.player,
+            )
         if pygame.K_LEFTBRACKET in input_state.keys_pressed:
             self.game.display.adjust_brightness(-5)
         if pygame.K_RIGHTBRACKET in input_state.keys_pressed:

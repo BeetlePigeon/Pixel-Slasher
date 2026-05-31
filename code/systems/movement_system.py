@@ -1893,6 +1893,535 @@ def sample_controller_delta(controller, current_cpos):
     return controller.sample_delta()
 
 
+MOVEMENT_DIAGNOSTIC_DIRECTIONS = (
+    ("N", Vec2i(0, -1)),
+    ("NE", Vec2i(1, -1)),
+    ("E", Vec2i(1, 0)),
+    ("SE", Vec2i(1, 1)),
+    ("S", Vec2i(0, 1)),
+    ("SW", Vec2i(-1, 1)),
+    ("W", Vec2i(-1, 0)),
+    ("NW", Vec2i(-1, -1)),
+)
+
+
+def format_debug_vec(value):
+    if value is None:
+        return "None"
+
+    return f"({value.x},{value.y})"
+
+
+def format_debug_tile(value):
+    return format_debug_vec(value)
+
+
+def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
+    steps = []
+
+    def add_step(step):
+        steps.append(step)
+
+    end_cpos = start_cpos + delta
+    current_tile = tile_from_cpos(start_cpos)
+    target_tile = tile_from_cpos(end_cpos)
+
+    add_step({
+        "type": "start",
+        "start_cpos": start_cpos,
+        "end_cpos": end_cpos,
+        "start_tile": current_tile,
+        "target_tile": target_tile,
+        "delta": delta,
+    })
+
+    if current_tile == target_tile:
+        collision_result = handle_movement_tile_collision(
+            world,
+            entity,
+            target_tile,
+        )
+
+        add_step({
+            "type": "same_tile",
+            "tile": target_tile,
+            "result": collision_result,
+        })
+
+        if collision_result != "allow":
+            return collision_result, start_cpos, steps
+
+        return "allow", end_cpos, steps
+
+    dx = delta.x
+    dy = delta.y
+
+    step_x = sign(dx)
+    step_y = sign(dy)
+
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+
+    if step_x > 0:
+        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
+        next_cross_x = next_x_boundary - start_cpos.x
+    elif step_x < 0:
+        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_cross_x = start_cpos.x - next_x_boundary
+    else:
+        next_x_boundary = None
+        next_cross_x = None
+
+    if step_y > 0:
+        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
+        next_cross_y = next_y_boundary - start_cpos.y
+    elif step_y < 0:
+        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_cross_y = start_cpos.y - next_y_boundary
+    else:
+        next_y_boundary = None
+        next_cross_y = None
+
+    safety_counter = 0
+
+    while current_tile != target_tile:
+        safety_counter += 1
+
+        if safety_counter > 32:
+            add_step({
+                "type": "safety_break",
+                "current_tile": current_tile,
+                "target_tile": target_tile,
+            })
+
+            return "block", start_cpos, steps
+
+        if next_cross_x is None:
+            step_axis = "y"
+        elif next_cross_y is None:
+            step_axis = "x"
+        else:
+            left = next_cross_x * abs_dy
+            right = next_cross_y * abs_dx
+
+            if left < right:
+                step_axis = "x"
+            elif right < left:
+                step_axis = "y"
+            else:
+                step_axis = "corner"
+
+        from_tile = current_tile
+
+        if step_axis == "x":
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_x,
+                abs_dx,
+            )
+
+            candidate_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y,
+            )
+
+            collision_result = handle_movement_tile_collision(
+                world,
+                entity,
+                candidate_tile,
+            )
+
+            safe_cpos = safe_before_x_cross(
+                boundary_cpos,
+                step_x,
+            )
+
+            add_step({
+                "type": "x",
+                "from_tile": from_tile,
+                "candidate_tile": candidate_tile,
+                "boundary_cpos": boundary_cpos,
+                "safe_cpos": safe_cpos,
+                "result": collision_result,
+            })
+
+            if collision_result != "allow":
+                return collision_result, safe_cpos, steps
+
+            current_tile = candidate_tile
+            next_cross_x += TILE_UNITS
+
+        elif step_axis == "y":
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_y,
+                abs_dy,
+            )
+
+            candidate_tile = Vec2i(
+                current_tile.x,
+                current_tile.y + step_y,
+            )
+
+            collision_result = handle_movement_tile_collision(
+                world,
+                entity,
+                candidate_tile,
+            )
+
+            safe_cpos = safe_before_y_cross(
+                boundary_cpos,
+                step_y,
+            )
+
+            add_step({
+                "type": "y",
+                "from_tile": from_tile,
+                "candidate_tile": candidate_tile,
+                "boundary_cpos": boundary_cpos,
+                "safe_cpos": safe_cpos,
+                "result": collision_result,
+            })
+
+            if collision_result != "allow":
+                return collision_result, safe_cpos, steps
+
+            current_tile = candidate_tile
+            next_cross_y += TILE_UNITS
+
+        else:
+            boundary_cpos = axis_cross_position(
+                start_cpos,
+                delta,
+                next_cross_x,
+                abs_dx,
+            )
+
+            side_x_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y,
+            )
+
+            side_y_tile = Vec2i(
+                current_tile.x,
+                current_tile.y + step_y,
+            )
+
+            diagonal_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y + step_y,
+            )
+
+            side_x_result = handle_movement_tile_collision(
+                world,
+                entity,
+                side_x_tile,
+            )
+
+            side_y_result = handle_movement_tile_collision(
+                world,
+                entity,
+                side_y_tile,
+            )
+
+            diagonal_result = handle_movement_tile_collision(
+                world,
+                entity,
+                diagonal_tile,
+            )
+
+            collision_result = resolve_corner_crossing_collision(
+                world,
+                entity,
+                side_x_tile,
+                side_y_tile,
+                diagonal_tile,
+            )
+
+            safe_cpos = safe_before_corner_cross(
+                boundary_cpos,
+                step_x,
+                step_y,
+            )
+
+            add_step({
+                "type": "corner",
+                "from_tile": from_tile,
+                "side_x_tile": side_x_tile,
+                "side_x_result": side_x_result,
+                "side_y_tile": side_y_tile,
+                "side_y_result": side_y_result,
+                "diagonal_tile": diagonal_tile,
+                "diagonal_result": diagonal_result,
+                "boundary_cpos": boundary_cpos,
+                "safe_cpos": safe_cpos,
+                "result": collision_result,
+            })
+
+            if collision_result != "allow":
+                return collision_result, safe_cpos, steps
+
+            current_tile = diagonal_tile
+            next_cross_x += TILE_UNITS
+            next_cross_y += TILE_UNITS
+
+    return "allow", end_cpos, steps
+
+
+def print_movement_trace_steps(label, result, resolved_cpos, steps):
+    print(
+        f"  trace {label}: "
+        f"result={result} "
+        f"resolved={format_debug_vec(resolved_cpos)}"
+    )
+
+    for index, step in enumerate(steps):
+        step_type = step["type"]
+
+        if step_type == "start":
+            print(
+                f"    [{index}] start "
+                f"cpos={format_debug_vec(step['start_cpos'])} "
+                f"tile={format_debug_tile(step['start_tile'])} "
+                f"end={format_debug_vec(step['end_cpos'])} "
+                f"target_tile={format_debug_tile(step['target_tile'])} "
+                f"delta={format_debug_vec(step['delta'])}"
+            )
+
+        elif step_type == "same_tile":
+            print(
+                f"    [{index}] same_tile "
+                f"tile={format_debug_tile(step['tile'])} "
+                f"result={step['result']}"
+            )
+
+        elif step_type in {"x", "y"}:
+            print(
+                f"    [{index}] axis={step_type} "
+                f"from={format_debug_tile(step['from_tile'])} "
+                f"candidate={format_debug_tile(step['candidate_tile'])} "
+                f"boundary={format_debug_vec(step['boundary_cpos'])} "
+                f"safe={format_debug_vec(step['safe_cpos'])} "
+                f"result={step['result']}"
+            )
+
+        elif step_type == "corner":
+            print(
+                f"    [{index}] corner "
+                f"from={format_debug_tile(step['from_tile'])} "
+                f"side_x={format_debug_tile(step['side_x_tile'])}:{step['side_x_result']} "
+                f"side_y={format_debug_tile(step['side_y_tile'])}:{step['side_y_result']} "
+                f"diag={format_debug_tile(step['diagonal_tile'])}:{step['diagonal_result']} "
+                f"boundary={format_debug_vec(step['boundary_cpos'])} "
+                f"safe={format_debug_vec(step['safe_cpos'])} "
+                f"result={step['result']}"
+            )
+
+        else:
+            print(f"    [{index}] {step}")
+
+
+def get_entity_movement_footprint_debug_name(world, entity):
+    space_occupier = world.space_occupier.get(entity, {})
+
+    return space_occupier.get(
+        "movement_footprint",
+        space_occupier.get(
+            "obstacle_footprint",
+            "single_tile",
+        ),
+    )
+
+
+def print_entity_movement_diagnostics(world, entity):
+    if entity is None:
+        print("[move_diag] no entity")
+        return
+
+    if entity not in world.transform:
+        print(f"[move_diag] entity {entity} has no transform")
+        return
+
+    rebuild_dynamic_occupancy(world)
+
+    transform = world.transform[entity]
+    motion_state = world.motion_state.get(entity, {})
+    controller = motion_state.get("controller")
+
+    current_tile = tile_from_cpos(transform.cpos)
+    current_center = tile_center(current_tile)
+    center_offset = transform.cpos - current_center
+
+    movement_policy = world.movement_collision.get(entity, {})
+    footprint_name = get_entity_movement_footprint_debug_name(
+        world,
+        entity,
+    )
+
+    print("")
+    print("=" * 96)
+    print(
+        "[move_diag] "
+        f"tick={world.tick} "
+        f"entity={entity} "
+        f"footprint={footprint_name} "
+        f"corner={movement_policy.get('corner_cutting', 'strict')}"
+    )
+    print(
+        "  cpos="
+        f"{format_debug_vec(transform.cpos)} "
+        "tile="
+        f"{format_debug_tile(current_tile)} "
+        "tile_center="
+        f"{format_debug_vec(current_center)} "
+        "offset_from_center="
+        f"{format_debug_vec(center_offset)}"
+    )
+
+    if controller is None:
+        print("  controller=None")
+    else:
+        print(
+            "  controller="
+            f"{controller.__class__.__name__} "
+            f"motion_tag={getattr(controller, 'motion_tag', None)} "
+            f"raw_direction={format_debug_vec(getattr(controller, 'raw_direction', None))} "
+            f"aim_vector={format_debug_vec(getattr(controller, 'aim_vector', None))} "
+            f"speed={getattr(controller, 'speed', None)}"
+        )
+
+    print("")
+    print("  Neighbor placement/trace summary")
+    print("  dir target     placement  center_trace  current_trace")
+
+    mismatch_labels = []
+
+    for label, direction in MOVEMENT_DIAGNOSTIC_DIRECTIONS:
+        target_tile = current_tile + direction
+        target_cpos = tile_center(target_tile)
+
+        placement_result = handle_movement_tile_collision(
+            world,
+            entity,
+            target_tile,
+        )
+
+        center_delta = target_cpos - current_center
+
+        center_trace_result, center_resolved, center_steps = (
+            diagnose_trace_static_tile_path(
+                world,
+                entity,
+                current_center,
+                center_delta,
+            )
+        )
+
+        current_delta = target_cpos - transform.cpos
+
+        current_trace_result, current_resolved, current_steps = (
+            diagnose_trace_static_tile_path(
+                world,
+                entity,
+                transform.cpos,
+                current_delta,
+            )
+        )
+
+        print(
+            "  "
+            f"{label:<2} "
+            f"{format_debug_tile(target_tile):<10} "
+            f"{placement_result:<10} "
+            f"{center_trace_result:<12} "
+            f"{current_trace_result:<13}"
+        )
+
+        if (
+            label in {"NE", "SE", "SW", "NW"}
+            or placement_result != current_trace_result
+            or center_trace_result != current_trace_result
+        ):
+            mismatch_labels.append((
+                label,
+                placement_result,
+                center_trace_result,
+                center_resolved,
+                center_steps,
+                current_trace_result,
+                current_resolved,
+                current_steps,
+            ))
+
+    print("")
+    print("  Detailed traces for mismatches and diagonals")
+
+    for (
+        label,
+        placement_result,
+        center_trace_result,
+        center_resolved,
+        center_steps,
+        current_trace_result,
+        current_resolved,
+        current_steps,
+    ) in mismatch_labels:
+        print(
+            f"  {label}: placement={placement_result} "
+            f"center_trace={center_trace_result} "
+            f"current_trace={current_trace_result}"
+        )
+
+        print_movement_trace_steps(
+            f"{label} center-to-center",
+            center_trace_result,
+            center_resolved,
+            center_steps,
+        )
+
+        print_movement_trace_steps(
+            f"{label} current-to-target-center",
+            current_trace_result,
+            current_resolved,
+            current_steps,
+        )
+
+    if controller is not None:
+        actual_delta = sample_controller_delta(
+            controller,
+            transform.cpos,
+        )
+
+        actual_result, actual_resolved, actual_steps = (
+            diagnose_trace_static_tile_path(
+                world,
+                entity,
+                transform.cpos,
+                actual_delta,
+            )
+        )
+
+        print("")
+        print(
+            "  Actual controller delta: "
+            f"delta={format_debug_vec(actual_delta)} "
+            f"result={actual_result} "
+            f"resolved={format_debug_vec(actual_resolved)}"
+        )
+
+        print_movement_trace_steps(
+            "actual controller",
+            actual_result,
+            actual_resolved,
+            actual_steps,
+        )
+
+    print("=" * 96)
+    print("")
+
+
 def is_path_follow_controller(controller):
     return isinstance(controller, PathFollowController)
 

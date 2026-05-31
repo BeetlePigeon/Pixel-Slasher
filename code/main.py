@@ -5,6 +5,7 @@
 # R Click: Channel Projectile
 # SPACE: Test Projectile
 # LSHIFT: Toggle Camera Mode
+# K: Move Diag
 # I: Print Profiler Rows
 # P: Pause
 # O: Single Tick Step
