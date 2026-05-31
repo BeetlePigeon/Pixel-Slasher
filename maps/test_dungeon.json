@@ -63,21 +63,6 @@
       "spawn_id": "default",
       "tile": [0, 0],
       "facing": [1, -1]
-    },
-    {
-      "id": "training_dummy_1",
-      "type": "training_dummy",
-      "tile": [20, 20]
-    },
-    {
-      "id": "training_dummy_2",
-      "type": "training_dummy",
-      "tile": [21, 21]
-    },
-    {
-      "id": "training_dummy_3",
-      "type": "training_dummy",
-      "tile": [24, 24]
     }
   ],
 

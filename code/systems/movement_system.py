@@ -1251,6 +1251,15 @@ def resolve_corner_crossing_collision(
 ):
     corner_policy = get_corner_cutting_policy(world, entity)
 
+    if corner_policy == "allow":
+        diagonal_result = handle_movement_tile_collision(
+            world,
+            entity,
+            diagonal_tile,
+        )
+
+        return diagonal_result
+
     if corner_policy == "strict":
         for candidate_tile in (side_x_tile, side_y_tile, diagonal_tile):
             collision_result = handle_movement_tile_collision(

@@ -29,6 +29,7 @@
 # 8: Guard Counter
 # 9: Meteor
 # 0: *FREE*
+# F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions
 # F4: Area Toggle

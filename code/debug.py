@@ -1,4 +1,5 @@
 import pygame
+from utils.tile_vec_utils import Vec2i
 from utils.status_utils import apply_status_effect
 from combat_ops import queue_damage_request
 from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake
@@ -318,6 +319,8 @@ class Debug:
             self.game.display.adjust_gamma(5)
         if pygame.K_SLASH in input_state.keys_pressed:
             self.game.display.reset_visual_calibration()
+        if pygame.K_F1 in input_state.keys_pressed:
+            self.game.world.spawn_training_dummy(Vec2i(10, 10))
         if pygame.K_F2 in input_state.keys_pressed:
             self.toggle_entity_sizes(self.game.world)
         if pygame.K_F3 in input_state.keys_pressed:

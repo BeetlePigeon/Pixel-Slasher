@@ -390,7 +390,7 @@ class World:
             "grid_slide_min_tangent_ratio": (1, 2),
             # Traditional click-to-move target movement.
             "mouse_slide_min_tangent_ratio": (2, 3),
-            "corner_cutting": "allow_if_one_side_open",
+            "corner_cutting": "allow",
         }
 
         self.space_occupier[eid] = {
