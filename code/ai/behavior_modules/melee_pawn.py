@@ -1,5 +1,12 @@
 from ai.ai_queries import entity_is_valid_target, get_entity_tile, get_player_if_detectable, tile_distance_between_entities
 from utils.tile_vec_utils import tile_center
+from ai.ai_queries import (
+    entity_is_in_attack_range_of_target,
+    entity_is_valid_target,
+    find_closest_valid_attack_position,
+    get_player_if_detectable,
+    tile_distance_between_entities,
+)
 
 
 def think(context):
@@ -57,7 +64,11 @@ def think(context):
 
     agent["target_entity"] = target
 
-    if distance <= desired_range_tiles:
+    if entity_is_in_attack_range_of_target(
+            world,
+            entity,
+            target,
+    ):
         agent["state"] = "in_range"
 
         return [
@@ -66,14 +77,14 @@ def think(context):
             }
         ]
 
-    target_tile = get_entity_tile(
+    attack_position_tile = find_closest_valid_attack_position(
         world,
+        entity,
         target,
     )
 
-    if target_tile is None:
-        agent["target_entity"] = None
-        agent["state"] = "idle"
+    if attack_position_tile is None:
+        agent["state"] = "no_valid_attack_position"
 
         return [
             {
@@ -83,13 +94,11 @@ def think(context):
 
     agent["state"] = "pursuing"
 
-    target_transform = world.transform[target]
-
     return [
         {
             "type": "move_to_tile",
-            "target_tile": target_tile,
-            "target_cpos": target_transform.cpos,
+            "target_tile": attack_position_tile,
+            "target_cpos": tile_center(attack_position_tile),
             "path_policy": path_policy,
         }
     ]

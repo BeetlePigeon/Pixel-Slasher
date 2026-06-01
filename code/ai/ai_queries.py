@@ -1,5 +1,12 @@
 from utils.tile_vec_utils import chebyshev_tile_distance
 from combat_ops import entity_is_hittable, entities_are_enemies, get_entity_current_tile
+from data.tables_tile_footprints import get_footprint_offsets
+from support import Vec2i
+from utils.placement_utils import is_tile_valid_for_entity_placement
+from utils.tile_vec_utils import (
+    chebyshev_tile_distance,
+    manhattan_tile_distance,
+)
 
 
 def get_player_entity(world):
@@ -110,3 +117,150 @@ def get_player_if_detectable(world, entity, detect_radius_tiles):
         return None
 
     return player
+
+
+def get_entity_attack_range_tiles(world, entity):
+    combat_attack = world.combat_attack.get(entity)
+
+    if combat_attack is None:
+        return 1
+
+    return max(0, combat_attack.get("range_tiles", 1))
+
+
+def get_entity_engagement_footprint_name(world, entity):
+    combat_body = world.combat_body.get(entity)
+
+    if combat_body is None:
+        return "single_tile"
+
+    return combat_body.get("engagement_footprint", "single_tile")
+
+
+def get_entity_engagement_footprint_tiles(world, entity):
+    center_tile = get_entity_tile(world, entity)
+
+    if center_tile is None:
+        return ()
+
+    footprint_name = get_entity_engagement_footprint_name(world, entity)
+
+    return tuple(
+        center_tile + offset
+        for offset in get_footprint_offsets(footprint_name)
+    )
+
+
+def distance_to_tile_set(tile, tiles):
+    if not tiles:
+        return None
+
+    return min(
+        chebyshev_tile_distance(tile, other_tile)
+        for other_tile in tiles
+    )
+
+
+def entity_is_in_attack_range_of_target(world, source, target):
+    source_tile = get_entity_tile(world, source)
+
+    if source_tile is None:
+        return False
+
+    target_engagement_tiles = get_entity_engagement_footprint_tiles(
+        world,
+        target,
+    )
+
+    distance = distance_to_tile_set(
+        source_tile,
+        target_engagement_tiles,
+    )
+
+    if distance is None:
+        return False
+
+    return distance <= get_entity_attack_range_tiles(world, source)
+
+
+def iter_attack_position_candidates(target_engagement_tiles, range_tiles):
+    min_x = min(tile.x for tile in target_engagement_tiles) - range_tiles
+    max_x = max(tile.x for tile in target_engagement_tiles) + range_tiles
+    min_y = min(tile.y for tile in target_engagement_tiles) - range_tiles
+    max_y = max(tile.y for tile in target_engagement_tiles) + range_tiles
+
+    for y in range(min_y, max_y + 1):
+        for x in range(min_x, max_x + 1):
+            tile = Vec2i(x, y)
+
+            distance = distance_to_tile_set(
+                tile,
+                target_engagement_tiles,
+            )
+
+            if distance is None:
+                continue
+
+            if distance > range_tiles:
+                continue
+
+            yield tile
+
+
+def find_closest_valid_attack_position(
+    world,
+    source,
+    target,
+):
+    source_tile = get_entity_tile(world, source)
+
+    if source_tile is None:
+        return None
+
+    target_engagement_tiles = get_entity_engagement_footprint_tiles(
+        world,
+        target,
+    )
+
+    if not target_engagement_tiles:
+        return None
+
+    range_tiles = get_entity_attack_range_tiles(world, source)
+
+    candidates = []
+
+    for candidate_tile in iter_attack_position_candidates(
+        target_engagement_tiles,
+        range_tiles,
+    ):
+        if not is_tile_valid_for_entity_placement(
+            world,
+            candidate_tile,
+            entity=source,
+            include_dynamic=True,
+        ):
+            continue
+
+        distance_to_target = distance_to_tile_set(
+            candidate_tile,
+            target_engagement_tiles,
+        )
+
+        candidates.append(
+            (
+                (
+                    chebyshev_tile_distance(source_tile, candidate_tile),
+                    manhattan_tile_distance(source_tile, candidate_tile),
+                    distance_to_target,
+                    candidate_tile.y,
+                    candidate_tile.x,
+                ),
+                candidate_tile,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]

@@ -74,6 +74,7 @@ class World:
         self.hittable = {}
         self.combat_body = {}
         self.damage_requests = []
+        self.combat_attack = {}
         self.movement_collision = {}
 
         # Movement occupancy is passive physical presence:
@@ -187,6 +188,7 @@ class World:
             self.contact_filter,
             self.hittable,
             self.combat_body,
+            self.combat_attack,
             self.movement_collision,
             self.space_occupier,
             self.influence_emitter,
@@ -395,7 +397,7 @@ class World:
 
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "movement_footprint": "single_tile",
+            "movement_footprint": "plus5",
         }
 
         self.motion_state[eid] = {
@@ -451,6 +453,9 @@ class World:
             "engagement_footprint": "plus5",
             "collision_footprint": "plus5",
         }
+        self.combat_attack[eid] = {
+            "range_tiles": 2,
+        }
         mark_dynamic_occupancy_dirty(self)
 
         return eid
@@ -476,7 +481,7 @@ class World:
         }
         self.space_occupier[eid] = {
             "blocks_movement": True,
-            "movement_footprint": "single_tile",
+            "movement_footprint": "plus5",
         }
         self.motion_state[eid] = {
             "controller": None,
@@ -523,11 +528,13 @@ class World:
         self.hittable[eid] = {
             "enabled": True,
         }
-        self.combat_body = {
-            "engagement_footprint": "single_tile",
-            "collision_footprint": "single_tile",
+        self.combat_body[eid] = {
+            "engagement_footprint": "plus5",
+            "collision_footprint": "plus5",
         }
-
+        self.combat_attack[eid] = {
+            "range_tiles": 2,
+        }
         # Reuse player art for now. Replace later with enemy/dummy art.
         dummy_image = self.game.assets.images["player"]
 
