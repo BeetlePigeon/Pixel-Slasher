@@ -9,6 +9,11 @@ from utils.tile_vec_utils import (
 )
 
 
+BLOCK_RESPONSE_RETRY = "retry"
+BLOCK_RESPONSE_AGE = "age"
+BLOCK_RESPONSE_ABORT = "abort"
+
+
 @dataclass
 class PathFollowController:
     nodes: list
@@ -18,6 +23,7 @@ class PathFollowController:
     target_tile: Vec2i
 
     motion_tag = "path_follow"
+    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta_from(self, current_cpos: Vec2i) -> Vec2i:
         remaining_distance = self.speed
@@ -72,6 +78,7 @@ class DirectionalMoveController:
     speed: int
 
     motion_tag = "directional_move"
+    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta(self) -> Vec2i:
         return scale_normalized_dir(
@@ -94,6 +101,7 @@ class GridMoveController:
     duration: int
 
     motion_tag = "grid_move"
+    block_response = BLOCK_RESPONSE_ABORT
 
     def sample_delta(self) -> Vec2i:  # LERP style
         prev = lerp_vec(self.start, self.end, self.progress, self.duration)
@@ -116,6 +124,7 @@ class DashController:
     slide_min_tangent_ratio: tuple
 
     motion_tag = "dash"
+    block_response = BLOCK_RESPONSE_AGE
 
     def sample_delta(self) -> Vec2i:
         prev_dist = self.distance * self.age // self.duration
@@ -140,6 +149,7 @@ class SettleToGridController:
     duration: int
 
     motion_tag = "settle"
+    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta(self) -> Vec2i:
         prev = lerp_vec(self.start, self.end, self.progress, self.duration)
@@ -157,6 +167,8 @@ class SettleToGridController:
 class LinearProjectileController:
     aim_vector: Vec2i
     speed: int
+
+    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta(self) -> Vec2i:
         return scale_normalized_dir(
@@ -179,6 +191,8 @@ class SpiralProjectileController:
     angle_step_fp: int
     spawn_angle_step_offset: int
     angle_index_fp: int = 0
+
+    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta(self) -> Vec2i:
         prev = spiral_pos(

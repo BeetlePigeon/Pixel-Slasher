@@ -43,6 +43,7 @@ class Debug:
             f"Move skill aim: {self.game.world.gameplay_settings['modern_movement_skill_aim_source']}",
 #            f"Animations: {len(self.game.world.animation)}",
             f"Action State: {self.game.world.action_state}",
+            f"Player motion: {self.game.world.motion_state[self.game.world.player]}"
             f"Ticks: {self.game.world.tick}",
             f"Statuses: {len(statuses)}",
             f"Stun: {stun}",

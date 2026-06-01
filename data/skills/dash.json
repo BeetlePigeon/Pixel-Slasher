@@ -1,7 +1,7 @@
 {
   "id": "dash",
   "name": "Dash",
-  "cooldown_ticks": 120,
+  "cooldown_ticks": 0,
   "trigger_mode": "held_repeat",
 
   "blocked_by_motion_tags": ["dash"],

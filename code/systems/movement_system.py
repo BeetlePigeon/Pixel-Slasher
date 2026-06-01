@@ -16,6 +16,9 @@ from utils.occupancy_utils import (
     is_tile_blocked_for_movement,
 )
 from motion_controllers import (
+    BLOCK_RESPONSE_ABORT,
+    BLOCK_RESPONSE_AGE,
+    BLOCK_RESPONSE_RETRY,
     GridMoveController,
     SettleToGridController,
     PathFollowController,
@@ -2512,6 +2515,45 @@ def is_path_follow_controller(controller):
     return isinstance(controller, PathFollowController)
 
 
+def finish_controller_after_block_if_needed(world, entity, controller):
+    if controller is None:
+        return False
+
+    if not controller.finished():
+        return False
+
+    motion_state = world.motion_state[entity]
+    transform = world.transform[entity]
+
+    if hasattr(controller, "end"):
+        transform.cpos = controller.end
+
+    transform.tile = tile_from_cpos(transform.cpos)
+
+    clear_motion_controller(motion_state)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+    return True
+
+
+def get_controller_block_response(controller):
+    return getattr(controller, "block_response")
+
+
+def controller_ages_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_AGE
+
+
+def controller_aborts_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_ABORT
+
+
+def controller_retries_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_RETRY
+
+
 def get_navigation_start_tile(world, entity):
     transform = world.transform[entity]
 
@@ -2593,18 +2635,46 @@ def movement_system(world):
 
                 motion_state["last_delta"] = transform.cpos - start_cpos
 
-                mark_dynamic_occupancy_dirty(world)
-                rebuild_dynamic_occupancy(world)
+                if controller_ages_on_block(controller):
+                    controller.advance()
 
-                if controller is not None:
-                    # Directional movement is allowed to keep trying while input is held.
-                    if is_path_follow_controller(controller):
+                    if finish_controller_after_block_if_needed(
+                            world,
+                            entity,
+                            controller,
+                    ):
+                        mark_dynamic_occupancy_dirty(world)
+                        rebuild_dynamic_occupancy(world)
+
                         continue
+
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+
+                    continue
+
+                if controller_aborts_on_block(controller):
+                    clear_motion_controller(motion_state)
 
                     request_settle_when_allowed(world, entity)
                     start_requested_settle_if_allowed(world, entity)
 
-                continue
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+
+                    continue
+
+                if controller_retries_on_block(controller):
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+
+                    continue
+
+                raise ValueError(
+                    f"Unhandled controller block_response "
+                    f"{get_controller_block_response(controller)!r} "
+                    f"for controller {controller!r}"
+                )
 
             transform.cpos = resolved_cpos
 
