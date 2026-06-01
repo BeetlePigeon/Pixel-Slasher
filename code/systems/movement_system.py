@@ -1757,17 +1757,6 @@ def start_directional_continuous_controller(
     if aim_vector is None:
         return False
 
-    if entity == getattr(world, "player", None):
-        print(
-            "[move_actual_start] "
-            f"tick={world.tick} "
-            f"entity={entity} "
-            f"cpos={format_debug_vec(transform.cpos)} "
-            f"tile={format_debug_tile(tile_from_cpos(transform.cpos))} "
-            f"desired_direction={format_debug_vec(desired_direction)} "
-            f"aim_vector={format_debug_vec(aim_vector)}"
-        )
-
     motion_state["controller"] = DirectionalMoveController(
         aim_vector=aim_vector,
         raw_direction=desired_direction,
@@ -1798,21 +1787,6 @@ def update_directional_continuous_controller(
 
     if aim_vector is None:
         return False
-
-    if entity == getattr(world, "player", None):
-        transform = world.transform[entity]
-
-        print(
-            "[move_actual_update] "
-            f"tick={world.tick} "
-            f"entity={entity} "
-            f"cpos={format_debug_vec(transform.cpos)} "
-            f"tile={format_debug_tile(tile_from_cpos(transform.cpos))} "
-            f"desired_direction={format_debug_vec(desired_direction)} "
-            f"old_raw_direction={format_debug_vec(getattr(controller, 'raw_direction', None))} "
-            f"old_aim_vector={format_debug_vec(getattr(controller, 'aim_vector', None))} "
-            f"new_aim_vector={format_debug_vec(aim_vector)}"
-        )
 
     controller.aim_vector = aim_vector
     controller.raw_direction = desired_direction
@@ -2548,52 +2522,12 @@ def movement_system(world):
         if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
 
-            if entity == getattr(world, "player", None):
-                from_tile = tile_from_cpos(start_cpos)
-                to_tile = tile_from_cpos(requested_cpos)
-
-                print(
-                    "[move_actual_trace_request] "
-                    f"tick={world.tick} "
-                    f"entity={entity} "
-                    f"controller={controller.__class__.__name__ if controller is not None else None} "
-                    f"source={motion_state.get('controller_source')} "
-                    f"start_cpos={format_debug_vec(start_cpos)} "
-                    f"requested_cpos={format_debug_vec(requested_cpos)} "
-                    f"delta={format_debug_vec(delta)} "
-                    f"base_delta={format_debug_vec(base_delta)} "
-                    f"influence_delta={format_debug_vec(influence_delta)} "
-                    f"from_tile={format_debug_tile(from_tile)} "
-                    f"to_tile={format_debug_tile(to_tile)} "
-                    f"tile_delta=({to_tile.x - from_tile.x},{to_tile.y - from_tile.y})"
-                )
-
             collision_result, resolved_cpos = resolve_static_tile_movement(
                 world,
                 entity,
                 start_cpos,
                 delta,
             )
-
-            if entity == getattr(world, "player", None):
-                resolved_tile = tile_from_cpos(resolved_cpos)
-
-                print(
-                    "[move_actual_trace_result] "
-                    f"tick={world.tick} "
-                    f"entity={entity} "
-                    f"controller={controller.__class__.__name__ if controller is not None else None} "
-                    f"source={motion_state.get('controller_source')} "
-                    f"collision_result={collision_result} "
-                    f"start_cpos={format_debug_vec(start_cpos)} "
-                    f"requested_cpos={format_debug_vec(requested_cpos)} "
-                    f"resolved_cpos={format_debug_vec(resolved_cpos)} "
-                    f"delta={format_debug_vec(delta)} "
-                    f"actual_delta=({resolved_cpos.x - start_cpos.x},{resolved_cpos.y - start_cpos.y}) "
-                    f"from_tile={format_debug_tile(tile_from_cpos(start_cpos))} "
-                    f"requested_tile={format_debug_tile(tile_from_cpos(requested_cpos))} "
-                    f"resolved_tile={format_debug_tile(resolved_tile)}"
-                )
 
             if collision_result == "destroy":
                 emit_event(
