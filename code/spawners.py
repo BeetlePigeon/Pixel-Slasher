@@ -42,6 +42,7 @@ def spawn_test_projectile(
     world.projectile[eid] = {}
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
+        "dynamic_blockers": "allow",
     }
     world.influence_receiver[eid] = {
         "accepts": {"wind", "magnet"},
@@ -102,6 +103,7 @@ def spawn_spiral_projectile(
     world.projectile[eid] = {}
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
+        "dynamic_blockers": "allow",
     }
     world.influence_receiver[eid] = {
         "accepts": {},

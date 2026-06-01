@@ -1415,12 +1415,8 @@ def resolve_corner_crossing_collision(
 
 
 def handle_static_tile_collision(world, entity, next_tile):
-    policy = world.movement_collision.get(entity)
-
-    if policy is None:
-        return MOVEMENT_COLLISION_ALLOW
-
-    behavior = policy.get("static_tiles", "allow")
+    policy = world.movement_collision[entity]
+    behavior = policy["static_tiles"]
 
     if behavior == "allow":
         return MOVEMENT_COLLISION_ALLOW
@@ -1436,12 +1432,8 @@ def handle_static_tile_collision(world, entity, next_tile):
 
 
 def handle_dynamic_movement_collision(world, entity, next_tile):
-    policy = world.movement_collision.get(entity)
-
-    if policy is None:
-        return MOVEMENT_COLLISION_ALLOW
-
-    behavior = policy.get("dynamic_blockers", "allow")
+    policy = world.movement_collision[entity]
+    behavior = policy["dynamic_blockers"]
 
     if behavior == "allow":
         return MOVEMENT_COLLISION_ALLOW
