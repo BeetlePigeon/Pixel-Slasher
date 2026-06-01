@@ -35,6 +35,9 @@ from utils.path_utils import (
 )
 
 
+CORNER_CROSSING_TOLERANCE_CPOS = 32
+
+
 def vec_is_nonzero(vec: Vec2i) -> bool:
     return vec.x != 0 or vec.y != 0
 
@@ -50,9 +53,49 @@ def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs
     )
 
 
+def corner_boundary_cpos(current_tile: Vec2i, step_x: int, step_y: int) -> Vec2i:
+    if step_x > 0:
+        boundary_x = (current_tile.x + 1) * TILE_UNITS
+    else:
+        boundary_x = current_tile.x * TILE_UNITS
+
+    if step_y > 0:
+        boundary_y = (current_tile.y + 1) * TILE_UNITS
+    else:
+        boundary_y = current_tile.y * TILE_UNITS
+
+    return Vec2i(boundary_x, boundary_y)
+
+
+def near_corner_crossing(
+    next_cross_x: int,
+    next_cross_y: int,
+    abs_dx: int,
+    abs_dy: int,
+) -> bool:
+    # left/right are the existing integer cross-multiply comparison.
+    left = next_cross_x * abs_dy
+    right = next_cross_y * abs_dx
+
+    # Scale tolerance into the same cross-multiplied space.
+    tolerance = CORNER_CROSSING_TOLERANCE_CPOS * max(abs_dx, abs_dy)
+
+    return abs(left - right) <= tolerance
+
+
+def safe_before_boundary_coord(boundary_coord: int, step: int) -> int:
+    if step > 0:
+        return boundary_coord - 1
+
+    if step < 0:
+        return boundary_coord
+
+    return boundary_coord
+
+
 def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
     return Vec2i(
-        boundary_cpos.x - step_x,
+        safe_before_boundary_coord(boundary_cpos.x, step_x),
         boundary_cpos.y,
     )
 
@@ -60,14 +103,14 @@ def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
 def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
     return Vec2i(
         boundary_cpos.x,
-        boundary_cpos.y - step_y,
+        safe_before_boundary_coord(boundary_cpos.y, step_y),
     )
 
 
 def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> Vec2i:
     return Vec2i(
-        boundary_cpos.x - step_x,
-        boundary_cpos.y - step_y,
+        safe_before_boundary_coord(boundary_cpos.x, step_x),
+        safe_before_boundary_coord(boundary_cpos.y, step_y),
     )
 
 
@@ -917,7 +960,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
         next_x_boundary = (current_tile.x + 1) * TILE_UNITS
         next_cross_x = next_x_boundary - start_cpos.x
     elif step_x < 0:
-        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_x_boundary = current_tile.x * TILE_UNITS
         next_cross_x = start_cpos.x - next_x_boundary
     else:
         next_cross_x = None
@@ -926,7 +969,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
         next_y_boundary = (current_tile.y + 1) * TILE_UNITS
         next_cross_y = next_y_boundary - start_cpos.y
     elif step_y < 0:
-        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_y_boundary = current_tile.y * TILE_UNITS
         next_cross_y = start_cpos.y - next_y_boundary
     else:
         next_cross_y = None
@@ -946,7 +989,14 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
             left = next_cross_x * abs_dy
             right = next_cross_y * abs_dx
 
-            if left < right:
+            if near_corner_crossing(
+                    next_cross_x,
+                    next_cross_y,
+                    abs_dx,
+                    abs_dy,
+            ):
+                step_axis = "corner"
+            elif left < right:
                 step_axis = "x"
             elif right < left:
                 step_axis = "y"
@@ -1008,13 +1058,11 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
             next_cross_y += TILE_UNITS
 
         else:
-            # Exact corner crossing. Be conservative and check the two side-adjacent
-            # tiles as well as the diagonal tile.
-            boundary_cpos = axis_cross_position(
-                start_cpos,
-                delta,
-                next_cross_x,
-                abs_dx,
+            # Exact or near corner crossing.
+            boundary_cpos = corner_boundary_cpos(
+                current_tile,
+                step_x,
+                step_y,
             )
 
             side_x_tile = Vec2i(
@@ -1709,6 +1757,17 @@ def start_directional_continuous_controller(
     if aim_vector is None:
         return False
 
+    if entity == getattr(world, "player", None):
+        print(
+            "[move_actual_start] "
+            f"tick={world.tick} "
+            f"entity={entity} "
+            f"cpos={format_debug_vec(transform.cpos)} "
+            f"tile={format_debug_tile(tile_from_cpos(transform.cpos))} "
+            f"desired_direction={format_debug_vec(desired_direction)} "
+            f"aim_vector={format_debug_vec(aim_vector)}"
+        )
+
     motion_state["controller"] = DirectionalMoveController(
         aim_vector=aim_vector,
         raw_direction=desired_direction,
@@ -1739,6 +1798,21 @@ def update_directional_continuous_controller(
 
     if aim_vector is None:
         return False
+
+    if entity == getattr(world, "player", None):
+        transform = world.transform[entity]
+
+        print(
+            "[move_actual_update] "
+            f"tick={world.tick} "
+            f"entity={entity} "
+            f"cpos={format_debug_vec(transform.cpos)} "
+            f"tile={format_debug_tile(tile_from_cpos(transform.cpos))} "
+            f"desired_direction={format_debug_vec(desired_direction)} "
+            f"old_raw_direction={format_debug_vec(getattr(controller, 'raw_direction', None))} "
+            f"old_aim_vector={format_debug_vec(getattr(controller, 'aim_vector', None))} "
+            f"new_aim_vector={format_debug_vec(aim_vector)}"
+        )
 
     controller.aim_vector = aim_vector
     controller.raw_direction = desired_direction
@@ -1966,7 +2040,7 @@ def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec
         next_x_boundary = (current_tile.x + 1) * TILE_UNITS
         next_cross_x = next_x_boundary - start_cpos.x
     elif step_x < 0:
-        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_x_boundary = current_tile.x * TILE_UNITS
         next_cross_x = start_cpos.x - next_x_boundary
     else:
         next_x_boundary = None
@@ -1976,7 +2050,7 @@ def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec
         next_y_boundary = (current_tile.y + 1) * TILE_UNITS
         next_cross_y = next_y_boundary - start_cpos.y
     elif step_y < 0:
-        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_y_boundary = current_tile.y * TILE_UNITS
         next_cross_y = start_cpos.y - next_y_boundary
     else:
         next_y_boundary = None
@@ -2474,12 +2548,52 @@ def movement_system(world):
         if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
 
+            if entity == getattr(world, "player", None):
+                from_tile = tile_from_cpos(start_cpos)
+                to_tile = tile_from_cpos(requested_cpos)
+
+                print(
+                    "[move_actual_trace_request] "
+                    f"tick={world.tick} "
+                    f"entity={entity} "
+                    f"controller={controller.__class__.__name__ if controller is not None else None} "
+                    f"source={motion_state.get('controller_source')} "
+                    f"start_cpos={format_debug_vec(start_cpos)} "
+                    f"requested_cpos={format_debug_vec(requested_cpos)} "
+                    f"delta={format_debug_vec(delta)} "
+                    f"base_delta={format_debug_vec(base_delta)} "
+                    f"influence_delta={format_debug_vec(influence_delta)} "
+                    f"from_tile={format_debug_tile(from_tile)} "
+                    f"to_tile={format_debug_tile(to_tile)} "
+                    f"tile_delta=({to_tile.x - from_tile.x},{to_tile.y - from_tile.y})"
+                )
+
             collision_result, resolved_cpos = resolve_static_tile_movement(
                 world,
                 entity,
                 start_cpos,
                 delta,
             )
+
+            if entity == getattr(world, "player", None):
+                resolved_tile = tile_from_cpos(resolved_cpos)
+
+                print(
+                    "[move_actual_trace_result] "
+                    f"tick={world.tick} "
+                    f"entity={entity} "
+                    f"controller={controller.__class__.__name__ if controller is not None else None} "
+                    f"source={motion_state.get('controller_source')} "
+                    f"collision_result={collision_result} "
+                    f"start_cpos={format_debug_vec(start_cpos)} "
+                    f"requested_cpos={format_debug_vec(requested_cpos)} "
+                    f"resolved_cpos={format_debug_vec(resolved_cpos)} "
+                    f"delta={format_debug_vec(delta)} "
+                    f"actual_delta=({resolved_cpos.x - start_cpos.x},{resolved_cpos.y - start_cpos.y}) "
+                    f"from_tile={format_debug_tile(tile_from_cpos(start_cpos))} "
+                    f"requested_tile={format_debug_tile(tile_from_cpos(requested_cpos))} "
+                    f"resolved_tile={format_debug_tile(resolved_tile)}"
+                )
 
             if collision_result == "destroy":
                 emit_event(
