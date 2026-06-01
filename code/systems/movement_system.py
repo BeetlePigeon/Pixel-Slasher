@@ -3,6 +3,8 @@ from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
 from .event_system import emit_event
 from support import Vec2i
+from dataclasses import dataclass
+from typing import Optional
 from utils.placement_utils import (
     is_dynamic_movement_placement_blocked,
     is_static_movement_placement_blocked,
@@ -11,10 +13,7 @@ from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
     mark_dynamic_occupancy_dirty,
-    is_tile_static_blocked,
     is_tile_blocked_for_movement,
-    get_movement_blockers_on_tile,
-    get_obstacle_footprint_tiles_for_origin_tile,
 )
 from motion_controllers import (
     GridMoveController,
@@ -36,6 +35,53 @@ from utils.path_utils import (
 
 
 CORNER_CROSSING_TOLERANCE_CPOS = 32
+
+
+@dataclass(frozen=True, eq=False)
+class MovementCollisionResult:
+    collision_result: str
+    blocker_collision_type: Optional[str] = None
+    blocked_tile: Optional[Vec2i] = None
+
+    def __str__(self):
+        return self.collision_result
+
+    def __format__(self, format_spec):
+        return format(str(self), format_spec)
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.collision_result == other
+
+        if isinstance(other, MovementCollisionResult):
+            return (
+                self.collision_result == other.collision_result
+                and self.blocker_collision_type == other.blocker_collision_type
+                and self.blocked_tile == other.blocked_tile
+            )
+
+        return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+
+MOVEMENT_COLLISION_ALLOW = MovementCollisionResult("allow")
+
+
+def make_movement_collision_result(
+    collision_result,
+    blocker_collision_type=None,
+    blocked_tile=None,
+):
+    if collision_result == "allow":
+        return MOVEMENT_COLLISION_ALLOW
+
+    return MovementCollisionResult(
+        collision_result=collision_result,
+        blocker_collision_type=blocker_collision_type,
+        blocked_tile=blocked_tile,
+    )
 
 
 def vec_is_nonzero(vec: Vec2i) -> bool:
@@ -376,16 +422,11 @@ def clear_failed_path_queries_for_entity(world, entity):
 
 
 def get_path_policy_name(target):
-    return target.get(
-        "path_policy",
-        "actor_move",
-    )
+    return target.get("path_policy")
 
 
 def get_path_policy(world, target):
-    return PATH_POLICIES[
-        get_path_policy_name(target)
-    ]
+    return PATH_POLICIES[get_path_policy_name(target)]
 
 
 def get_path_build_cooldown_ticks(world, target):
@@ -873,12 +914,13 @@ def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i)
             entity,
             start_cpos,
             delta,
+            collision_result,
         )
 
     return collision_result, resolved_cpos
 
 
-def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i):
+def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i, slide_source_result=None):
     ratio = get_movement_slide_ratio(world, entity)
 
     options = []
@@ -918,14 +960,20 @@ def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: 
                 options.append(("y", abs(tangent), y_cpos))
 
     if not options:
-        return "block", start_cpos
+        return (
+            make_movement_collision_result(
+                "block",
+                blocker_collision_type=getattr(slide_source_result, "blocker_collision_type"),
+                blocked_tile=getattr(slide_source_result, "blocked_tile")),
+            start_cpos,
+        )
 
     # Pick the stronger valid slide component.
     # Tie-breaker is deterministic because "x" sorts before "y".
     options.sort(key=lambda item: (-item[1], item[0]))
 
     _, _, chosen_cpos = options[0]
-    return "allow", chosen_cpos
+    return MOVEMENT_COLLISION_ALLOW, chosen_cpos
 
 
 def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
@@ -944,7 +992,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
         if collision_result != "allow":
             return collision_result, start_cpos
 
-        return "allow", end_cpos
+        return MOVEMENT_COLLISION_ALLOW, end_cpos
 
     dx = delta.x
     dy = delta.y
@@ -1102,7 +1150,7 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
             next_cross_x += TILE_UNITS
             next_cross_y += TILE_UNITS
 
-    return "allow", end_cpos
+    return MOVEMENT_COLLISION_ALLOW, end_cpos
 
 
 def set_move_target(
@@ -1319,7 +1367,7 @@ def resolve_corner_crossing_collision(
             if collision_result != "allow":
                 return collision_result
 
-        return "allow"
+        return MOVEMENT_COLLISION_ALLOW
 
     if corner_policy == "allow_if_one_side_open":
         diagonal_result = handle_movement_tile_collision(
@@ -1344,7 +1392,7 @@ def resolve_corner_crossing_collision(
         )
 
         if side_x_result == "allow" or side_y_result == "allow":
-            return "allow"
+            return MOVEMENT_COLLISION_ALLOW
 
         # Both side-adjacent tiles are blocked. Return one of the blocked
         # results so the normal collision response can handle it.
@@ -1360,45 +1408,42 @@ def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision.get(entity)
 
     if policy is None:
-        return "allow"
+        return MOVEMENT_COLLISION_ALLOW
 
-    behavior = policy.get("static_tiles", "allow")
+    behavior = policy.get("static_tiles")
 
     if behavior == "allow":
-        return "allow"
+        return MOVEMENT_COLLISION_ALLOW
 
     if is_static_movement_placement_blocked(
         world,
         entity,
         next_tile,
     ):
-        return behavior
+        return make_movement_collision_result(behavior, blocker_collision_type="static", blocked_tile=next_tile)
 
-    return "allow"
+    return MOVEMENT_COLLISION_ALLOW
 
 
 def handle_dynamic_movement_collision(world, entity, next_tile):
     policy = world.movement_collision.get(entity)
 
     if policy is None:
-        return "allow"
+        return MOVEMENT_COLLISION_ALLOW
 
-    behavior = policy.get(
-        "dynamic_blockers",
-        "allow",
-    )
+    behavior = policy.get("dynamic_blockers")
 
     if behavior == "allow":
-        return "allow"
+        return MOVEMENT_COLLISION_ALLOW
 
     if is_dynamic_movement_placement_blocked(
         world,
         entity,
         next_tile,
     ):
-        return behavior
+        return make_movement_collision_result(behavior, blocker_collision_type="dynamic", blocked_tile=next_tile)
 
-    return "allow"
+    return MOVEMENT_COLLISION_ALLOW
 
 
 def handle_movement_tile_collision(world, entity, next_tile):
@@ -1427,16 +1472,7 @@ def handle_movement_tile_collision(world, entity, next_tile):
     if dynamic_result != "allow":
         return dynamic_result
 
-    return "allow"
-
-
-def get_path_policy(world, target):
-    policy_name = target.get(
-        "path_policy",
-        "traditional_click_move",
-    )
-
-    return PATH_POLICIES[policy_name]
+    return MOVEMENT_COLLISION_ALLOW
 
 
 def get_path_follow_speed(locomotion):
@@ -1999,7 +2035,7 @@ def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec
         if collision_result != "allow":
             return collision_result, start_cpos, steps
 
-        return "allow", end_cpos, steps
+        return MOVEMENT_COLLISION_ALLOW, end_cpos, steps
 
     dx = delta.x
     dy = delta.y
@@ -2042,7 +2078,7 @@ def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec
                 "target_tile": target_tile,
             })
 
-            return "block", start_cpos, steps
+            return make_movement_collision_result("block"), start_cpos, steps
 
         if next_cross_x is None:
             step_axis = "y"
@@ -2215,7 +2251,7 @@ def diagnose_trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec
             next_cross_x += TILE_UNITS
             next_cross_y += TILE_UNITS
 
-    return "allow", end_cpos, steps
+    return MOVEMENT_COLLISION_ALLOW, end_cpos, steps
 
 
 def print_movement_trace_steps(label, result, resolved_cpos, steps):
