@@ -1,4 +1,3 @@
-from ai.ai_queries import entity_is_valid_target, get_entity_tile, get_player_if_detectable, tile_distance_between_entities
 from utils.tile_vec_utils import tile_center
 from ai.ai_queries import (
     entity_is_in_attack_range_of_target,
@@ -7,6 +6,31 @@ from ai.ai_queries import (
     get_player_if_detectable,
     tile_distance_between_entities,
 )
+
+
+DEBUG_DEFAULT_IMAGE_KEY = "enemy_normal"
+DEBUG_IN_RANGE_IMAGE_KEY = "enemy_angry"
+
+
+def set_debug_engagement_sprite(world, entity, in_range):
+    sprite = world.sprite.get(entity)
+
+    if sprite is None:
+        return
+
+    image_key = (
+        DEBUG_IN_RANGE_IMAGE_KEY
+        if in_range
+        else DEBUG_DEFAULT_IMAGE_KEY
+    )
+
+    image = world.game.assets.images.get(image_key)
+
+    if image is None:
+        return
+
+    sprite["image"] = image
+
 
 
 def think(context):
@@ -71,11 +95,15 @@ def think(context):
     ):
         agent["state"] = "in_range"
 
+        set_debug_engagement_sprite(world, entity, True)
+
         return [
             {
                 "type": "stop_moving",
             }
         ]
+    else:
+        set_debug_engagement_sprite(world, entity, False)
 
     attack_position_tile = find_closest_valid_attack_position(
         world,
