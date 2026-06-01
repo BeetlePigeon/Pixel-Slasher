@@ -52,7 +52,7 @@ class PathNavCache:
             self.world,
             tile,
             entity=self.entity,
-            include_dynamic=True,
+            include_dynamic=False,
         )
 
         self.results[tile] = result
@@ -99,7 +99,7 @@ def tile_is_navigable_for_entity(
         world,
         tile,
         entity=entity,
-        include_dynamic=True,
+        include_dynamic=False,
     )
 
 

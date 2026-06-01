@@ -237,7 +237,7 @@ def find_closest_valid_attack_position(
             world,
             candidate_tile,
             entity=source,
-            include_dynamic=True,
+            include_dynamic=False,
         ):
             continue
 
