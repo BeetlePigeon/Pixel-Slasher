@@ -1,3 +1,4 @@
+from math import isqrt
 from policies import PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, SETTLE_LOCKED_TAG
 from constants import MOVE_BUFFER_TICKS, TILE_UNITS
 from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
@@ -502,6 +503,255 @@ def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
     dy = a.y - b.y
 
     return dx * dx + dy * dy
+
+
+def cpos_distance(a: Vec2i, b: Vec2i) -> int:
+    return isqrt(cpos_distance_sq(a, b))
+
+
+def scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
+    if denominator == 0:
+        raise ValueError("Cannot scale vector with denominator 0.")
+
+    return Vec2i(
+        vec.x * numerator // denominator,
+        vec.y * numerator // denominator,
+    )
+
+
+def append_unique_nonzero_delta(candidates, seen, delta):
+    if not vec_is_nonzero(delta):
+        return
+
+    key = (delta.x, delta.y)
+
+    if key in seen:
+        return
+
+    seen.add(key)
+    candidates.append(delta)
+
+
+def get_path_follow_node_distance(controller, cpos):
+    current_node = get_path_follow_current_node(controller)
+
+    if current_node is None:
+        return None
+
+    return cpos_distance(cpos, current_node)
+
+
+def make_local_avoidance_score(
+    controller,
+    path_policy,
+    start_cpos,
+    resolved_cpos,
+    candidate_index,
+):
+    before_distance = get_path_follow_node_distance(
+        controller,
+        start_cpos,
+    )
+    after_distance = get_path_follow_node_distance(
+        controller,
+        resolved_cpos,
+    )
+
+    if before_distance is None or after_distance is None:
+        return (candidate_index,)
+
+    prefer_progress = path_policy.get(
+        "local_avoidance_prefer_progress",
+        True,
+    )
+
+    made_progress = after_distance < before_distance
+
+    if prefer_progress:
+        return (
+            0 if made_progress else 1,
+            after_distance,
+            candidate_index,
+        )
+
+    return (
+        candidate_index,
+        after_distance,
+    )
+
+
+def try_resolve_path_follow_local_avoidance(
+    world,
+    entity,
+    controller,
+    start_cpos,
+    delta,
+    original_collision_result,
+):
+    if not is_path_follow_controller(controller):
+        return None
+
+    if original_collision_result.blocker_collision_type != "dynamic":
+        return None
+
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return None
+
+    path_policy = get_path_policy(world, target)
+
+    if not path_policy.get("local_avoidance_enabled", False):
+        return None
+
+    options = []
+
+    candidate_deltas = iter_local_avoidance_candidate_deltas(
+        entity,
+        delta,
+        path_policy,
+    )
+
+    for index, candidate_delta in enumerate(candidate_deltas):
+        candidate_result, candidate_cpos = resolve_static_tile_movement(
+            world,
+            entity,
+            start_cpos,
+            candidate_delta,
+        )
+
+        if not movement_collision_allows(candidate_result):
+            continue
+
+        if not local_avoidance_candidate_is_acceptable(
+            controller,
+            path_policy,
+            start_cpos,
+            candidate_cpos,
+        ):
+            continue
+
+        score = make_local_avoidance_score(
+            controller,
+            path_policy,
+            start_cpos,
+            candidate_cpos,
+            index,
+        )
+
+        options.append(
+            (
+                score,
+                candidate_result,
+                candidate_cpos,
+            )
+        )
+
+    if not options:
+        return None
+
+    options.sort(key=lambda item: item[0])
+
+    _, collision_result, resolved_cpos = options[0]
+
+    return collision_result, resolved_cpos
+
+
+def local_avoidance_candidate_is_acceptable(
+    controller,
+    path_policy,
+    start_cpos,
+    resolved_cpos,
+):
+    if resolved_cpos == start_cpos:
+        return False
+
+    before_distance = get_path_follow_node_distance(
+        controller,
+        start_cpos,
+    )
+    after_distance = get_path_follow_node_distance(
+        controller,
+        resolved_cpos,
+    )
+
+    if before_distance is None or after_distance is None:
+        return True
+
+    max_extra_distance = path_policy.get(
+        "local_avoidance_max_extra_node_distance_cpos",
+        0,
+    )
+
+    if after_distance > before_distance + max_extra_distance:
+        return False
+
+    if path_policy.get("local_avoidance_require_progress", False):
+        min_progress = path_policy.get(
+            "local_avoidance_min_progress_cpos",
+            0,
+        )
+
+        if after_distance > before_distance - min_progress:
+            return False
+
+    return True
+
+
+def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
+    candidates = []
+    seen = set()
+
+    abs_x = abs(delta.x)
+    abs_y = abs(delta.y)
+
+    x_only = Vec2i(delta.x, 0)
+    y_only = Vec2i(0, delta.y)
+
+    if abs_x > abs_y:
+        axis_candidates = (x_only, y_only)
+    elif abs_y > abs_x:
+        axis_candidates = (y_only, x_only)
+    else:
+        # Deterministic variation for exact diagonals.
+        if entity % 2 == 0:
+            axis_candidates = (x_only, y_only)
+        else:
+            axis_candidates = (y_only, x_only)
+
+    for candidate_delta in axis_candidates:
+        append_unique_nonzero_delta(candidates, seen, candidate_delta)
+
+    perpendicular_scale_num = path_policy.get(
+        "local_avoidance_perpendicular_scale_num",
+        1,
+    )
+    perpendicular_scale_den = path_policy.get(
+        "local_avoidance_perpendicular_scale_den",
+        1,
+    )
+
+    left_perp = scale_vec_ratio(
+        Vec2i(-delta.y, delta.x),
+        perpendicular_scale_num,
+        perpendicular_scale_den,
+    )
+    right_perp = scale_vec_ratio(
+        Vec2i(delta.y, -delta.x),
+        perpendicular_scale_num,
+        perpendicular_scale_den,
+    )
+
+    if entity % 2 == 0:
+        perpendicular_candidates = (left_perp, right_perp)
+    else:
+        perpendicular_candidates = (right_perp, left_perp)
+
+    for candidate_delta in perpendicular_candidates:
+        append_unique_nonzero_delta(candidates, seen, candidate_delta)
+
+    return candidates
+
 
 
 def get_path_follow_current_node(controller):
@@ -2608,6 +2858,18 @@ def movement_system(world):
                 start_cpos,
                 delta,
             )
+
+            local_avoidance_result = try_resolve_path_follow_local_avoidance(
+                world,
+                entity,
+                controller,
+                start_cpos,
+                delta,
+                collision_result,
+            )
+
+            if local_avoidance_result is not None:
+                collision_result, resolved_cpos = local_avoidance_result
 
             if movement_collision_destroys(collision_result):
                 emit_event(
