@@ -21,9 +21,9 @@ class PathFollowController:
     speed: int
     created_tick: int
     target_tile: Vec2i
+    block_response: str = BLOCK_RESPONSE_RETRY
 
     motion_tag = "path_follow"
-    block_response = BLOCK_RESPONSE_RETRY
 
     def sample_delta_from(self, current_cpos: Vec2i) -> Vec2i:
         remaining_distance = self.speed

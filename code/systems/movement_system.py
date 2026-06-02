@@ -974,6 +974,33 @@ def abandon_move_target(world, entity):
     start_requested_settle_if_allowed(world, entity)
 
 
+def clear_move_target_after_path_finish_if_needed(world, entity):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return
+
+    path_policy = get_path_policy(world, target)
+
+    if path_policy["clear_target_on_path_finish"]:
+        clear_move_target(world, entity)
+
+
+def abort_path_follow_controller(world, entity, motion_state):
+    target = world.move_target.get(entity)
+
+    if target is not None:
+        path_policy = get_path_policy(world, target)
+
+        if path_policy["clear_target_on_path_abort"]:
+            clear_move_target(world, entity)
+
+    clear_motion_controller(motion_state)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+
 def path_follow_exceeded_lifetime(world, target, path_policy):
     created_tick = target.get(
         "created_tick",
@@ -2266,18 +2293,7 @@ def install_path_follow_controller(world, entity, target, nodes):
 
 
 def start_path_follow_controller(world, entity, target):
-    if not entity_can_attempt_path_build(
-        world,
-        entity,
-        target,
-    ):
-        return False
-
-    mark_path_build_attempted(
-        world,
-        entity,
-        target,
-    )
+    path_policy = get_path_policy(world, target)
 
     nodes = build_path_follow_nodes(
         world,
@@ -2286,19 +2302,36 @@ def start_path_follow_controller(world, entity, target):
     )
 
     if nodes is None:
-        clear_move_target(world, entity)
+        if path_policy["clear_target_on_path_fail"]:
+            clear_move_target(world, entity)
         return False
 
     if not nodes:
-        clear_move_target(world, entity)
+        if path_policy["clear_target_on_path_finish"]:
+            clear_move_target(world, entity)
         return False
 
-    return install_path_follow_controller(
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    motion_state["controller"] = PathFollowController(
+        nodes=nodes,
+        current_index=0,
+        speed=get_path_follow_speed(locomotion),
+        created_tick=world.tick,
+        target_tile=target["target_tile"],
+        block_response=path_policy["dynamic_block_response"],
+    )
+
+    motion_state["controller_source"] = "move_target"
+
+    initialize_path_follow_progress(
         world,
         entity,
-        target,
-        nodes,
+        motion_state["controller"],
     )
+
+    return True
 
 
 def discard_pending_controller_advance(controller):
@@ -2313,6 +2346,11 @@ def should_refresh_path_follow_controller(world, entity, controller):
         return False
 
     if target["type"] != "target_tile":
+        return False
+
+    path_policy = get_path_policy(world, target)
+
+    if not path_policy["active_path_refresh_enabled"]:
         return False
 
     return entity_can_attempt_path_build(
@@ -3055,14 +3093,19 @@ def movement_system(world):
                     continue
 
                 if controller_aborts_on_block(controller):
-                    clear_motion_controller(motion_state)
-
-                    request_settle_when_allowed(world, entity)
-                    start_requested_settle_if_allowed(world, entity)
+                    if is_path_follow_controller(controller):
+                        abort_path_follow_controller(
+                            world,
+                            entity,
+                            motion_state,
+                        )
+                    else:
+                        clear_motion_controller(motion_state)
+                        request_settle_when_allowed(world, entity)
+                        start_requested_settle_if_allowed(world, entity)
 
                     mark_dynamic_occupancy_dirty(world)
                     rebuild_dynamic_occupancy(world)
-
                     continue
 
                 if controller_retries_on_block(controller):
@@ -3138,8 +3181,13 @@ def movement_system(world):
             if controller.finished():
                 if hasattr(controller, "end"):
                     transform.cpos = controller.end
+                    transform.tile = tile_from_cpos(transform.cpos)
 
-                transform.tile = tile_from_cpos(transform.cpos)
+                if is_path_follow_controller(controller):
+                    clear_move_target_after_path_finish_if_needed(
+                        world,
+                        entity,
+                    )
 
                 clear_motion_controller(motion_state)
 

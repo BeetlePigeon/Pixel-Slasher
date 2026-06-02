@@ -51,9 +51,21 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     #
     # This applies to:
     # - initial path creation when the entity has a move_target and no controller
-    # - periodic refresh of an active path
     # - stale-path recovery repaths
-    #
+
+    # Active path refresh is separate from initial path creation and stale
+    # recovery. Keep it explicit so one click does not secretly rebuild paths.
+    "active_path_refresh_enabled": False,
+
+    # What an active PathFollowController does when its movement step is
+    # blocked by a dynamic actor after local avoidance has failed or is disabled.
+    "dynamic_block_response": "abort",
+
+    # Terminal path-command cleanup.
+    "clear_target_on_path_finish": True,
+    "clear_target_on_path_abort": True,
+    "clear_target_on_path_fail": True,
+
     # Move targets may still update every tick; this only gates A*/path build work.
     "path_build_cooldown_ticks": 10,
 
@@ -64,7 +76,7 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     "stall_ticks_before_repath": 10,
     "repath_cooldown_ticks": 12,
     "max_repath_attempts": 4,
-    "max_follow_ticks": 340,
+    "max_follow_ticks": 315,
     "progress_min_cpos": 256,
 
     "direct_fallback_on_fail": True,
@@ -77,8 +89,8 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     # Pathfinding still sees static collision globally, but may also
     # see current dynamic blockers near the path start.
     "path_local_dynamic_blockers_enabled": True,
-    "path_local_dynamic_blocker_radius_tiles": 3,
-    "path_local_dynamic_blocker_max_entities": 20,
+    "path_local_dynamic_blocker_radius_tiles": 5,
+    "path_local_dynamic_blocker_max_entities": 30,
 
     # Current occupied bodies may be considered.
     # Future/reserved movement is intentionally ignored.
