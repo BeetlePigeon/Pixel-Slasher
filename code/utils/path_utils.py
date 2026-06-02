@@ -1,6 +1,13 @@
 import heapq
 from utils.perf_profiler import profiled, record_counter_for_world
-from utils.placement_utils import is_tile_valid_for_entity_placement
+from utils.placement_utils import (
+    get_entity_placement_body_tiles,
+    is_tile_valid_for_entity_placement,
+)
+from utils.occupancy_utils import (
+    get_entity_movement_body_tiles,
+    get_entity_movement_center_tile,
+)
 from utils.tile_vec_utils import Vec2i, chebyshev_tile_distance, manhattan_tile_distance, tile_center, tiles_crossed_by_segment
 from data.tables_dirs import CARDINAL_DIRS, CHEBY_DIRS
 
@@ -17,10 +24,139 @@ class PathSearchBudget:
         return True
 
 
+class PathDynamicBlockerContext:
+    def __init__(self, blockers):
+        self.blockers = tuple(blockers)
+
+    def cache_key(self):
+        return tuple(
+            (
+                blocker["entity"],
+                blocker["center_tile"].x,
+                blocker["center_tile"].y,
+                tuple(
+                    sorted(
+                        (tile.x, tile.y)
+                        for tile in blocker["body_tiles"]
+                    )
+                ),
+            )
+            for blocker in self.blockers
+        )
+
+    def blocks_placement(self, proposed_center_tile, proposed_body_tiles):
+        proposed_body_tiles = set(proposed_body_tiles)
+
+        for blocker in self.blockers:
+            # Mover center may not overlap blocker body.
+            if proposed_center_tile in blocker["body_tiles"]:
+                return True
+
+            # Mover body may not overlap blocker center.
+            if blocker["center_tile"] in proposed_body_tiles:
+                return True
+
+        return False
+
+
+def build_local_dynamic_blocker_context(
+    world,
+    entity,
+    start_tile: Vec2i,
+    radius_tiles: int,
+    max_entities=None,
+    include_moving=True,
+    include_reservations=False,
+):
+    if include_reservations:
+        raise NotImplementedError(
+            "Path local dynamic blocker context intentionally "
+            "does not support reservations yet."
+        )
+
+    if radius_tiles is None or radius_tiles < 0:
+        return None
+
+    candidates = []
+
+    entities = (
+        set(getattr(world, "space_occupier", {}))
+        & set(world.transform)
+    )
+
+    for blocker in sorted(entities):
+        if blocker == entity:
+            continue
+
+        if not include_moving:
+            blocker_motion = world.motion_state.get(blocker)
+
+            if (
+                blocker_motion is not None
+                and blocker_motion.get("controller") is not None
+            ):
+                continue
+
+        center_tile = get_entity_movement_center_tile(world, blocker)
+
+        if center_tile is None:
+            continue
+
+        body_tiles = tuple(
+            get_entity_movement_body_tiles(world, blocker)
+        )
+
+        if not body_tiles:
+            continue
+
+        distance_from_start = min(
+            chebyshev_tile_distance(start_tile, body_tile)
+            for body_tile in body_tiles
+        )
+
+        if distance_from_start > radius_tiles:
+            continue
+
+        candidates.append(
+            (
+                distance_from_start,
+                manhattan_tile_distance(start_tile, center_tile),
+                blocker,
+                {
+                    "entity": blocker,
+                    "center_tile": center_tile,
+                    "body_tiles": frozenset(body_tiles),
+                },
+            )
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            item[2],
+        )
+    )
+
+    if max_entities is not None:
+        candidates = candidates[:max_entities]
+
+    blockers = [
+        item[3]
+        for item in candidates
+    ]
+
+    if not blockers:
+        return None
+
+    return PathDynamicBlockerContext(blockers)
+
+
 class PathNavCache:
-    def __init__(self, world, entity):
+    def __init__(self, world, entity, dynamic_blocker_context=None):
         self.world = world
         self.entity = entity
+        self.dynamic_blocker_context = dynamic_blocker_context
         self.results = {}
 
     def is_navigable(self, tile: Vec2i) -> bool:
@@ -55,6 +191,19 @@ class PathNavCache:
             include_dynamic=False,
         )
 
+        if result and self.dynamic_blocker_context is not None:
+            proposed_body_tiles = get_entity_placement_body_tiles(
+                self.world,
+                tile,
+                entity=self.entity,
+            )
+
+            if self.dynamic_blocker_context.blocks_placement(
+                    tile,
+                    proposed_body_tiles,
+            ):
+                result = False
+
         self.results[tile] = result
 
         return result
@@ -78,6 +227,7 @@ def tile_is_navigable_for_entity(
     entity,
     tile: Vec2i,
     nav_cache=None,
+    dynamic_blocker_context=None,
 ) -> bool:
     # Pathfinding searches possible logical-center tiles.
     # A candidate is navigable only if the entity's full movement
@@ -95,12 +245,30 @@ def tile_is_navigable_for_entity(
         "path.nav_checks",
     )
 
-    return is_tile_valid_for_entity_placement(
+    result = is_tile_valid_for_entity_placement(
         world,
         tile,
         entity=entity,
         include_dynamic=False,
     )
+
+    if not result:
+        return False
+
+    if dynamic_blocker_context is not None:
+        proposed_body_tiles = get_entity_placement_body_tiles(
+            world,
+            tile,
+            entity=entity,
+        )
+
+        if dynamic_blocker_context.blocks_placement(
+                tile,
+                proposed_body_tiles,
+        ):
+            return False
+
+    return True
 
 
 def diagonal_step_allowed(
@@ -518,11 +686,13 @@ def find_static_tile_path_to_target(
     max_expansions: int,
     max_path_length,
     target_snap_radius: int,
+    dynamic_blocker_context=None,
 ):
     search_budget = PathSearchBudget(max_expansions)
     nav_cache = PathNavCache(
         world,
         entity,
+        dynamic_blocker_context=dynamic_blocker_context,
     )
 
     candidate_goals_tried = 0
@@ -605,6 +775,7 @@ def path_segment_clear(
     start_tile: Vec2i,
     end_tile: Vec2i,
     nav_cache=None,
+    dynamic_blocker_context=None,
 ) -> bool:
     owns_cache = False
 
@@ -612,6 +783,7 @@ def path_segment_clear(
         nav_cache = PathNavCache(
             world,
             entity,
+            dynamic_blocker_context=dynamic_blocker_context,
         )
 
         owns_cache = True
@@ -646,13 +818,14 @@ def path_segment_clear(
 
 
 @profiled("path.smooth")
-def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles):
+def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles, dynamic_blocker_context=None):
     if not path_tiles:
         return []
 
     nav_cache = PathNavCache(
         world,
         entity,
+        dynamic_blocker_context=dynamic_blocker_context,
     )
 
     try:

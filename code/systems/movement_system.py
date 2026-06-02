@@ -35,6 +35,7 @@ from utils.path_utils import (
     find_static_tile_path_to_target,
     smooth_static_tile_path,
     path_tiles_to_cpos_nodes,
+    build_local_dynamic_blocker_context,
 )
 
 
@@ -387,7 +388,13 @@ def clear_motion_controller(motion_state):
     motion_state.pop("path_follow_progress", None)
 
 
-def make_path_query_key(entity, start_tile, target_tile, path_policy_name):
+def make_path_query_key(
+    entity,
+    start_tile,
+    target_tile,
+    path_policy_name,
+    dynamic_blocker_key,
+):
     return (
         entity,
         start_tile.x,
@@ -395,7 +402,15 @@ def make_path_query_key(entity, start_tile, target_tile, path_policy_name):
         target_tile.x,
         target_tile.y,
         path_policy_name,
+        dynamic_blocker_key,
     )
+
+
+def get_path_dynamic_blocker_key(dynamic_blocker_context):
+    if dynamic_blocker_context is None:
+        return None
+
+    return dynamic_blocker_context.cache_key()
 
 
 def get_active_controller(world, entity):
@@ -440,6 +455,40 @@ def get_path_policy_name(target):
 
 def get_path_policy(world, target):
     return PATH_POLICIES[get_path_policy_name(target)]
+
+
+def build_path_dynamic_blocker_context(
+    world,
+    entity,
+    start_tile,
+    path_policy,
+):
+    if not path_policy.get(
+        "path_local_dynamic_blockers_enabled",
+        False,
+    ):
+        return None
+
+    return build_local_dynamic_blocker_context(
+        world,
+        entity,
+        start_tile,
+        radius_tiles=path_policy.get(
+            "path_local_dynamic_blocker_radius_tiles",
+            0,
+        ),
+        max_entities=path_policy.get(
+            "path_local_dynamic_blocker_max_entities",
+        ),
+        include_moving=path_policy.get(
+            "path_local_dynamic_blocker_include_moving",
+            True,
+        ),
+        include_reservations=path_policy.get(
+            "path_local_dynamic_blocker_include_reservations",
+            False,
+        ),
+    )
 
 
 def get_path_build_cooldown_ticks(world, target):
@@ -516,6 +565,35 @@ def scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
     return Vec2i(
         vec.x * numerator // denominator,
         vec.y * numerator // denominator,
+    )
+
+
+def clamp_vec_length_to_reference(vec: Vec2i, reference: Vec2i) -> Vec2i:
+    reference_len_sq = cpos_distance_sq(
+        Vec2i(0, 0),
+        reference,
+    )
+
+    vec_len_sq = cpos_distance_sq(
+        Vec2i(0, 0),
+        vec,
+    )
+
+    if vec_len_sq == 0:
+        return Vec2i(0, 0)
+
+    if vec_len_sq <= reference_len_sq:
+        return vec
+
+    reference_len = isqrt(reference_len_sq)
+    vec_len = isqrt(vec_len_sq)
+
+    if vec_len == 0:
+        return Vec2i(0, 0)
+
+    return Vec2i(
+        vec.x * reference_len // vec_len,
+        vec.y * reference_len // vec_len,
     )
 
 
@@ -719,9 +797,6 @@ def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
         else:
             axis_candidates = (y_only, x_only)
 
-    for candidate_delta in axis_candidates:
-        append_unique_nonzero_delta(candidates, seen, candidate_delta)
-
     perpendicular_scale_num = path_policy.get(
         "local_avoidance_perpendicular_scale_num",
         1,
@@ -747,8 +822,58 @@ def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
     else:
         perpendicular_candidates = (right_perp, left_perp)
 
+    forward_side_scale_num = path_policy.get(
+        "local_avoidance_forward_side_scale_num",
+        1,
+    )
+    forward_side_scale_den = path_policy.get(
+        "local_avoidance_forward_side_scale_den",
+        1,
+    )
+
+    forward_side_candidates = []
+
+    for perpendicular_delta in perpendicular_candidates:
+        scaled_perpendicular_delta = scale_vec_ratio(
+            perpendicular_delta,
+            forward_side_scale_num,
+            forward_side_scale_den,
+        )
+
+        forward_side_delta = clamp_vec_length_to_reference(
+            delta + scaled_perpendicular_delta,
+            delta,
+        )
+
+        append_unique_nonzero_delta(
+            forward_side_candidates,
+            set(),
+            forward_side_delta,
+        )
+
+    # Prefer moves that still have forward intent.
+    for candidate_delta in forward_side_candidates:
+        append_unique_nonzero_delta(
+            candidates,
+            seen,
+            candidate_delta,
+        )
+
+    # Then try axis-only candidates.
+    for candidate_delta in axis_candidates:
+        append_unique_nonzero_delta(
+            candidates,
+            seen,
+            candidate_delta,
+        )
+
+    # Finally try pure side movement.
     for candidate_delta in perpendicular_candidates:
-        append_unique_nonzero_delta(candidates, seen, candidate_delta)
+        append_unique_nonzero_delta(
+            candidates,
+            seen,
+            candidate_delta,
+        )
 
     return candidates
 
@@ -1835,11 +1960,23 @@ def build_path_follow_nodes(world, entity, target):
     path_policy_name = get_path_policy_name(target)
     path_policy = get_path_policy(world, target)
 
+    dynamic_blocker_context = build_path_dynamic_blocker_context(
+        world,
+        entity,
+        current_tile,
+        path_policy,
+    )
+
+    dynamic_blocker_key = get_path_dynamic_blocker_key(
+        dynamic_blocker_context,
+    )
+
     query_key = make_path_query_key(
         entity,
         current_tile,
         target_tile,
         path_policy_name,
+        dynamic_blocker_key,
     )
 
     if path_query_failed_recently(world, query_key):
@@ -1859,6 +1996,7 @@ def build_path_follow_nodes(world, entity, target):
         max_expansions=path_policy["max_expansions"],
         max_path_length=path_policy["max_path_length"],
         target_snap_radius=path_policy["target_snap_radius"],
+        dynamic_blocker_context=dynamic_blocker_context,
     )
 
     if path_tiles is None:
@@ -1887,6 +2025,7 @@ def build_path_follow_nodes(world, entity, target):
             entity,
             current_tile,
             path_tiles,
+            dynamic_blocker_context=dynamic_blocker_context,
         )
 
     return path_tiles_to_cpos_nodes(smoothed_tiles)

@@ -71,13 +71,27 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     "direct_fallback_max_tiles": 30,
     "direct_fallback_min_tiles": 1,
 
+
+    # Local dynamic blocker awareness for path building.
+    #
+    # Pathfinding still sees static collision globally, but may also
+    # see current dynamic blockers near the path start.
+    "path_local_dynamic_blockers_enabled": True,
+    "path_local_dynamic_blocker_radius_tiles": 3,
+    "path_local_dynamic_blocker_max_entities": 20,
+
+    # Current occupied bodies may be considered.
+    # Future/reserved movement is intentionally ignored.
+    "path_local_dynamic_blocker_include_moving": True,
+    "path_local_dynamic_blocker_include_reservations": False,
+
     # Reactive local avoidance for PathFollowController.
     # Only used when the original move is blocked by a dynamic actor.
-    "local_avoidance_enabled": True,
+    "local_avoidance_enabled": False,
 
     # Candidate movement may move slightly farther from the current path node,
     # but not by more than this many cpos units.
-    "local_avoidance_max_extra_node_distance_cpos": 256,
+    "local_avoidance_max_extra_node_distance_cpos": 1024,
 
     # If true, every accepted avoidance move must reduce distance to the
     # current path node.
@@ -91,6 +105,9 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     # Perpendicular fallback scale. 1/1 means full-size perpendicular step.
     "local_avoidance_perpendicular_scale_num": 1,
     "local_avoidance_perpendicular_scale_den": 1,
+
+    "local_avoidance_forward_side_scale_num": 1,
+    "local_avoidance_forward_side_scale_den": 1,
 }
 
 PATH_POLICIES = {
