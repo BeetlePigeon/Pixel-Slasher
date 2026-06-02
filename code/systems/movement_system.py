@@ -101,6 +101,29 @@ def movement_collision_destroys(collision_result):
     return collision_result.destroys_entity
 
 
+def emit_movement_collision_event(
+    world,
+    event_type,
+    entity,
+    cpos,
+    tile,
+    collision_result,
+    controller,
+    influence_active,
+):
+    emit_event(
+        world,
+        event_type,
+        entity=entity,
+        cpos=cpos,
+        tile=tile,
+        blocker_collision_type=collision_result.blocker_collision_type,
+        blocked_tile=collision_result.blocked_tile,
+        had_controller=controller is not None,
+        influence_active=influence_active,
+    )
+
+
 def vec_is_nonzero(vec: Vec2i) -> bool:
     return vec.x != 0 or vec.y != 0
 
@@ -3125,12 +3148,18 @@ def movement_system(world):
                 collision_result, resolved_cpos = local_avoidance_result
 
             if movement_collision_destroys(collision_result):
-                emit_event(
+                collision_cpos = resolved_cpos
+                collision_tile = tile_from_cpos(collision_cpos)
+
+                emit_movement_collision_event(
                     world,
-                    "entity_destroyed_by_static_collision",
-                    entity=entity,
-                    cpos=transform.cpos,
-                    tile=transform.tile,
+                    "entity_destroyed_by_movement_collision",
+                    entity,
+                    collision_cpos,
+                    collision_tile,
+                    collision_result,
+                    controller,
+                    influence_active,
                 )
 
                 world.entities.destroy(entity)
@@ -3149,6 +3178,17 @@ def movement_system(world):
                 )
 
                 motion_state["last_delta"] = transform.cpos - start_cpos
+
+                emit_movement_collision_event(
+                    world,
+                    "entity_movement_blocked",
+                    entity,
+                    transform.cpos,
+                    transform.tile,
+                    collision_result,
+                    controller,
+                    influence_active,
+                )
 
                 if controller is None:
                     mark_dynamic_occupancy_dirty(world)
