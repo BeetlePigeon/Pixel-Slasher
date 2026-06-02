@@ -76,10 +76,18 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     "failed_retry_ticks": 30,
 
     "stall_ticks_before_repath": 10,
-    "repath_cooldown_ticks": 12,
-    "max_repath_attempts": 4,
+    "repath_cooldown_ticks": 10,
+    "max_repath_attempts": 0,
     "max_follow_ticks": 315,
+    # Minimum meaningful improvement toward the current path node.
     "progress_min_cpos": 256,
+
+    # Local escape threshold from the current path-follow anchor.
+    "stall_escape_cpos": 4096,
+
+    # Longer safety timeout for cases where the actor is moving but not
+    # advancing or improving toward the current path node.
+    "path_progress_timeout_ticks": 45,
 
     "direct_fallback_on_fail": True,
     "direct_fallback_max_tiles": 30,
@@ -91,7 +99,7 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     # Pathfinding still sees static collision globally, but may also
     # see current dynamic blockers near the path start.
     "path_local_dynamic_blockers_enabled": True,
-    "path_local_dynamic_blocker_radius_tiles": 5,
+    "path_local_dynamic_blocker_radius_tiles": 8,
     "path_local_dynamic_blocker_max_entities": 30,
 
     # Current occupied bodies may be considered.
@@ -133,10 +141,11 @@ PATH_POLICIES = {
         **BASE_CLICK_MOVE_PATH_POLICY,
 
         # Non-player actors should not repath as aggressively as the player.
-        "path_build_cooldown_ticks": 15,
+        "path_build_cooldown_ticks": 20,
         "max_expansions": 80,
-        
+
         "dynamic_block_response": "retry",
+        "max_repath_attempts": 4,
     },
 }
 

@@ -901,15 +901,53 @@ def initialize_path_follow_progress(world, entity, controller):
         )
 
     motion_state["path_follow_progress"] = {
+        # Existing stale-path signal. Keep this unchanged for now.
         "last_progress_tick": world.tick,
         "last_index": controller.current_index,
         "last_distance_sq": distance_sq,
+
+        # Explicit node-progress signal.
+        "last_node_progress_tick": world.tick,
+        "best_node_distance_sq": distance_sq,
+
+        # Local escape signal.
+        "anchor_cpos": Vec2i(
+            transform.cpos.x,
+            transform.cpos.y,
+        ),
+        "last_escape_tick": world.tick,
+
+        # Detection outputs. These are diagnostic for this patch.
+        "ticks_since_escape": 0,
+        "ticks_since_node_progress": 0,
+        "local_stalled": False,
+        "path_progress_timed_out": False,
     }
+
+
+def update_path_follow_stall_detection(world, progress, path_policy):
+    ticks_since_escape = world.tick - progress["last_escape_tick"]
+    ticks_since_node_progress = (
+        world.tick - progress["last_node_progress_tick"]
+    )
+
+    progress["ticks_since_escape"] = ticks_since_escape
+    progress["ticks_since_node_progress"] = ticks_since_node_progress
+
+    progress["local_stalled"] = (
+        ticks_since_escape >= path_policy["stall_ticks_before_repath"]
+    )
+
+    progress["path_progress_timed_out"] = (
+        ticks_since_node_progress
+        >= path_policy["path_progress_timeout_ticks"]
+    )
 
 
 def update_path_follow_progress(world, entity, controller):
     motion_state = world.motion_state[entity]
     transform = world.transform[entity]
+
     target = world.move_target.get(entity)
 
     if target is None:
@@ -917,12 +955,11 @@ def update_path_follow_progress(world, entity, controller):
 
     path_policy = get_path_policy(world, target)
 
-    progress_min_cpos = path_policy.get(
-        "progress_min_cpos",
-        128,
-    )
-
+    progress_min_cpos = path_policy["progress_min_cpos"]
     progress_min_sq = progress_min_cpos * progress_min_cpos
+
+    stall_escape_cpos = path_policy["stall_escape_cpos"]
+    stall_escape_sq = stall_escape_cpos * stall_escape_cpos
 
     progress = motion_state.get("path_follow_progress")
 
@@ -940,6 +977,21 @@ def update_path_follow_progress(world, entity, controller):
         progress["last_progress_tick"] = world.tick
         progress["last_index"] = controller.current_index
         progress["last_distance_sq"] = 0
+
+        progress["last_node_progress_tick"] = world.tick
+        progress["best_node_distance_sq"] = 0
+
+        progress["anchor_cpos"] = Vec2i(
+            transform.cpos.x,
+            transform.cpos.y,
+        )
+        progress["last_escape_tick"] = world.tick
+
+        update_path_follow_stall_detection(
+            world,
+            progress,
+            path_policy,
+        )
         return
 
     distance_sq = cpos_distance_sq(
@@ -951,13 +1003,49 @@ def update_path_follow_progress(world, entity, controller):
 
     distance_decreased = (
         distance_sq + progress_min_sq
-        < progress["last_distance_sq"]
+        < progress["best_node_distance_sq"]
     )
 
     if index_advanced or distance_decreased:
+        # Keep the existing stale-path signal behavior intact.
         progress["last_progress_tick"] = world.tick
         progress["last_index"] = controller.current_index
         progress["last_distance_sq"] = distance_sq
+
+        # Update explicit node-progress signal.
+        progress["last_node_progress_tick"] = world.tick
+        progress["best_node_distance_sq"] = distance_sq
+
+        # A real path-node progress event also becomes the new local anchor.
+        progress["anchor_cpos"] = Vec2i(
+            transform.cpos.x,
+            transform.cpos.y,
+        )
+        progress["last_escape_tick"] = world.tick
+
+    else:
+        anchor_cpos = progress["anchor_cpos"]
+
+        escaped_anchor = (
+            cpos_distance_sq(
+                transform.cpos,
+                anchor_cpos,
+            )
+            >= stall_escape_sq
+        )
+
+        if escaped_anchor:
+            progress["anchor_cpos"] = Vec2i(
+                transform.cpos.x,
+                transform.cpos.y,
+            )
+            progress["last_escape_tick"] = world.tick
+
+    update_path_follow_stall_detection(
+        world,
+        progress,
+        path_policy,
+    )
 
 
 def abandon_move_target(world, entity):
