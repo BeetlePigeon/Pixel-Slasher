@@ -466,31 +466,25 @@ def build_path_dynamic_blocker_context(
     start_tile,
     path_policy,
 ):
-    if not path_policy.get(
-        "path_local_dynamic_blockers_enabled",
-        False,
-    ):
+    if not path_policy["path_local_dynamic_blockers_enabled"]:
         return None
 
     return build_local_dynamic_blocker_context(
         world,
         entity,
         start_tile,
-        radius_tiles=path_policy.get(
-            "path_local_dynamic_blocker_radius_tiles",
-            0,
-        ),
-        max_entities=path_policy.get(
-            "path_local_dynamic_blocker_max_entities",
-        ),
-        include_moving=path_policy.get(
-            "path_local_dynamic_blocker_include_moving",
-            True,
-        ),
-        include_reservations=path_policy.get(
-            "path_local_dynamic_blocker_include_reservations",
-            False,
-        ),
+        radius_tiles=path_policy[
+            "path_local_dynamic_blocker_radius_tiles"
+        ],
+        max_entities=path_policy[
+            "path_local_dynamic_blocker_max_entities"
+        ],
+        include_moving=path_policy[
+            "path_local_dynamic_blocker_include_moving"
+        ],
+        include_reservations=path_policy[
+            "path_local_dynamic_blocker_include_reservations"
+        ],
     )
 
 
@@ -500,10 +494,7 @@ def get_path_build_cooldown_ticks(world, target):
         target,
     )
 
-    return path_policy.get(
-        "path_build_cooldown_ticks",
-        10,
-    )
+    return path_policy["path_build_cooldown_ticks"]
 
 
 def get_entity_path_build_state(world, entity):
@@ -641,10 +632,9 @@ def make_local_avoidance_score(
     if before_distance is None or after_distance is None:
         return (candidate_index,)
 
-    prefer_progress = path_policy.get(
-        "local_avoidance_prefer_progress",
-        True,
-    )
+    prefer_progress = path_policy[
+        "local_avoidance_prefer_progress"
+    ]
 
     made_progress = after_distance < before_distance
 
@@ -682,7 +672,7 @@ def try_resolve_path_follow_local_avoidance(
 
     path_policy = get_path_policy(world, target)
 
-    if not path_policy.get("local_avoidance_enabled", False):
+    if not path_policy["local_avoidance_enabled"]:
         return None
 
     options = []
@@ -759,19 +749,17 @@ def local_avoidance_candidate_is_acceptable(
     if before_distance is None or after_distance is None:
         return True
 
-    max_extra_distance = path_policy.get(
-        "local_avoidance_max_extra_node_distance_cpos",
-        0,
-    )
+    max_extra_distance = path_policy[
+        "local_avoidance_max_extra_node_distance_cpos"
+    ]
 
     if after_distance > before_distance + max_extra_distance:
         return False
 
-    if path_policy.get("local_avoidance_require_progress", False):
-        min_progress = path_policy.get(
-            "local_avoidance_min_progress_cpos",
-            0,
-        )
+    if path_policy["local_avoidance_require_progress"]:
+        min_progress = path_policy[
+            "local_avoidance_min_progress_cpos"
+        ]
 
         if after_distance > before_distance - min_progress:
             return False
@@ -800,14 +788,12 @@ def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
         else:
             axis_candidates = (y_only, x_only)
 
-    perpendicular_scale_num = path_policy.get(
-        "local_avoidance_perpendicular_scale_num",
-        1,
-    )
-    perpendicular_scale_den = path_policy.get(
-        "local_avoidance_perpendicular_scale_den",
-        1,
-    )
+    perpendicular_scale_num = path_policy[
+        "local_avoidance_perpendicular_scale_num"
+    ]
+    perpendicular_scale_den = path_policy[
+        "local_avoidance_perpendicular_scale_den"
+    ]
 
     left_perp = scale_vec_ratio(
         Vec2i(-delta.y, delta.x),
@@ -825,14 +811,12 @@ def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
     else:
         perpendicular_candidates = (right_perp, left_perp)
 
-    forward_side_scale_num = path_policy.get(
-        "local_avoidance_forward_side_scale_num",
-        1,
-    )
-    forward_side_scale_den = path_policy.get(
-        "local_avoidance_forward_side_scale_den",
-        1,
-    )
+    forward_side_scale_num = path_policy[
+        "local_avoidance_forward_side_scale_num"
+    ]
+    forward_side_scale_den = path_policy[
+        "local_avoidance_forward_side_scale_den"
+    ]
 
     forward_side_candidates = []
 
@@ -1099,7 +1083,7 @@ def path_follow_exceeded_lifetime(world, target, path_policy):
         world.tick,
     )
 
-    max_follow_ticks = path_policy.get("max_follow_ticks")
+    max_follow_ticks = path_policy["max_follow_ticks"]
 
     if max_follow_ticks is None:
         return False
@@ -1993,7 +1977,7 @@ def get_greedy_fallback_direction(current_tile, target_tile):
 
 
 def build_direct_fallback_nodes(world, entity, target, path_policy):
-    if not path_policy.get("direct_fallback_on_fail", False):
+    if not path_policy["direct_fallback_on_fail"]:
         return None
 
     current_tile = get_navigation_start_tile(world, entity)
@@ -2002,12 +1986,8 @@ def build_direct_fallback_nodes(world, entity, target, path_policy):
     if current_tile == target_tile:
         return None
 
-    max_steps = path_policy.get(
-        "direct_fallback_max_tiles",
-        path_policy.get("max_path_length", 30),
-    )
-
-    min_steps = path_policy.get("direct_fallback_min_tiles", 1)
+    max_steps = path_policy["direct_fallback_max_tiles"]
+    min_steps = path_policy["direct_fallback_min_tiles"]
 
     fallback_tiles = []
     visited_tiles = {current_tile}
@@ -2128,7 +2108,7 @@ def build_path_follow_nodes(world, entity, target):
         remember_failed_path_query(
             world,
             query_key,
-            path_policy.get("failed_retry_ticks", 30),
+            path_policy["failed_retry_ticks"],
         )
 
         return build_direct_fallback_nodes(
@@ -2140,7 +2120,7 @@ def build_path_follow_nodes(world, entity, target):
 
     clear_failed_path_query(world, query_key)
 
-    smooth_max = path_policy.get("smooth_max_path_length", 20)
+    smooth_max = path_policy["smooth_max_path_length"]
 
     if smooth_max is not None and len(path_tiles) > smooth_max:
         smoothed_tiles = path_tiles
@@ -2404,34 +2384,21 @@ def start_path_follow_controller(world, entity, target):
     if nodes is None:
         if path_policy["clear_target_on_path_fail"]:
             clear_move_target(world, entity)
+
         return False
 
     if not nodes:
         if path_policy["clear_target_on_path_finish"]:
             clear_move_target(world, entity)
+
         return False
 
-    locomotion = world.locomotion[entity]
-    motion_state = world.motion_state[entity]
-
-    motion_state["controller"] = PathFollowController(
-        nodes=nodes,
-        current_index=0,
-        speed=get_path_follow_speed(locomotion),
-        created_tick=world.tick,
-        target_tile=target["target_tile"],
-        block_response=path_policy["dynamic_block_response"],
-    )
-
-    motion_state["controller_source"] = "move_target"
-
-    initialize_path_follow_progress(
+    return install_path_follow_controller(
         world,
         entity,
-        motion_state["controller"],
+        target,
+        nodes,
     )
-
-    return True
 
 
 def discard_pending_controller_advance(controller):

@@ -512,8 +512,8 @@ class World:
             "next_think_tick": self.tick + (eid % 6),
 
             "params": {
-                "detect_radius_tiles": 12,
-                "lose_radius_tiles": 16,
+                "detect_radius_tiles": 22,
+                "lose_radius_tiles": 26,
                 "desired_range_tiles": 1,
                 "path_policy": "actor_move",
             },
