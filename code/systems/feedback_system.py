@@ -14,5 +14,5 @@ def feedback_system(world, events):
             start_camera_shake(
                 world,
                 duration_ticks=10,
-                strength=2,
+                strength=0,
             )

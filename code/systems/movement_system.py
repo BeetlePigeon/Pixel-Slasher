@@ -2270,6 +2270,7 @@ def stop_directional_continuous_controller(world, entity):
 def install_path_follow_controller(world, entity, target, nodes):
     locomotion = world.locomotion[entity]
     motion_state = world.motion_state[entity]
+    path_policy = get_path_policy(world, target)
 
     motion_state["controller"] = PathFollowController(
         nodes=nodes,
@@ -2277,6 +2278,7 @@ def install_path_follow_controller(world, entity, target, nodes):
         speed=get_path_follow_speed(locomotion),
         created_tick=world.tick,
         target_tile=target["target_tile"],
+        block_response=path_policy["dynamic_block_response"],
     )
 
     motion_state["controller_source"] = "move_target"
@@ -2339,6 +2341,10 @@ def discard_pending_controller_advance(controller):
         delattr(controller, "_pending_index")
 
 
+def path_follow_target_changed(controller, target):
+    return target["target_tile"] != controller.target_tile
+
+
 def should_refresh_path_follow_controller(world, entity, controller):
     target = world.move_target.get(entity)
 
@@ -2349,9 +2355,14 @@ def should_refresh_path_follow_controller(world, entity, controller):
         return False
 
     path_policy = get_path_policy(world, target)
+    target_changed = path_follow_target_changed(controller, target)
 
-    if not path_policy["active_path_refresh_enabled"]:
-        return False
+    if target_changed:
+        if not path_policy["retarget_active_path_on_target_change"]:
+            return False
+    else:
+        if not path_policy["active_path_refresh_enabled"]:
+            return False
 
     return entity_can_attempt_path_build(
         world,

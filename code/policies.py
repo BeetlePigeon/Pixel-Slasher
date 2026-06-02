@@ -57,6 +57,8 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     # recovery. Keep it explicit so one click does not secretly rebuild paths.
     "active_path_refresh_enabled": False,
 
+    "retarget_active_path_on_target_change": True,
+
     # What an active PathFollowController does when its movement step is
     # blocked by a dynamic actor after local avoidance has failed or is disabled.
     "dynamic_block_response": "abort",
@@ -133,6 +135,8 @@ PATH_POLICIES = {
         # Non-player actors should not repath as aggressively as the player.
         "path_build_cooldown_ticks": 15,
         "max_expansions": 80,
+        
+        "dynamic_block_response": "retry",
     },
 }
 
