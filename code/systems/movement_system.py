@@ -40,6 +40,9 @@ from utils.path_utils import (
 
 
 CORNER_CROSSING_TOLERANCE_CPOS = 32
+PATH_FOLLOW_STALL_LOCAL = "local_stalled"
+PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT = "path_progress_timed_out"
+PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
 
 
 @dataclass(frozen=True)
@@ -922,6 +925,7 @@ def initialize_path_follow_progress(world, entity, controller):
         "ticks_since_node_progress": 0,
         "local_stalled": False,
         "path_progress_timed_out": False,
+        "stall_reason": None,
     }
 
 
@@ -1103,21 +1107,40 @@ def path_follow_exceeded_lifetime(world, target, path_policy):
     return world.tick - created_tick >= max_follow_ticks
 
 
-def path_follow_is_stalled(world, entity, path_policy):
+def get_path_follow_stall_reason(world, entity, target, path_policy):
     progress = world.motion_state[entity].get("path_follow_progress")
 
+    if path_follow_exceeded_lifetime(
+        world,
+        target,
+        path_policy,
+    ):
+        if progress is not None:
+            progress["stall_reason"] = PATH_FOLLOW_STALL_LIFETIME
+
+        return PATH_FOLLOW_STALL_LIFETIME
+
     if progress is None:
-        return False
+        return None
 
-    stall_ticks = path_policy.get(
-        "stall_ticks_before_repath",
-        10,
+    # Keep these values current even if movement was blocked and
+    # update_path_follow_progress(...) did not run this tick.
+    update_path_follow_stall_detection(
+        world,
+        progress,
+        path_policy,
     )
 
-    return (
-        world.tick - progress["last_progress_tick"]
-        >= stall_ticks
-    )
+    if progress["local_stalled"]:
+        progress["stall_reason"] = PATH_FOLLOW_STALL_LOCAL
+        return PATH_FOLLOW_STALL_LOCAL
+
+    if progress["path_progress_timed_out"]:
+        progress["stall_reason"] = PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT
+        return PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT
+
+    progress["stall_reason"] = None
+    return None
 
 
 def recover_stale_path_follow_if_needed(world, entity, controller):
@@ -1131,44 +1154,40 @@ def recover_stale_path_follow_if_needed(world, entity, controller):
 
     path_policy = get_path_policy(world, target)
 
-    if path_follow_exceeded_lifetime(
+    stall_reason = get_path_follow_stall_reason(
         world,
+        entity,
         target,
         path_policy,
-    ):
+    )
+
+    if stall_reason is None:
+        return False
+
+    if stall_reason == PATH_FOLLOW_STALL_LIFETIME:
         abandon_move_target(world, entity)
         return True
 
-    if not path_follow_is_stalled(
-        world,
-        entity,
-        path_policy,
-    ):
-        return False
-
-    if world.tick < target.get("next_repath_tick", world.tick):
-        return False
-
-    if not entity_can_attempt_path_build(
-            world,
-            entity,
-            target,
-    ):
-        return False
-
-    max_repath_attempts = path_policy.get(
-        "max_repath_attempts",
-        4,
-    )
+    max_repath_attempts = path_policy["max_repath_attempts"]
 
     if target.get("repath_attempts", 0) >= max_repath_attempts:
         abandon_move_target(world, entity)
         return True
 
+    if world.tick < target.get("next_repath_tick", world.tick):
+        return False
+
+    if not entity_can_attempt_path_build(
+        world,
+        entity,
+        target,
+    ):
+        return False
+
     target["repath_attempts"] = target.get("repath_attempts", 0) + 1
+
     target["next_repath_tick"] = (
-        world.tick
-        + path_policy.get("repath_cooldown_ticks", 12)
+        world.tick + path_policy["repath_cooldown_ticks"]
     )
 
     mark_path_build_attempted(

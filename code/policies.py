@@ -146,6 +146,8 @@ PATH_POLICIES = {
 
         "dynamic_block_response": "retry",
         "max_repath_attempts": 4,
+#        "max_repath_attempts": 1,
+#        "stall_ticks_before_repath": 5,
     },
 }
 

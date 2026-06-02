@@ -533,7 +533,7 @@ class World:
             "collision_footprint": "plus5",
         }
         self.combat_attack[eid] = {
-            "range_tiles": 20,
+            "range_tiles": 2,
         }
         # Reuse player art for now. Replace later with enemy/dummy art.
         dummy_image = self.game.assets.images["player"]
