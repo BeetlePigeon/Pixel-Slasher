@@ -1505,15 +1505,6 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
     target_tile = tile_from_cpos(end_cpos)
 
     if current_tile == target_tile:
-        collision_result = handle_movement_tile_collision(
-            world,
-            entity,
-            target_tile,
-        )
-
-        if not movement_collision_allows(collision_result):
-            return collision_result, start_cpos
-
         return MOVEMENT_COLLISION_ALLOW, end_cpos
 
     dx = delta.x

@@ -131,6 +131,10 @@ def get_entity_occupied_tiles(world, eid):
 
 def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
     current_tile = tile_from_cpos(start_cpos)
+    target_tile = tile_from_cpos(target_cpos)
+
+    if target_tile == current_tile:
+        return None
 
     dx = target_cpos.x - start_cpos.x
     dy = target_cpos.y - start_cpos.y
@@ -148,7 +152,7 @@ def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
         next_x_boundary = (current_tile.x + 1) * TILE_UNITS
         next_cross_x = next_x_boundary - start_cpos.x
     elif step_x < 0:
-        next_x_boundary = current_tile.x * TILE_UNITS - 1
+        next_x_boundary = current_tile.x * TILE_UNITS
         next_cross_x = start_cpos.x - next_x_boundary
     else:
         next_cross_x = None
@@ -157,7 +161,7 @@ def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
         next_y_boundary = (current_tile.y + 1) * TILE_UNITS
         next_cross_y = next_y_boundary - start_cpos.y
     elif step_y < 0:
-        next_y_boundary = current_tile.y * TILE_UNITS - 1
+        next_y_boundary = current_tile.y * TILE_UNITS
         next_cross_y = start_cpos.y - next_y_boundary
     else:
         next_cross_y = None
