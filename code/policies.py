@@ -111,23 +111,14 @@ BASE_CLICK_MOVE_PATH_POLICY = {
 }
 
 PATH_POLICIES = {
-    # Player input should feel more responsive.
     "player_click_move": {
         **BASE_CLICK_MOVE_PATH_POLICY,
-        "path_build_cooldown_ticks": 6,
-        "max_expansions": 100,
     },
 
-    # Kept as a compatibility alias while old callers are migrated.
-    "traditional_click_move": {
-        **BASE_CLICK_MOVE_PATH_POLICY,
-        "path_build_cooldown_ticks": 6,
-        "max_expansions": 100,
-    },
-
-    # Non player actors should not repath as aggressively as the player.
     "actor_move": {
         **BASE_CLICK_MOVE_PATH_POLICY,
+
+        # Non-player actors should not repath as aggressively as the player.
         "path_build_cooldown_ticks": 15,
         "max_expansions": 80,
     },
