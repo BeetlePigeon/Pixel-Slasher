@@ -3183,6 +3183,11 @@ def movement_system(world):
 
                 motion_state["last_delta"] = transform.cpos - start_cpos
 
+                if controller is None:
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+                    continue
+
                 if controller_ages_on_block(controller):
                     controller.advance()
 
