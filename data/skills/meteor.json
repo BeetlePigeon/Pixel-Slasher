@@ -19,7 +19,8 @@
     "placement_search_radius",
     "placement_max_miss_tiles",
     "effect_delivery",
-    "lifetime"
+    "lifetime",
+    "visual"
   ],
 
   "allowed_param_values": {},
@@ -86,22 +87,18 @@
           "type": "damage",
           "params": {
             "amount": 2,
-            "element": "fire"
-          }
-        },
-        {
-          "type": "status",
-          "params": {
-            "status_id": "debug_meteor_stun",
-            "tags": ["stun"],
-            "duration": 60,
-            "refresh_mode": "replace"
+            "damage_type": "fire"
           }
         }
       ],
       "consume_policy": {
         "destroy_carrier_after_delivery": true
       }
+    },
+    "visual": {
+      "image": "meteor",
+      "anchor": "center",
+      "z": 0
     }
   },
 

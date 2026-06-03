@@ -174,7 +174,8 @@ def spawn_meteor(
     source,
     skill_id,
     effect_delivery_template,
-    lifetime_ticks=None,
+    lifetime_ticks,
+    visual,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
@@ -216,18 +217,16 @@ def spawn_meteor(
 
     world.effect_delivery[eid] = effect_delivery
 
-    if lifetime_ticks is not None:
-        world.lifetime[eid] = {
-            "remaining_ticks": lifetime_ticks,
-        }
-
-    meteor_image = world.game.assets.images["meteor"]
-    world.sprite[eid] = {
-        "image": meteor_image,
-        "anchor": "center",
-        "z": 0,
+    world.lifetime[eid] = {
+        "remaining_ticks": lifetime_ticks,
     }
 
+    image_id = visual["image"]
+    world.sprite[eid] = {
+        "image": world.game.assets.images[image_id],
+        "anchor": visual["anchor"],
+        "z": visual["z"],
+    }
     return eid
 
 
