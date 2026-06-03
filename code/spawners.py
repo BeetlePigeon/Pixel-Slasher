@@ -211,7 +211,12 @@ def spawn_meteor(
             },
             "tiles": affected_tiles,
         },
-        "effects": [
+        "targeting": {
+            "relationship": "enemies",
+            "requires": ["hittable"],
+            "include_source": False,
+        },
+        "payloads": [
             {
                 "type": "damage",
                 "params": {

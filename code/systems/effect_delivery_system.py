@@ -17,26 +17,27 @@ def effect_delivery_system(world):
 
 def process_effect_delivery(world, carrier, effect_delivery):
     delivery = effect_delivery["delivery"]
-
-    delivery["age"] = delivery.get("age", 0) + 1
-
+    advance_delivery_age(delivery)
 
     if not delivery_should_fire(delivery):
         return
 
+    context = build_effect_context(
+        carrier,
+        effect_delivery,
+    )
     targets = resolve_delivery_targets(
         world,
         carrier,
         effect_delivery,
+        context,
     )
-
-    apply_effects_to_targets(
+    apply_effect_payloads_to_targets(
         world,
-        carrier,
         effect_delivery,
+        context,
         targets,
     )
-
     consume_effect_delivery(
         world,
         carrier,
@@ -44,32 +45,66 @@ def process_effect_delivery(world, carrier, effect_delivery):
     )
 
 
-def apply_effects_to_targets(
+def advance_delivery_age(delivery):
+    delivery["age"] = delivery.get("age", 0) + 1
+
+
+def apply_effect_payloads_to_targets(
     world,
-    carrier,
     effect_delivery,
+    context,
     targets,
 ):
-    context = build_effect_context(
-        carrier,
-        effect_delivery,
-    )
+    payloads = effect_delivery["payloads"]
 
     for target in targets:
-        for effect in effect_delivery["effects"]:
+        for payload in payloads:
+            apply_effect_payload_to_target(
+                world,
+                context,
+                target,
+                payload,
+            )
 
-            effect_type = effect["type"]
 
-            if effect_type == "damage":
-                queue_damage_request(
-                    world,
-                    source=context.get("owner") or context.get("instigator"),
-                    target=target,
-                    amount=effect["params"]["amount"],
-                    skill_id=context.get("source_id"),
-                    hit_tile=get_entity_current_tile(world, target),
-                )
-                continue
+def apply_effect_payload_to_target(
+    world,
+    context,
+    target,
+    payload,
+):
+    payload_type = payload["type"]
+
+    if payload_type == "damage":
+        apply_damage_payload(
+            world,
+            context,
+            target,
+            payload,
+        )
+        return
+
+    raise NotImplementedError(
+        f"Effect payload type not implemented: {payload_type}"
+    )
+
+
+def apply_damage_payload(
+    world,
+    context,
+    target,
+    payload,
+):
+    params = payload["params"]
+
+    queue_damage_request(
+        world,
+        source=get_effect_source(context),
+        target=target,
+        amount=params["amount"],
+        skill_id=context.get("source_id"),
+        hit_tile=get_entity_current_tile(world, target),
+    )
 
 
 def build_effect_context(carrier, effect_delivery):
@@ -77,6 +112,10 @@ def build_effect_context(carrier, effect_delivery):
     context["carrier"] = carrier
 
     return context
+
+
+def get_effect_source(context):
+    return context.get("owner") or context.get("instigator")
 
 
 def delivery_should_fire(delivery):
@@ -120,7 +159,7 @@ def once_trigger_should_fire(trigger, age):
     return age >= trigger["tick"]
 
 
-def resolve_delivery_targets(world, carrier, effect_delivery):
+def resolve_delivery_targets(world, carrier, effect_delivery, context):
     delivery = effect_delivery["delivery"]
     delivery_type = delivery["type"]
 
@@ -129,6 +168,7 @@ def resolve_delivery_targets(world, carrier, effect_delivery):
             world,
             carrier,
             effect_delivery,
+            context,
         )
 
     raise NotImplementedError(
@@ -136,19 +176,43 @@ def resolve_delivery_targets(world, carrier, effect_delivery):
     )
 
 
-def resolve_timed_tiles_targets(world, carrier, effect_delivery):
+def resolve_timed_tiles_targets(world, carrier, effect_delivery, context):
     delivery = effect_delivery["delivery"]
-    context = build_effect_context(
-        carrier,
-        effect_delivery,
+    targeting = get_effect_targeting(effect_delivery)
+
+    return resolve_targets_on_tiles(
+        world,
+        context,
+        targeting,
+        delivery["tiles"],
     )
 
-    source = context.get("owner") or context.get("instigator")
 
-    return find_hittable_entities_on_tiles(
-        world,
-        source,
-        delivery["tiles"],
+def get_effect_targeting(effect_delivery):
+    return effect_delivery["targeting"]
+
+
+def resolve_targets_on_tiles(world, context, targeting, tiles):
+    relationship = targeting.get("relationship", "enemies")
+    requires = targeting.get("requires", ["hittable"])
+    include_source = targeting.get("include_source", False)
+
+    if (
+        relationship == "enemies"
+        and requires == ["hittable"]
+        and not include_source
+    ):
+        return find_hittable_entities_on_tiles(
+            world,
+            get_effect_source(context),
+            tiles,
+        )
+
+    raise NotImplementedError(
+        "Effect delivery targeting not implemented: "
+        f"relationship={relationship!r}, "
+        f"requires={requires!r}, "
+        f"include_source={include_source!r}"
     )
 
 
@@ -156,10 +220,17 @@ def consume_effect_delivery(world, carrier, effect_delivery):
     delivery = effect_delivery["delivery"]
     delivery["delivered"] = True
 
-    consume_policy = effect_delivery.get("consume_policy", {})
-
-    if consume_policy.get("destroy_carrier_after_delivery", False):
+    consume_policy = get_consume_policy(effect_delivery)
+    if should_destroy_carrier_after_delivery(consume_policy):
         world.entities.destroy(carrier)
+
+
+def get_consume_policy(effect_delivery):
+    return effect_delivery.get("consume_policy", {})
+
+
+def should_destroy_carrier_after_delivery(consume_policy):
+    return consume_policy.get("destroy_carrier_after_delivery", False)
 
 
 def build_square_area_tiles(center_tile, radius_tiles):

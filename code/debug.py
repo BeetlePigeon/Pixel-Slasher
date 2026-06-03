@@ -12,8 +12,8 @@ class Debug:
         self.debug_sim_ticks_history = []
         self.debug_frame_history_max = 600
 
-        self.entity_size_index = 0
-        self.entity_sizes = ["single_tile", "plus5", "square3"]
+        self.entity_size_index = 1
+        self.entity_sizes = ["single_tile", "plus5", "square9", "diamond13", "square25"]
 
 
     def draw_debug_overlay(self):

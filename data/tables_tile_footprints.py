@@ -20,7 +20,7 @@ TILE_FOOTPRINTS = {
     # x x x
     # x x x
     # x x x
-    "square3": (
+    "square9": (
         Vec2i(0, 0),
         Vec2i(0, -1),
         Vec2i(-1, 0),
@@ -58,7 +58,7 @@ TILE_FOOTPRINTS = {
     # x x x x x
     # x x x x x
     # x x x x x
-    "square5": (
+    "square25": (
         Vec2i(-2, -2),
         Vec2i(-2, -1),
         Vec2i(-2, 0),
