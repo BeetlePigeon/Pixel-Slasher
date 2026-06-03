@@ -67,7 +67,7 @@ class World:
         self.projectile = {}
         self.lifetime = {}
         self.health = {}
-        self.effect_delivery = {}
+        self.effect_deliveries = {}
         self.team = {}
         self.ai_agent = {}
         self.contact_filter = {}
@@ -183,7 +183,7 @@ class World:
             self.projectile,
             self.lifetime,
             self.health,
-            self.effect_delivery,
+            self.effect_deliveries,
             self.team,
             self.ai_agent,
             self.contact_filter,

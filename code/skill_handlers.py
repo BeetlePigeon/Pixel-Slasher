@@ -337,7 +337,7 @@ def execute_meteor(world, caster, context):
         spawn_cpos,
         source=caster,
         skill_id=context["skill_def"]["id"],
-        effect_delivery_template=params["effect_delivery"],
+        effect_delivery_templates=params["effect_deliveries"],
         lifetime_ticks=params["lifetime"],
         visual=params["visual"],
     )

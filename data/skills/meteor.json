@@ -18,7 +18,7 @@
   "required_params": [
     "placement_search_radius",
     "placement_max_miss_tiles",
-    "effect_delivery",
+    "effect_deliveries",
     "lifetime",
     "visual"
   ],
@@ -65,20 +65,20 @@
     "placement_search_radius": 2,
     "placement_max_miss_tiles": 2,
     "lifetime": 90,
-    "effect_delivery": {
-      "delivery": {
-        "type": "timed_tiles",
-        "trigger": {
-          "type": "once",
-          "tick": 75
-        },
+    "effect_deliveries": [
+      {
+      "activation": {
+        "type": "once",
+        "tick": 75
+      },
+      "selection": {
+        "type": "tiles",
         "shape": {
           "type": "square",
           "radius_tiles": 2
         }
       },
-      "targeting": {
-        "selector": "tiles",
+      "filtering": {
         "relationship": "enemies",
         "requires": ["hittable"],
         "include_source": false
@@ -93,9 +93,39 @@
         }
       ],
       "consume_policy": {
-        "destroy_carrier_after_delivery": true
+        "destroy_carrier_after_delivery": false
       }
     },
+      {
+      "activation": {
+        "type": "once",
+        "tick": 75
+      },
+      "selection": {
+        "type": "tiles",
+        "shape": {
+          "type": "square",
+          "radius_tiles": 2
+        }
+      },
+      "filtering": {
+        "relationship": "allies",
+        "requires": ["hittable", "health"],
+        "include_source": true
+      },
+      "payloads": [
+        {
+          "type": "heal",
+          "params": {
+            "amount": 3
+          }
+        }
+      ],
+      "consume_policy": {
+        "destroy_carrier_after_delivery": true
+      }
+    }
+    ],
     "visual": {
       "image": "meteor",
       "anchor": "center",

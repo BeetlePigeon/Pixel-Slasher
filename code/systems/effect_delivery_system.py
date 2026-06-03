@@ -10,19 +10,19 @@ from combat_ops import (
 
 
 def effect_delivery_system(world):
-    for carrier, effect_delivery in list(world.effect_delivery.items()):
-        process_effect_delivery(
-            world,
-            carrier,
-            effect_delivery,
-        )
+    for carrier, effect_deliveries in list(world.effect_deliveries.items()):
+        for effect_delivery in list(effect_deliveries):
+            process_effect_delivery(
+                world,
+                carrier,
+                effect_delivery,
+            )
 
 
 def process_effect_delivery(world, carrier, effect_delivery):
-    delivery = effect_delivery["delivery"]
-    advance_delivery_age(delivery)
+    advance_effect_runtime(effect_delivery)
 
-    if not delivery_should_fire(delivery):
+    if not activation_should_fire(effect_delivery):
         return
 
     context = build_effect_context(
@@ -48,8 +48,9 @@ def process_effect_delivery(world, carrier, effect_delivery):
     )
 
 
-def advance_delivery_age(delivery):
-    delivery["age"] = delivery.get("age", 0) + 1
+def advance_effect_runtime(effect_delivery):
+    runtime = effect_delivery["runtime"]
+    runtime["age"] = runtime.get("age", 0) + 1
 
 
 def apply_effect_payloads_to_targets(
@@ -179,53 +180,36 @@ def get_effect_source(context):
     return context.get("owner") or context.get("instigator")
 
 
-def delivery_should_fire(delivery):
-    delivery_type = delivery["type"]
+def activation_should_fire(effect_delivery):
+    activation = effect_delivery["activation"]
+    runtime = effect_delivery["runtime"]
 
-    if delivery_type == "timed_tiles":
-        return timed_tiles_delivery_should_fire(delivery)
+    activation_type = activation["type"]
 
-    raise NotImplementedError(
-        f"Effect delivery type not implemented: {delivery_type}"
-    )
-
-
-def timed_tiles_delivery_should_fire(delivery):
-    if delivery.get("delivered", False):
-        return False
-
-    trigger = delivery["trigger"]
-
-    return trigger_should_fire(
-        trigger,
-        delivery["age"],
-    )
-
-
-def trigger_should_fire(trigger, age):
-    trigger_type = trigger["type"]
-
-    if trigger_type == "once":
-        return once_trigger_should_fire(
-            trigger,
-            age,
+    if activation_type == "once":
+        return once_activation_should_fire(
+            activation,
+            runtime,
         )
 
     raise NotImplementedError(
-        f"Effect delivery trigger type not implemented: {trigger_type}"
+        f"Effect activation type not implemented: {activation_type}"
     )
 
 
-def once_trigger_should_fire(trigger, age):
-    return age >= trigger["tick"]
+def once_activation_should_fire(activation, runtime):
+    return (
+        not runtime.get("delivered", False)
+        and runtime["age"] >= activation["tick"]
+    )
 
 
 def resolve_delivery_targets(world, carrier, effect_delivery, context):
-    delivery = effect_delivery["delivery"]
-    delivery_type = delivery["type"]
+    selection = effect_delivery["selection"]
+    selection_type = selection["type"]
 
-    if delivery_type == "timed_tiles":
-        return resolve_timed_tiles_targets(
+    if selection_type == "tiles":
+        return resolve_tile_selection_targets(
             world,
             carrier,
             effect_delivery,
@@ -233,46 +217,40 @@ def resolve_delivery_targets(world, carrier, effect_delivery, context):
         )
 
     raise NotImplementedError(
-        f"Effect delivery type not implemented: {delivery_type}"
+        f"Effect selection type not implemented: {selection_type}"
     )
 
 
-def resolve_timed_tiles_targets(world, carrier, effect_delivery, context):
-    delivery = effect_delivery["delivery"]
-    targeting = get_effect_targeting(effect_delivery)
-
-    if targeting["selector"] != "tiles":
-        raise NotImplementedError(
-            "Timed tile delivery only supports tile targeting, "
-            f"got selector={targeting['selector']!r}"
-        )
+def resolve_tile_selection_targets(world, carrier, effect_delivery, context):
+    selection = effect_delivery["selection"]
+    filtering = get_effect_filtering(effect_delivery)
 
     return resolve_targets_on_tiles(
         world,
         context,
-        targeting,
-        delivery["tiles"],
+        filtering,
+        selection["tiles"],
     )
 
 
-def get_effect_targeting(effect_delivery):
-    return effect_delivery["targeting"]
+def get_effect_filtering(effect_delivery):
+    return effect_delivery["filtering"]
 
 
-def resolve_targets_on_tiles(world, context, targeting, tiles):
+def resolve_targets_on_tiles(world, context, filtering, tiles):
     tile_set = set(tiles)
     source = get_effect_source(context)
 
     targets = []
 
     for entity in sorted(world.transform):
-        if entity == source and not targeting["include_source"]:
+        if entity == source and not filtering["include_source"]:
             continue
 
         if not entity_satisfies_requirements(
             world,
             entity,
-            targeting["requires"],
+            filtering["requires"],
         ):
             continue
 
@@ -280,7 +258,7 @@ def resolve_targets_on_tiles(world, context, targeting, tiles):
             world,
             source,
             entity,
-            targeting["relationship"],
+            filtering["relationship"],
         ):
             continue
 
@@ -337,8 +315,8 @@ def entity_matches_relationship(world, source, target, relationship):
 
 
 def consume_effect_delivery(world, carrier, effect_delivery):
-    delivery = effect_delivery["delivery"]
-    delivery["delivered"] = True
+    runtime = effect_delivery["runtime"]
+    runtime["delivered"] = True
 
     consume_policy = get_consume_policy(effect_delivery)
     if should_destroy_carrier_after_delivery(consume_policy):

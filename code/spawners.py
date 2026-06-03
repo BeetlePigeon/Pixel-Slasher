@@ -173,7 +173,7 @@ def spawn_meteor(
     cpos,
     source,
     skill_id,
-    effect_delivery_template,
+    effect_delivery_templates,
     lifetime_ticks,
     visual,
 ):
@@ -190,32 +190,41 @@ def spawn_meteor(
         position_mode="free",
     )
 
-    effect_delivery = copy.deepcopy(effect_delivery_template)
+    effect_deliveries = []
 
-    delivery = effect_delivery["delivery"]
-    delivery["age"] = 0
+    for effect_delivery_template in effect_delivery_templates:
+        effect_delivery = copy.deepcopy(effect_delivery_template)
 
-    shape = delivery.pop("shape")
-    shape_type = shape["type"]
+        selection = effect_delivery["selection"]
 
-    if shape_type == "square":
-        delivery["tiles"] = build_square_area_tiles(
-            tile,
-            shape["radius_tiles"],
-        )
-    else:
-        raise NotImplementedError(
-            f"Meteor effect delivery shape not implemented: {shape_type}"
-        )
+        shape = selection.pop("shape")
+        shape_type = shape["type"]
 
-    effect_delivery["context"] = {
-        "owner": source,
-        "instigator": source,
-        "source_kind": "skill",
-        "source_id": skill_id,
-    }
+        if shape_type == "square":
+            selection["tiles"] = build_square_area_tiles(
+                tile,
+                shape["radius_tiles"],
+            )
+        else:
+            raise NotImplementedError(
+                f"Meteor effect delivery shape not implemented: {shape_type}"
+            )
 
-    world.effect_delivery[eid] = effect_delivery
+        effect_delivery["context"] = {
+            "owner": source,
+            "instigator": source,
+            "source_kind": "skill",
+            "source_id": skill_id,
+        }
+
+        effect_delivery["runtime"] = {
+            "age": 0,
+            "delivered": False,
+        }
+
+        effect_deliveries.append(effect_delivery)
+
+    world.effect_deliveries[eid] = effect_deliveries
 
     world.lifetime[eid] = {
         "remaining_ticks": lifetime_ticks,
