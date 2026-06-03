@@ -212,6 +212,20 @@ def resolve_delivery_targets(world, carrier, effect_delivery, context):
             context,
         )
 
+    if selection_type == "source":
+        return resolve_source_selection_targets(
+            world,
+            effect_delivery,
+            context,
+        )
+
+    if selection_type == "owner":
+        return resolve_owner_selection_targets(
+            world,
+            effect_delivery,
+            context,
+        )
+
     raise NotImplementedError(
         f"Effect selection type not implemented: {selection_type}"
     )
@@ -227,6 +241,56 @@ def resolve_tile_selection_targets(world, carrier, effect_delivery, context):
         filtering,
         selection["tiles"],
     )
+
+
+def resolve_source_selection_targets(world, effect_delivery, context):
+    source = get_effect_source(context)
+    filtering = get_effect_filtering(effect_delivery)
+
+    return resolve_direct_selection_target(
+        world,
+        source,
+        filtering,
+    )
+
+
+def resolve_owner_selection_targets(world, effect_delivery, context):
+    owner = context.get("owner")
+    filtering = get_effect_filtering(effect_delivery)
+
+    return resolve_direct_selection_target(
+        world,
+        owner,
+        filtering,
+    )
+
+
+def resolve_direct_selection_target(world, entity, filtering):
+    if entity is None:
+        return []
+
+    requirements = get_direct_selection_requirements(filtering)
+
+    if not entity_satisfies_requirements(
+        world,
+        entity,
+        requirements,
+    ):
+        return []
+
+    return [entity]
+
+
+def get_direct_selection_requirements(filtering):
+    unsupported_keys = set(filtering) - {"requires"}
+
+    if unsupported_keys:
+        raise NotImplementedError(
+            "Direct effect selection only supports requirements filtering, "
+            f"got unsupported keys: {sorted(unsupported_keys)!r}"
+        )
+
+    return filtering.get("requires", [])
 
 
 def get_effect_filtering(effect_delivery):
@@ -328,3 +392,38 @@ def build_square_area_tiles(center_tile, radius_tiles):
             )
 
     return tiles
+
+
+def materialize_snapshot_effect_selection(selection, anchor_tile):
+    selection_type = selection["type"]
+
+    if selection_type == "tiles":
+        materialize_snapshot_tile_selection(
+            selection,
+            anchor_tile,
+        )
+        return
+
+    if selection_type in ("source", "owner"):
+        return
+
+    raise NotImplementedError(
+        "Effect selection type not implemented for snapshot materialization: "
+        f"{selection_type}"
+    )
+
+
+def materialize_snapshot_tile_selection(selection, anchor_tile):
+    shape = selection.pop("shape")
+    shape_type = shape["type"]
+
+    if shape_type == "square":
+        selection["tiles"] = build_square_area_tiles(
+            anchor_tile,
+            shape["radius_tiles"],
+        )
+        return
+
+    raise NotImplementedError(
+        f"Effect tile selection shape not implemented: {shape_type}"
+    )

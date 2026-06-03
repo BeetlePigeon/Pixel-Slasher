@@ -1,6 +1,6 @@
 import copy
 from constants import TILE_UNITS
-from systems.effect_delivery_system import build_square_area_tiles
+from systems.effect_delivery_system import materialize_snapshot_effect_selection
 from support import Vec2i, Transform
 from utils.tile_vec_utils import tile_from_cpos
 from utils.occupancy_utils import is_tile_static_blocked
@@ -197,18 +197,10 @@ def spawn_meteor(
 
         selection = effect_delivery["selection"]
 
-        shape = selection.pop("shape")
-        shape_type = shape["type"]
-
-        if shape_type == "square":
-            selection["tiles"] = build_square_area_tiles(
-                tile,
-                shape["radius_tiles"],
-            )
-        else:
-            raise NotImplementedError(
-                f"Meteor effect delivery shape not implemented: {shape_type}"
-            )
+        materialize_snapshot_effect_selection(
+            selection,
+            anchor_tile=tile,
+        )
 
         effect_delivery["context"] = {
             "owner": source,
