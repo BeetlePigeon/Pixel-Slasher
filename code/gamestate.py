@@ -23,6 +23,7 @@ from systems import (
     camera_shake_system,
     status_effect_system,
     effect_delivery_system,
+    effect_carrier_lifecycle_system,
     sprite_system,
     tile_render_system,
     combat_system,
@@ -316,6 +317,7 @@ class StateGameplay(State):
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
         effect_delivery_system(self.game.world)
+        effect_carrier_lifecycle_system(self.game.world)
         combat_system(self.game.world)
 
         if self.game.debug_mode:

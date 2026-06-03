@@ -338,7 +338,7 @@ def execute_meteor(world, caster, context):
         source=caster,
         skill_id=context["skill_def"]["id"],
         effect_delivery_templates=params["effect_deliveries"],
-        lifetime_ticks=params["lifetime"],
+        effect_carrier_lifecycle=params["effect_carrier_lifecycle"],
         visual=params["visual"],
     )
 

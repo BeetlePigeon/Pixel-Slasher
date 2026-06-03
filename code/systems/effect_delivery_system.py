@@ -41,11 +41,7 @@ def process_effect_delivery(world, carrier, effect_delivery):
         context,
         targets,
     )
-    consume_effect_delivery(
-        world,
-        carrier,
-        effect_delivery,
-    )
+    complete_effect_delivery(effect_delivery)
 
 
 def advance_effect_runtime(effect_delivery):
@@ -314,21 +310,9 @@ def entity_matches_relationship(world, source, target, relationship):
     )
 
 
-def consume_effect_delivery(world, carrier, effect_delivery):
+def complete_effect_delivery(effect_delivery):
     runtime = effect_delivery["runtime"]
     runtime["delivered"] = True
-
-    consume_policy = get_consume_policy(effect_delivery)
-    if should_destroy_carrier_after_delivery(consume_policy):
-        world.entities.destroy(carrier)
-
-
-def get_consume_policy(effect_delivery):
-    return effect_delivery.get("consume_policy", {})
-
-
-def should_destroy_carrier_after_delivery(consume_policy):
-    return consume_policy.get("destroy_carrier_after_delivery", False)
 
 
 def build_square_area_tiles(center_tile, radius_tiles):

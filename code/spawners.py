@@ -174,7 +174,7 @@ def spawn_meteor(
     source,
     skill_id,
     effect_delivery_templates,
-    lifetime_ticks,
+    effect_carrier_lifecycle,
     visual,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
@@ -225,10 +225,7 @@ def spawn_meteor(
         effect_deliveries.append(effect_delivery)
 
     world.effect_deliveries[eid] = effect_deliveries
-
-    world.lifetime[eid] = {
-        "remaining_ticks": lifetime_ticks,
-    }
+    world.effect_carrier_lifecycle[eid] = copy.deepcopy(effect_carrier_lifecycle)
 
     image_id = visual["image"]
     world.sprite[eid] = {

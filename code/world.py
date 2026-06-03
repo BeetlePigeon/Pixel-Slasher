@@ -68,6 +68,7 @@ class World:
         self.lifetime = {}
         self.health = {}
         self.effect_deliveries = {}
+        self.effect_carrier_lifecycle = {}
         self.team = {}
         self.ai_agent = {}
         self.contact_filter = {}
@@ -184,6 +185,7 @@ class World:
             self.lifetime,
             self.health,
             self.effect_deliveries,
+            self.effect_carrier_lifecycle,
             self.team,
             self.ai_agent,
             self.contact_filter,
