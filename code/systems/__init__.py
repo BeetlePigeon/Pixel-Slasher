@@ -12,7 +12,7 @@ from systems.camera_system import camera_update_system, camera_system, camera_sh
 from systems.status_effect_system import status_effect_system
 from systems.effect_delivery_system import effect_delivery_system
 from systems.sprite_system import sprite_system, tile_render_system
-from systems.combat_system import combat_damage_system
+from systems.combat_system import combat_system
 
 __all__ = [
     "snapshot_system",
@@ -34,5 +34,5 @@ __all__ = [
     "effect_delivery_system",
     "sprite_system",
     "tile_render_system",
-    "combat_damage_system",
+    "combat_system",
 ]

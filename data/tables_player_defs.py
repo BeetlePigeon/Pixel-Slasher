@@ -1,6 +1,6 @@
 DEFAULT_PLAYER_STATE = {
     "health": {
-        "current": 100,
+        "current": 80,
         "max": 100,
     },
 

@@ -78,6 +78,7 @@
         }
       },
       "targeting": {
+        "selector": "tiles",
         "relationship": "enemies",
         "requires": ["hittable"],
         "include_source": false

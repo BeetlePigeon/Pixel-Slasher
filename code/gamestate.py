@@ -25,7 +25,7 @@ from systems import (
     effect_delivery_system,
     sprite_system,
     tile_render_system,
-    combat_damage_system,
+    combat_system,
 )
 
 
@@ -316,7 +316,7 @@ class StateGameplay(State):
         action_state_system(self.game.world)
         status_effect_system(self.game.world)
         effect_delivery_system(self.game.world)
-        combat_damage_system(self.game.world)
+        combat_system(self.game.world)
 
         if self.game.debug_mode:
             self.game.debug.debug_tile_highlight_system(self.game.world)

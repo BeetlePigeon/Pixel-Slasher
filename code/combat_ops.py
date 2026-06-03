@@ -29,6 +29,16 @@ def entities_are_enemies(world, source, target):
     return source_team != target_team
 
 
+def entities_are_allies(world, source, target):
+    source_team = world.team.get(source)
+    target_team = world.team.get(target)
+
+    if source_team is None or target_team is None:
+        return False
+
+    return source_team == target_team
+
+
 def find_hittable_entities_on_tiles(world, source, tiles):
     tile_set = set(tiles)
     targets = []
@@ -63,6 +73,23 @@ def queue_damage_request(
     hit_tile=None,
 ):
     world.damage_requests.append({
+        "source": source,
+        "target": target,
+        "amount": amount,
+        "skill_id": skill_id,
+        "hit_tile": hit_tile,
+    })
+
+
+def queue_heal_request(
+    world,
+    source,
+    target,
+    amount,
+    skill_id=None,
+    hit_tile=None,
+):
+    world.heal_requests.append({
         "source": source,
         "target": target,
         "amount": amount,

@@ -1,9 +1,11 @@
 from support import Vec2i
 from utils.status_utils import apply_status_effect
 from combat_ops import (
-    find_hittable_entities_on_tiles,
+    entities_are_enemies,
+    entities_are_allies,
     get_entity_current_tile,
     queue_damage_request,
+    queue_heal_request,
 )
 
 
@@ -85,6 +87,15 @@ def apply_effect_payload_to_target(
         )
         return
 
+    if payload_type == "heal":
+        apply_heal_payload(
+            world,
+            context,
+            target,
+            payload,
+        )
+        return
+
     if payload_type == "status":
         apply_status_payload(
             world,
@@ -117,6 +128,24 @@ def apply_damage_payload(
     )
 
 
+def apply_heal_payload(
+    world,
+    context,
+    target,
+    payload,
+):
+    params = payload["params"]
+
+    queue_heal_request(
+        world,
+        source=get_effect_source(context),
+        target=target,
+        amount=params["amount"],
+        skill_id=context.get("source_id"),
+        hit_tile=get_entity_current_tile(world, target),
+    )
+
+
 def apply_status_payload(
     world,
     context,
@@ -138,7 +167,7 @@ def apply_status_payload(
         cancels_motion_tags=params.get("cancels_motion_tags"),
     )
 
-    
+
 def build_effect_context(carrier, effect_delivery):
     context = dict(effect_delivery.get("context", {}))
     context["carrier"] = carrier
@@ -212,6 +241,12 @@ def resolve_timed_tiles_targets(world, carrier, effect_delivery, context):
     delivery = effect_delivery["delivery"]
     targeting = get_effect_targeting(effect_delivery)
 
+    if targeting["selector"] != "tiles":
+        raise NotImplementedError(
+            "Timed tile delivery only supports tile targeting, "
+            f"got selector={targeting['selector']!r}"
+        )
+
     return resolve_targets_on_tiles(
         world,
         context,
@@ -225,26 +260,79 @@ def get_effect_targeting(effect_delivery):
 
 
 def resolve_targets_on_tiles(world, context, targeting, tiles):
-    relationship = targeting.get("relationship", "enemies")
-    requires = targeting.get("requires", ["hittable"])
-    include_source = targeting.get("include_source", False)
+    tile_set = set(tiles)
+    source = get_effect_source(context)
 
-    if (
-        relationship == "enemies"
-        and requires == ["hittable"]
-        and not include_source
-    ):
-        return find_hittable_entities_on_tiles(
+    targets = []
+
+    for entity in sorted(world.transform):
+        if entity == source and not targeting["include_source"]:
+            continue
+
+        if not entity_satisfies_requirements(
             world,
-            get_effect_source(context),
-            tiles,
+            entity,
+            targeting["requires"],
+        ):
+            continue
+
+        if not entity_matches_relationship(
+            world,
+            source,
+            entity,
+            targeting["relationship"],
+        ):
+            continue
+
+        entity_tile = get_entity_current_tile(world, entity)
+        if entity_tile not in tile_set:
+            continue
+
+        targets.append(entity)
+
+    return targets
+
+
+def entity_satisfies_requirements(world, entity, requirements):
+    for requirement in requirements:
+        if not entity_satisfies_requirement(
+            world,
+            entity,
+            requirement,
+        ):
+            return False
+
+    return True
+
+
+def entity_satisfies_requirement(world, entity, requirement):
+    if requirement == "hittable":
+        hittable = world.hittable.get(entity)
+        return (
+            hittable is not None
+            and hittable.get("enabled", True)
         )
 
+    if requirement == "health":
+        return entity in world.health
+
     raise NotImplementedError(
-        "Effect delivery targeting not implemented: "
-        f"relationship={relationship!r}, "
-        f"requires={requires!r}, "
-        f"include_source={include_source!r}"
+        f"Effect delivery target requirement not implemented: {requirement}"
+    )
+
+
+def entity_matches_relationship(world, source, target, relationship):
+    if relationship == "enemies":
+        return entities_are_enemies(world, source, target)
+
+    if relationship == "allies":
+        return entities_are_allies(world, source, target)
+
+    if relationship == "any":
+        return True
+
+    raise NotImplementedError(
+        f"Effect delivery target relationship not implemented: {relationship}"
     )
 
 

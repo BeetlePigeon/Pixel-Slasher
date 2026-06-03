@@ -74,6 +74,7 @@ class World:
         self.hittable = {}
         self.combat_body = {}
         self.damage_requests = []
+        self.heal_requests = []
         self.combat_attack = {}
         self.movement_collision = {}
 

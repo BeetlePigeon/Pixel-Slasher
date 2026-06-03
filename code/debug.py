@@ -1,5 +1,4 @@
 import pygame
-from utils.tile_vec_utils import Vec2i
 from utils.status_utils import apply_status_effect
 from combat_ops import queue_damage_request
 from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake, internal_screen_to_world_tile
@@ -30,6 +29,7 @@ class Debug:
 #            f"Emitters: {len(self.game.world.influence_emitter)}",
 #            f"Receivers: {len(self.game.world.influence_receiver)}",
 #            f"Lifetime: {len(self.game.world.lifetime)}",
+            f"Player HP: {self.game.world.health[self.game.world.player]}",
             f"Display: {self.game.display.display_mode}",
             f"Scale: {self.game.display.scale}x",
             f"Brightness: {self.game.display.brightness}",
