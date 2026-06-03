@@ -1,3 +1,4 @@
+import copy
 from constants import TILE_UNITS
 from systems.effect_delivery_system import build_square_area_tiles
 from support import Vec2i, Transform
@@ -172,9 +173,7 @@ def spawn_meteor(
     cpos,
     source,
     skill_id,
-    radius_tiles=1,
-    damage=25,
-    impact_tick=45,
+    effect_delivery_template,
     lifetime_ticks=None,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
@@ -190,45 +189,32 @@ def spawn_meteor(
         position_mode="free",
     )
 
-    affected_tiles = build_square_area_tiles(
-        tile,
-        radius_tiles,
-    )
+    effect_delivery = copy.deepcopy(effect_delivery_template)
 
-    world.effect_delivery[eid] = {
-        "context": {
-            "owner": source,
-            "instigator": source,
-            "source_kind": "skill",
-            "source_id": skill_id,
-        },
-        "delivery": {
-            "type": "timed_tiles",
-            "age": 0,
-            "trigger": {
-                "type": "once",
-                "tick": impact_tick,
-            },
-            "tiles": affected_tiles,
-        },
-        "targeting": {
-            "relationship": "enemies",
-            "requires": ["hittable"],
-            "include_source": False,
-        },
-        "payloads": [
-            {
-                "type": "damage",
-                "params": {
-                    "amount": damage,
-                    "damage_type": "fire",
-                },
-            },
-        ],
-        "consume_policy": {
-            "destroy_carrier_after_delivery": True,
-        },
+    delivery = effect_delivery["delivery"]
+    delivery["age"] = 0
+
+    shape = delivery.pop("shape")
+    shape_type = shape["type"]
+
+    if shape_type == "square":
+        delivery["tiles"] = build_square_area_tiles(
+            tile,
+            shape["radius_tiles"],
+        )
+    else:
+        raise NotImplementedError(
+            f"Meteor effect delivery shape not implemented: {shape_type}"
+        )
+
+    effect_delivery["context"] = {
+        "owner": source,
+        "instigator": source,
+        "source_kind": "skill",
+        "source_id": skill_id,
     }
+
+    world.effect_delivery[eid] = effect_delivery
 
     if lifetime_ticks is not None:
         world.lifetime[eid] = {
@@ -236,7 +222,6 @@ def spawn_meteor(
         }
 
     meteor_image = world.game.assets.images["meteor"]
-
     world.sprite[eid] = {
         "image": meteor_image,
         "anchor": "center",

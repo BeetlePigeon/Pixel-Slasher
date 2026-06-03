@@ -1,4 +1,5 @@
 from support import Vec2i
+from utils.status_utils import apply_status_effect
 from combat_ops import (
     find_hittable_entities_on_tiles,
     get_entity_current_tile,
@@ -84,6 +85,15 @@ def apply_effect_payload_to_target(
         )
         return
 
+    if payload_type == "status":
+        apply_status_payload(
+            world,
+            context,
+            target,
+            payload,
+        )
+        return
+
     raise NotImplementedError(
         f"Effect payload type not implemented: {payload_type}"
     )
@@ -107,6 +117,28 @@ def apply_damage_payload(
     )
 
 
+def apply_status_payload(
+    world,
+    context,
+    target,
+    payload,
+):
+    params = payload["params"]
+
+    apply_status_effect(
+        world,
+        target,
+        status_id=params["status_id"],
+        tags=params.get("tags", []),
+        duration=params["duration"],
+        data=params.get("data"),
+        refresh_mode=params.get("refresh_mode", "replace"),
+        cancels_action_tags=params.get("cancels_action_tags"),
+        pauses_action_tags=params.get("pauses_action_tags"),
+        cancels_motion_tags=params.get("cancels_motion_tags"),
+    )
+
+    
 def build_effect_context(carrier, effect_delivery):
     context = dict(effect_delivery.get("context", {}))
     context["carrier"] = carrier

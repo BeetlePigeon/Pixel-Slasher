@@ -1,4 +1,5 @@
 from support import Vec2i
+from systems import effect_delivery_system
 from utils.tile_vec_utils import (
     scale_normalized_dir,
     tile_from_cpos,
@@ -336,9 +337,7 @@ def execute_meteor(world, caster, context):
         spawn_cpos,
         source=caster,
         skill_id=context["skill_def"]["id"],
-        radius_tiles=params["radius_tiles"],
-        damage=params["damage"],
-        impact_tick=params["impact_tick"],
+        effect_delivery_template=["effect_delivery"],
         lifetime_ticks=params["lifetime"],
     )
 

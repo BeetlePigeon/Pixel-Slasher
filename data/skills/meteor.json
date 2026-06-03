@@ -18,9 +18,7 @@
   "required_params": [
     "placement_search_radius",
     "placement_max_miss_tiles",
-    "radius_tiles",
-    "damage",
-    "impact_tick",
+    "effect_delivery",
     "lifetime"
   ],
 
@@ -65,10 +63,46 @@
   "params": {
     "placement_search_radius": 2,
     "placement_max_miss_tiles": 2,
-    "radius_tiles": 2,
-    "damage": 3,
-    "impact_tick": 75,
-    "lifetime": 90
+    "lifetime": 90,
+    "effect_delivery": {
+      "delivery": {
+        "type": "timed_tiles",
+        "trigger": {
+          "type": "once",
+          "tick": 75
+        },
+        "shape": {
+          "type": "square",
+          "radius_tiles": 2
+        }
+      },
+      "targeting": {
+        "relationship": "enemies",
+        "requires": ["hittable"],
+        "include_source": false
+      },
+      "payloads": [
+        {
+          "type": "damage",
+          "params": {
+            "amount": 2,
+            "element": "fire"
+          }
+        },
+        {
+          "type": "status",
+          "params": {
+            "status_id": "debug_meteor_stun",
+            "tags": ["stun"],
+            "duration": 60,
+            "refresh_mode": "replace"
+          }
+        }
+      ],
+      "consume_policy": {
+        "destroy_carrier_after_delivery": true
+      }
+    }
   },
 
   "handler": "execute_cast_skill"
