@@ -80,15 +80,19 @@ class World:
         self.movement_collision = {}
 
         # Movement occupancy is passive physical presence:
-        # which gameplay tile footprint an entity claims for hard movement
-        # blocking.
+        # which gameplay tile footprint an entity uses for movement,
+        # terrain interaction, placement, and dynamic movement blocking.
         #
         # transform.cpos remains the logical center / action origin.
         # space_occupier.movement_footprint defines centered tile offsets
         # around tile_from_cpos(transform.cpos).
         #
-        # Do not use obstacle_footprint for attack range, targeting, or
-        # projectile/contact collision. Those belong to combat_body.
+        # space_occupier.blocks_movement controls whether this entity is
+        # inserted into dynamic movement occupancy as a blocker.
+        #
+        # Do not use movement_footprint as the final projectile/attack
+        # contact body. Contact/hurt shapes belong to combat_body or future
+        # projectile contact data.
         self.space_occupier = {}
 
         # Derived dynamic spatial caches.
@@ -453,7 +457,6 @@ class World:
             "enabled": True,
         }
         self.combat_body[eid] = {
-            "engagement_footprint": "plus5",
             "collision_footprint": "plus5",
         }
         self.combat_attack[eid] = {
@@ -532,7 +535,6 @@ class World:
             "enabled": True,
         }
         self.combat_body[eid] = {
-            "engagement_footprint": "plus5",
             "collision_footprint": "plus5",
         }
         self.combat_attack[eid] = {

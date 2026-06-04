@@ -1,6 +1,5 @@
-from utils.tile_vec_utils import chebyshev_tile_distance
 from combat_ops import entity_is_hittable, entities_are_enemies, get_entity_current_tile
-from data.tables_tile_footprints import get_footprint_offsets
+from utils.occupancy_utils import get_movement_body_tiles_for_origin_tile
 from support import Vec2i
 from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.tile_vec_utils import (
@@ -128,26 +127,17 @@ def get_entity_attack_range_tiles(world, entity):
     return max(0, combat_attack.get("range_tiles", 1))
 
 
-def get_entity_engagement_footprint_name(world, entity):
-    combat_body = world.combat_body.get(entity)
-
-    if combat_body is None:
-        return "single_tile"
-
-    return combat_body.get("engagement_footprint", "single_tile")
-
-
-def get_entity_engagement_footprint_tiles(world, entity):
+def get_entity_movement_footprint_tiles(world, entity):
     center_tile = get_entity_tile(world, entity)
-
     if center_tile is None:
         return ()
 
-    footprint_name = get_entity_engagement_footprint_name(world, entity)
-
     return tuple(
-        center_tile + offset
-        for offset in get_footprint_offsets(footprint_name)
+        get_movement_body_tiles_for_origin_tile(
+            world,
+            entity,
+            center_tile,
+        )
     )
 
 
@@ -167,14 +157,14 @@ def entity_is_in_attack_range_of_target(world, source, target):
     if source_tile is None:
         return False
 
-    target_engagement_tiles = get_entity_engagement_footprint_tiles(
+    target_movement_tiles = get_entity_movement_footprint_tiles(
         world,
         target,
     )
 
     distance = distance_to_tile_set(
         source_tile,
-        target_engagement_tiles,
+        target_movement_tiles,
     )
 
     if distance is None:
@@ -183,11 +173,11 @@ def entity_is_in_attack_range_of_target(world, source, target):
     return distance <= get_entity_attack_range_tiles(world, source)
 
 
-def iter_attack_position_candidates(target_engagement_tiles, range_tiles):
-    min_x = min(tile.x for tile in target_engagement_tiles) - range_tiles
-    max_x = max(tile.x for tile in target_engagement_tiles) + range_tiles
-    min_y = min(tile.y for tile in target_engagement_tiles) - range_tiles
-    max_y = max(tile.y for tile in target_engagement_tiles) + range_tiles
+def iter_attack_position_candidates(target_movement_tiles, range_tiles):
+    min_x = min(tile.x for tile in target_movement_tiles) - range_tiles
+    max_x = max(tile.x for tile in target_movement_tiles) + range_tiles
+    min_y = min(tile.y for tile in target_movement_tiles) - range_tiles
+    max_y = max(tile.y for tile in target_movement_tiles) + range_tiles
 
     for y in range(min_y, max_y + 1):
         for x in range(min_x, max_x + 1):
@@ -195,7 +185,7 @@ def iter_attack_position_candidates(target_engagement_tiles, range_tiles):
 
             distance = distance_to_tile_set(
                 tile,
-                target_engagement_tiles,
+                target_movement_tiles,
             )
 
             if distance is None:
@@ -217,20 +207,19 @@ def find_closest_valid_attack_position(
     if source_tile is None:
         return None
 
-    target_engagement_tiles = get_entity_engagement_footprint_tiles(
+    target_movement_tiles = get_entity_movement_footprint_tiles(
         world,
         target,
     )
 
-    if not target_engagement_tiles:
+    if not target_movement_tiles:
         return None
 
     range_tiles = get_entity_attack_range_tiles(world, source)
 
     candidates = []
-
     for candidate_tile in iter_attack_position_candidates(
-        target_engagement_tiles,
+        target_movement_tiles,
         range_tiles,
     ):
         if not is_tile_valid_for_entity_placement(
@@ -243,7 +232,7 @@ def find_closest_valid_attack_position(
 
         distance_to_target = distance_to_tile_set(
             candidate_tile,
-            target_engagement_tiles,
+            target_movement_tiles,
         )
 
         candidates.append(

@@ -52,6 +52,10 @@ def spawn_test_projectile(
         "static_tiles": "destroy",
         "dynamic_blockers": "destroy",
     }
+    world.space_occupier[eid] = {
+        "blocks_movement": False,
+        "movement_footprint": "plus5",
+    }
     world.contact_filter[eid] = {
         "ignore_entities": {source},
         "collides_with_teams": set(collides_with_teams),
@@ -116,6 +120,10 @@ def spawn_spiral_projectile(
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
         "dynamic_blockers": "allow",
+    }
+    world.space_occupier[eid] = {
+        "blocks_movement": False,
+        "movement_footprint": "single_tile",
     }
     world.influence_receiver[eid] = {
         "accepts": {},

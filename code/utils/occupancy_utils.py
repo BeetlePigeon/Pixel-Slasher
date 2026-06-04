@@ -21,17 +21,18 @@ def space_occupier_blocks_movement(world, eid):
 
 def get_entity_movement_footprint_name(world, eid):
     space_occupier = world.space_occupier.get(eid)
-
     if space_occupier is None:
-        return "single_tile"
+        raise KeyError(
+            f"Entity {eid} has no space_occupier component; "
+            "movement footprint must be explicit"
+        )
 
-    return space_occupier.get(
-        "movement_footprint",
-        space_occupier.get(
-            "obstacle_footprint",
-            "single_tile",
-        ),
-    )
+    if "movement_footprint" not in space_occupier:
+        raise KeyError(
+            f"Entity {eid} space_occupier has no movement_footprint"
+        )
+
+    return space_occupier["movement_footprint"]
 
 
 def get_entity_movement_footprint_offsets(world, eid):
@@ -62,23 +63,6 @@ def get_movement_wing_tiles_for_origin_tile(world, eid, origin_tile):
             origin_tile,
         )
         if tile != center_tile
-    )
-
-
-# Compatibility names for older call sites.
-def get_entity_obstacle_footprint_name(world, eid):
-    return get_entity_movement_footprint_name(world, eid)
-
-
-def get_entity_obstacle_footprint_offsets(world, eid):
-    return get_entity_movement_footprint_offsets(world, eid)
-
-
-def get_obstacle_footprint_tiles_for_origin_tile(world, eid, origin_tile):
-    return get_movement_body_tiles_for_origin_tile(
-        world,
-        eid,
-        origin_tile,
     )
 
 
