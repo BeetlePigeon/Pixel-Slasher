@@ -1,4 +1,3 @@
-from support import Vec2i
 from utils.status_utils import apply_status_effect
 from combat_ops import (
     entities_are_enemies,
@@ -182,6 +181,9 @@ def activation_should_fire(effect_delivery):
 
     activation_type = activation["type"]
 
+    if activation_type == "immediate":
+        return immediate_activation_should_fire(runtime)
+
     if activation_type == "once":
         return once_activation_should_fire(
             activation,
@@ -191,6 +193,10 @@ def activation_should_fire(effect_delivery):
     raise NotImplementedError(
         f"Effect activation type not implemented: {activation_type}"
     )
+
+
+def immediate_activation_should_fire(runtime):
+    return not runtime.get("delivered", False)
 
 
 def once_activation_should_fire(activation, runtime):
@@ -377,53 +383,3 @@ def entity_matches_relationship(world, source, target, relationship):
 def complete_effect_delivery(effect_delivery):
     runtime = effect_delivery["runtime"]
     runtime["delivered"] = True
-
-
-def build_square_area_tiles(center_tile, radius_tiles):
-    tiles = []
-
-    for dy in range(-radius_tiles, radius_tiles + 1):
-        for dx in range(-radius_tiles, radius_tiles + 1):
-            tiles.append(
-                Vec2i(
-                    center_tile.x + dx,
-                    center_tile.y + dy,
-                )
-            )
-
-    return tiles
-
-
-def materialize_snapshot_effect_selection(selection, anchor_tile):
-    selection_type = selection["type"]
-
-    if selection_type == "tiles":
-        materialize_snapshot_tile_selection(
-            selection,
-            anchor_tile,
-        )
-        return
-
-    if selection_type in ("source", "owner"):
-        return
-
-    raise NotImplementedError(
-        "Effect selection type not implemented for snapshot materialization: "
-        f"{selection_type}"
-    )
-
-
-def materialize_snapshot_tile_selection(selection, anchor_tile):
-    shape = selection.pop("shape")
-    shape_type = shape["type"]
-
-    if shape_type == "square":
-        selection["tiles"] = build_square_area_tiles(
-            anchor_tile,
-            shape["radius_tiles"],
-        )
-        return
-
-    raise NotImplementedError(
-        f"Effect tile selection shape not implemented: {shape_type}"
-    )

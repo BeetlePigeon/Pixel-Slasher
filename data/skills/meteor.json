@@ -90,10 +90,7 @@
             "damage_type": "fire"
           }
         }
-      ],
-      "consume_policy": {
-        "destroy_carrier_after_delivery": false
-      }
+      ]
     },
       {
       "activation": {
@@ -116,7 +113,7 @@
         {
           "type": "heal",
           "params": {
-            "amount": 3
+            "amount": 4
           }
         }
       ]

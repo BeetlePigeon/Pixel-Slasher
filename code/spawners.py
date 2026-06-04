@@ -1,6 +1,6 @@
 import copy
 from constants import TILE_UNITS
-from systems.effect_delivery_system import materialize_snapshot_effect_selection
+from effect_selection_ops import materialize_snapshot_effect_selection
 from support import Vec2i, Transform
 from utils.tile_vec_utils import tile_from_cpos
 from utils.occupancy_utils import is_tile_static_blocked
