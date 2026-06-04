@@ -2,6 +2,16 @@ import pygame
 from utils.status_utils import apply_status_effect
 from combat_ops import queue_damage_request
 from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake, internal_screen_to_world_tile
+from data.tables_tile_footprints import get_footprint_offsets
+from utils.camera_utils import (
+    project_screen_point,
+    scale_surface_by_camera_zoom,
+)
+from utils.tile_vec_utils import (
+    cpos_to_screen,
+    tile_center,
+    tile_from_cpos,
+)
 
 
 class Debug:
@@ -596,3 +606,79 @@ class Debug:
         world.dynamic_occupancy_dirty = True
 
         print(f"Entity movement footprints set to {curr_size}")
+
+
+    def draw_projectile_contact_footprints(self, world, surface):
+        highlighted_tile_image = world.game.assets.images["highlighted_tile"]
+        scaled_debug_highlighted_tile_image = scale_surface_by_camera_zoom(
+            world,
+            highlighted_tile_image,
+        )
+
+        for projectile in sorted(world.projectile):
+            projectile_data = world.projectile[projectile]
+
+            if "contact_footprint" not in projectile_data:
+                continue
+
+            if projectile not in world.transform:
+                continue
+
+            self.draw_projectile_contact_footprint(
+                world,
+                surface,
+                projectile,
+                projectile_data,
+                scaled_debug_highlighted_tile_image,
+            )
+
+
+    def draw_projectile_contact_footprint(
+        self,
+        world,
+        surface,
+        projectile,
+        projectile_data,
+        scaled_debug_highlighted_tile_image,
+    ):
+        transform = world.transform[projectile]
+        origin_tile = tile_from_cpos(transform.cpos)
+
+        contact_footprint = projectile_data["contact_footprint"]
+
+        for offset in get_footprint_offsets(contact_footprint):
+            tile = origin_tile + offset
+            self.draw_debug_highlighted_tile_image_on_tile(
+                world,
+                surface,
+                tile,
+                scaled_debug_highlighted_tile_image,
+            )
+
+
+    def draw_debug_highlighted_tile_image_on_tile(
+        self,
+        world,
+        surface,
+        tile,
+        scaled_debug_highlighted_tile_image,
+    ):
+        tile_center_cpos = tile_center(tile)
+
+        base_x, base_y = cpos_to_screen(
+            tile_center_cpos,
+            world.tile_size,
+        )
+        screen_x, screen_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
+        draw_x = screen_x - scaled_debug_highlighted_tile_image.get_width() // 2
+        draw_y = screen_y - scaled_debug_highlighted_tile_image.get_height() // 2
+
+        surface.blit(
+            scaled_debug_highlighted_tile_image,
+            (draw_x, draw_y),
+        )

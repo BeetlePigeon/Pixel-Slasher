@@ -351,7 +351,7 @@ class StateGameplay(State):
         movement_arbiter_system(self.game.world)
         destacking_system(self.game.world)
         projectile_contact_system(self.game.world)
-        
+
         # Phase 4: lifetime, camera, and events.
         #
         # lifetime_system expires temporary entities.
@@ -374,6 +374,10 @@ class StateGameplay(State):
         camera_system(self.game.world, surface, render_alpha)
         tile_render_system(self.game.world, surface, render_alpha)
         sprite_system(self.game.world, surface, render_alpha, draw_debug=self.game.debug_mode)
+
+        if self.game.debug_mode:
+            self.game.debug.draw_projectile_contact_footprints(self.game.world, surface)
+
         self.gameplay_ui.draw(surface)
 
 

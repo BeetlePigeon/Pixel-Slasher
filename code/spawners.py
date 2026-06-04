@@ -1,4 +1,5 @@
 from constants import TILE_UNITS
+import copy
 from effect_ops import spawn_effect_carrier
 from support import Vec2i, Transform
 from utils.tile_vec_utils import tile_from_cpos
@@ -19,6 +20,9 @@ def spawn_test_projectile(
     skill_id,
     effect_triggers,
     collides_with_teams,
+    contact_footprint,
+    contact_response,
+    contact_cadence=None,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
@@ -39,15 +43,19 @@ def spawn_test_projectile(
         "last_delta": Vec2i(0, 0),
         "influence_mode": "normal",
     }
-    world.projectile[eid] = {
+    projectile = {
         "source": source,
         "skill_id": skill_id,
         "effect_triggers": effect_triggers,
-        "contact_footprint": "plus5",
-        "contact_response": {
-            "dynamic_actor": "destroy_self",
-        },
+        "contact_footprint": contact_footprint,
+        "contact_response": copy.deepcopy(contact_response),
+        "contact_runtime": {},
     }
+
+    if contact_cadence is not None:
+        projectile["contact_cadence"] = copy.deepcopy(contact_cadence)
+
+    world.projectile[eid] = projectile
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
         "dynamic_blockers": "allow",

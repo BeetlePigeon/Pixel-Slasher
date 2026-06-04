@@ -35,6 +35,12 @@ def handle_projectile_dynamic_actor_contacts(
         projectile_data,
     )
 
+    contact_targets = filter_targets_by_projectile_contact_cadence(
+        world,
+        projectile_data,
+        contact_targets,
+    )
+
     if not contact_targets:
         return
 
@@ -43,10 +49,17 @@ def handle_projectile_dynamic_actor_contacts(
     )
 
     if dynamic_actor_response == "destroy_self":
+        contact_target = contact_targets[0]
+
         emit_projectile_dynamic_actor_contact(
             world,
             projectile,
-            contact_targets[0],
+            contact_target,
+        )
+        record_projectile_contact_cadence_hits(
+            world,
+            projectile_data,
+            (contact_target,),
         )
         world.entities.destroy(projectile)
         return
@@ -58,6 +71,12 @@ def handle_projectile_dynamic_actor_contacts(
                 projectile,
                 contact_target,
             )
+
+        record_projectile_contact_cadence_hits(
+            world,
+            projectile_data,
+            contact_targets,
+        )
         return
 
     raise NotImplementedError(
@@ -73,6 +92,127 @@ def get_projectile_dynamic_actor_response(projectile_data):
         "dynamic_actor",
         "continue",
     )
+
+
+def filter_targets_by_projectile_contact_cadence(
+    world,
+    projectile_data,
+    targets,
+):
+    contact_cadence = projectile_data.get("contact_cadence")
+
+    if contact_cadence is None:
+        return targets
+
+    cadence_type = contact_cadence["type"]
+
+    if cadence_type == "once_per_projectile":
+        return filter_targets_once_per_projectile(
+            projectile_data,
+            targets,
+        )
+
+    if cadence_type == "per_target_cooldown":
+        return filter_targets_per_target_cooldown(
+            world,
+            projectile_data,
+            contact_cadence,
+            targets,
+        )
+
+    raise NotImplementedError(
+        f"Projectile contact cadence type not implemented: {cadence_type}"
+    )
+
+
+def filter_targets_once_per_projectile(projectile_data, targets):
+    runtime = projectile_data.setdefault("contact_runtime", {})
+    hit_targets = runtime.setdefault("hit_targets", {})
+
+    return tuple(
+        target
+        for target in targets
+        if target not in hit_targets
+    )
+
+
+def filter_targets_per_target_cooldown(
+    world,
+    projectile_data,
+    contact_cadence,
+    targets,
+):
+    runtime = projectile_data.setdefault("contact_runtime", {})
+    next_eligible_by_target = runtime.setdefault(
+        "next_eligible_by_target",
+        {},
+    )
+
+    return tuple(
+        target
+        for target in targets
+        if world.tick >= next_eligible_by_target.get(target, 0)
+    )
+
+
+def record_projectile_contact_cadence_hits(
+    world,
+    projectile_data,
+    targets,
+):
+    contact_cadence = projectile_data.get("contact_cadence")
+
+    if contact_cadence is None:
+        return
+
+    cadence_type = contact_cadence["type"]
+
+    if cadence_type == "once_per_projectile":
+        record_once_per_projectile_hits(
+            projectile_data,
+            targets,
+        )
+        return
+
+    if cadence_type == "per_target_cooldown":
+        record_per_target_cooldown_hits(
+            world,
+            projectile_data,
+            contact_cadence,
+            targets,
+        )
+        return
+
+    raise NotImplementedError(
+        f"Projectile contact cadence type not implemented: {cadence_type}"
+    )
+
+
+def record_once_per_projectile_hits(projectile_data, targets):
+    runtime = projectile_data.setdefault("contact_runtime", {})
+    hit_targets = runtime.setdefault("hit_targets", {})
+
+    for target in targets:
+        hit_targets[target] = True
+
+
+def record_per_target_cooldown_hits(
+    world,
+    projectile_data,
+    contact_cadence,
+    targets,
+):
+    runtime = projectile_data.setdefault("contact_runtime", {})
+    cooldown_ticks = contact_cadence["cooldown_ticks"]
+    next_eligible_by_target = runtime.setdefault(
+        "next_eligible_by_target",
+        {},
+    )
+
+    for target in targets:
+        next_eligible_by_target[target] = (
+            world.tick + cooldown_ticks
+        )
 
 
 def emit_projectile_dynamic_actor_contact(

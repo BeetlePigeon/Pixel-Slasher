@@ -28,3 +28,6 @@ class Assets:
 
         # UI
         self.images["button"] = self.load_image("ui", "button.png")
+
+        # Debug
+        self.images["highlighted_tile"] = self.load_image("debug", "highlighted_tile.png")
