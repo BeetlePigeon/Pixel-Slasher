@@ -1,9 +1,8 @@
-import copy
 from constants import TILE_UNITS
-from effect_selection_ops import materialize_snapshot_effect_selection
+from effect_ops import spawn_effect_carrier
 from support import Vec2i, Transform
 from utils.tile_vec_utils import tile_from_cpos
-from utils.occupancy_utils import is_tile_static_blocked
+from spawn_ops import can_spawn_at
 from motion_controllers import (
     LinearProjectileController,
     SpiralProjectileController,
@@ -177,73 +176,13 @@ def spawn_meteor(
     effect_carrier_lifecycle,
     visual,
 ):
-    if not can_spawn_at(world, cpos, static_tiles="reject"):
-        return None
-
-    eid = world.entities.create()
-    tile = tile_from_cpos(cpos)
-
-    world.transform[eid] = Transform(
-        tile=tile,
-        cpos=cpos,
-        prev_cpos=cpos,
-        position_mode="free",
+    return spawn_effect_carrier(
+        world,
+        cpos,
+        source=source,
+        skill_id=skill_id,
+        effect_delivery_templates=effect_delivery_templates,
+        effect_carrier_lifecycle=effect_carrier_lifecycle,
+        visual=visual,
+        static_tiles_placement_handling="reject",
     )
-
-    effect_deliveries = []
-
-    for effect_delivery_template in effect_delivery_templates:
-        effect_delivery = copy.deepcopy(effect_delivery_template)
-
-        selection = effect_delivery["selection"]
-
-        materialize_snapshot_effect_selection(
-            selection,
-            anchor_tile=tile,
-        )
-
-        effect_delivery["context"] = {
-            "owner": source,
-            "instigator": source,
-            "source_kind": "skill",
-            "source_id": skill_id,
-        }
-
-        effect_delivery["runtime"] = {
-            "age": 0,
-            "delivered": False,
-        }
-
-        effect_deliveries.append(effect_delivery)
-
-    world.effect_deliveries[eid] = effect_deliveries
-    world.effect_carrier_lifecycle[eid] = copy.deepcopy(effect_carrier_lifecycle)
-
-    image_id = visual["image"]
-    world.sprite[eid] = {
-        "image": world.game.assets.images[image_id],
-        "anchor": visual["anchor"],
-        "z": visual["z"],
-    }
-    return eid
-
-
-def can_spawn_at(world, cpos, static_tiles="reject"):
-    tile = tile_from_cpos(cpos)
-
-    blocked = is_spawn_tile_blocked(world, tile)
-
-    if not blocked:
-        return True
-
-    if static_tiles == "allow":
-        return True
-
-    if static_tiles == "reject":
-        return False
-
-    raise ValueError(f"Unknown spawn collision policy: {static_tiles}")
-
-
-def is_spawn_tile_blocked(world, tile):
-    return is_tile_static_blocked(world, tile)

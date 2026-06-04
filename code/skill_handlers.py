@@ -1,5 +1,4 @@
 from support import Vec2i
-from systems import effect_delivery_system
 from utils.tile_vec_utils import (
     scale_normalized_dir,
     tile_from_cpos,
@@ -8,6 +7,7 @@ from utils.tile_vec_utils import (
 from utils.teleport_utils import resolve_path_tolerant_teleport_tile, teleport_entity_to_tile
 from utils.placement_utils import find_nearest_valid_placement_tile_with_line_of_sight
 from utils.camera_utils import internal_screen_to_world_tile, snap_camera_to_entity_now
+from effect_ops import spawn_effect_carrier
 from spawners import (
     spawn_test_projectile,
     spawn_spiral_projectile,
@@ -209,8 +209,6 @@ def execute_teleport(world, caster, context):
 
 
 def execute_debug_slash(world, caster, context):
-    from combat_ops import queue_area_damage
-
     aim_vector = resolve_context_aim_vector(
         world,
         caster,
@@ -240,20 +238,18 @@ def execute_debug_slash(world, caster, context):
             color=params.get("debug_highlight_color", "yellow"),
         )
 
-    hit_targets = queue_area_damage(
+    eid = spawn_immediate_tile_damage_effect(
         world,
-        source=caster,
+        caster,
+        skill_id=context["skill_def"]["id"],
         tiles=affected_tiles,
         amount=params["damage"],
-        skill_id=context["skill_def"]["id"],
     )
 
-    return True
+    return eid is not None
 
 
 def execute_counter_slash(world, caster, context):
-    from combat_ops import queue_area_damage
-
     params = context["params"]
     intent = context["intent"]
 
@@ -287,19 +283,18 @@ def execute_counter_slash(world, caster, context):
             duration_ticks=params["debug_highlight_ticks"],
             color=params["debug_highlight_color"],
         )
-
-    queue_area_damage(
+    eid = spawn_immediate_tile_damage_effect(
         world,
-        source=caster,
+        caster,
+        skill_id=context["skill_def"]["id"],
         tiles=affected_tiles,
         amount=params["damage"],
-        skill_id=context["skill_def"]["id"],
     )
 
     if caster in world.facing:
         world.facing[caster] = direction
 
-    return True
+    return eid is not None
 
 
 def execute_meteor(world, caster, context):
@@ -366,3 +361,51 @@ def get_skill_handler(handler_id):
         )
 
     return HANDLERS[handler_id]
+
+
+def spawn_immediate_tile_damage_effect(
+    world,
+    caster,
+    skill_id,
+    tiles,
+    amount,
+    damage_type="physical",
+):
+    caster_transform = world.transform[caster]
+
+    return spawn_effect_carrier(
+        world,
+        caster_transform.cpos,
+        source=caster,
+        skill_id=skill_id,
+        effect_delivery_templates=[
+            {
+                "activation": {
+                    "type": "immediate",
+                },
+                "selection": {
+                    "type": "tiles",
+                    "tiles": list(tiles),
+                },
+                "filtering": {
+                    "relationship": "enemies",
+                    "requires": ["hittable"],
+                    "include_source": False,
+                },
+                "payloads": [
+                    {
+                        "type": "damage",
+                        "params": {
+                            "amount": amount,
+                            "damage_type": damage_type,
+                        },
+                    },
+                ],
+            }
+        ],
+        effect_carrier_lifecycle={
+            "destroy_when": "effect_deliveries_complete",
+        },
+        visual=None,
+        static_tiles_placement_handling="allow",
+    )
