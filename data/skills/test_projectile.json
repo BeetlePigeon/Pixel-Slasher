@@ -19,8 +19,7 @@
     "spawn_distance",
     "projectile_speed",
     "projectile_lifetime",
-    "effect_deliveries",
-    "effect_carrier_lifecycle",
+    "effect_triggers",
     "collides_with_teams"
   ],
 
@@ -49,31 +48,36 @@
     "spawn_distance": 1024,
     "projectile_speed": 512,
     "projectile_lifetime": 300,
-    "effect_deliveries": [
+    "effect_triggers": [
       {
-        "activation": {
-          "type": "immediate"
-        },
-        "selection": {
-          "type": "contact_target"
-        },
-        "filtering": {
-          "requires": ["hittable", "health"]
-        },
-        "payloads": [
+        "event": "entity_destroyed_by_movement_collision",
+        "effect_deliveries": [
           {
-            "type": "damage",
-            "params": {
-              "amount": 5,
-              "damage_type": "physical"
-            }
+            "activation": {
+              "type": "immediate"
+            },
+            "selection": {
+              "type": "contact_target"
+            },
+            "filtering": {
+              "requires": ["hittable", "health"]
+            },
+            "payloads": [
+              {
+                "type": "damage",
+                "params": {
+                  "amount": 5,
+                  "damage_type": "physical"
+                }
+              }
+            ]
           }
-        ]
+        ],
+        "effect_carrier_lifecycle": {
+          "destroy_when": "effect_deliveries_complete"
+        }
       }
     ],
-    "effect_carrier_lifecycle": {
-      "destroy_when": "effect_deliveries_complete"
-    },
     "collides_with_teams": ["enemy"]
   },
 

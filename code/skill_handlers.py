@@ -112,8 +112,7 @@ def execute_test_projectile(world, caster, context):
         lifetime_ticks=params["projectile_lifetime"],
         source=caster,
         skill_id=context["skill_def"]["id"],
-        effect_delivery_templates=params["effect_deliveries"],
-        effect_carrier_lifecycle=params["effect_carrier_lifecycle"],
+        effect_triggers=params["effect_triggers"],
         collides_with_teams=params["collides_with_teams"],
     )
 

@@ -17,8 +17,7 @@ def spawn_test_projectile(
     lifetime_ticks,
     source,
     skill_id,
-    effect_delivery_templates,
-    effect_carrier_lifecycle,
+    effect_triggers,
     collides_with_teams,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
@@ -47,8 +46,7 @@ def spawn_test_projectile(
     world.projectile[eid] = {
         "source": source,
         "skill_id": skill_id,
-        "effect_deliveries": effect_delivery_templates,
-        "effect_carrier_lifecycle": effect_carrier_lifecycle,
+        "effect_triggers": effect_triggers,
     }
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
