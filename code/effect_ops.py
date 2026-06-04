@@ -14,6 +14,7 @@ def spawn_effect_carrier(
     visual=None,
     static_tiles_placement_handling="allow",
     materialization_context=None,
+    effect_context=None,
 ):
     if not can_spawn_at(world, cpos, static_tiles=static_tiles_placement_handling):
         return None
@@ -34,6 +35,7 @@ def spawn_effect_carrier(
         source=source,
         skill_id=skill_id,
         materialization_context=materialization_context,
+        effect_context=effect_context,
     )
 
     world.effect_deliveries[eid] = effect_deliveries
@@ -58,11 +60,15 @@ def materialize_effect_deliveries(
     source,
     skill_id,
     materialization_context=None,
+    effect_context=None,
 ):
     effect_deliveries = []
 
     if materialization_context is None:
         materialization_context = {}
+
+    if effect_context is None:
+        effect_context = {}
 
     for effect_delivery_template in effect_delivery_templates:
         effect_delivery = copy.deepcopy(effect_delivery_template)
@@ -74,12 +80,14 @@ def materialize_effect_deliveries(
             materialization_context=materialization_context,
         )
 
-        effect_delivery["context"] = {
+        context = {
             "owner": source,
             "instigator": source,
             "source_kind": "skill",
             "source_id": skill_id,
         }
+        context.update(effect_context)
+        effect_delivery["context"] = context
 
         effect_delivery["runtime"] = {
             "age": 0,
@@ -102,7 +110,7 @@ def materialize_snapshot_effect_selection(selection, anchor_tile, materializatio
         )
         return
 
-    if selection_type in ("source", "owner"):
+    if selection_type in ("source", "owner", "contact_target"):
         return
 
     raise NotImplementedError(

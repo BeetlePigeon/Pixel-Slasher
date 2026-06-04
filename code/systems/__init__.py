@@ -14,6 +14,7 @@ from systems.effect_delivery_system import effect_delivery_system
 from systems.effect_carrier_lifecycle_system import effect_carrier_lifecycle_system
 from systems.sprite_system import sprite_system, tile_render_system
 from systems.combat_system import combat_system
+from systems.projectile_effect_system import projectile_effect_system
 
 __all__ = [
     "snapshot_system",
@@ -37,4 +38,5 @@ __all__ = [
     "sprite_system",
     "tile_render_system",
     "combat_system",
+    "projectile_effect_system",
 ]

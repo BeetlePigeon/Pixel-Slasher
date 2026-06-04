@@ -21,12 +21,12 @@
 # .: Gamma Up
 # /: Reset Display Calibration
 # 1: Teleport
-# 2: Wide Projectiles
+# 2: Burst Projectiles
 # 3: Magnet
 # 4: Dash
 # 5: Spiral Projectile
 # 6: Debug Slash
-# 7: *FREE*
+# 7:
 # 8: Guard Counter
 # 9: Meteor
 # 0: Burning Field

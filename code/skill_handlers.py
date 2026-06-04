@@ -110,6 +110,11 @@ def execute_test_projectile(world, caster, context):
         aim_vector,
         speed=params["projectile_speed"],
         lifetime_ticks=params["projectile_lifetime"],
+        source=caster,
+        skill_id=context["skill_def"]["id"],
+        effect_delivery_templates=params["effect_deliveries"],
+        effect_carrier_lifecycle=params["effect_carrier_lifecycle"],
+        collides_with_teams=params["collides_with_teams"],
     )
 
     return eid is not None

@@ -28,7 +28,7 @@ def combat_damage_system(world):
                 world,
                 hit_tile,
                 duration_ticks=10,
-                color="red",
+                color="pink",
             )
 
         emit_event(

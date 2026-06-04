@@ -280,6 +280,13 @@ def resolve_delivery_targets(world, carrier, effect_delivery, context):
             context,
         )
 
+    if selection_type == "contact_target":
+        return resolve_contact_target_selection_targets(
+            world,
+            effect_delivery,
+            context,
+        )
+
     raise NotImplementedError(
         f"Effect selection type not implemented: {selection_type}"
     )
@@ -315,6 +322,17 @@ def resolve_owner_selection_targets(world, effect_delivery, context):
     return resolve_direct_selection_target(
         world,
         owner,
+        filtering,
+    )
+
+
+def resolve_contact_target_selection_targets(world, effect_delivery, context):
+    contact_target = context.get("contact_target")
+    filtering = get_effect_filtering(effect_delivery)
+
+    return resolve_direct_selection_target(
+        world,
+        contact_target,
         filtering,
     )
 

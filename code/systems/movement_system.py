@@ -6,15 +6,14 @@ from .event_system import emit_event
 from support import Vec2i
 from dataclasses import dataclass
 from typing import Optional
-from utils.placement_utils import (
-    is_dynamic_movement_placement_blocked,
-    is_static_movement_placement_blocked,
-)
+from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
     mark_dynamic_occupancy_dirty,
     is_tile_blocked_for_movement,
+    get_dynamic_movement_blockers_for_placement,
+    get_movement_body_tiles_for_origin_tile,
 )
 from motion_controllers import (
     BLOCK_RESPONSE_ABORT,
@@ -50,6 +49,7 @@ class MovementCollisionResult:
     collision_result: str
     blocker_collision_type: Optional[str] = None
     blocked_tile: Optional[Vec2i] = None
+    blocker_entity: Optional[int] = None
 
     @property
     def allows_movement(self):
@@ -75,6 +75,7 @@ def make_movement_collision_result(
     collision_result,
     blocker_collision_type=None,
     blocked_tile=None,
+    blocker_entity=None,
 ):
     if collision_result == "allow":
         return MOVEMENT_COLLISION_ALLOW
@@ -83,6 +84,7 @@ def make_movement_collision_result(
         collision_result=collision_result,
         blocker_collision_type=blocker_collision_type,
         blocked_tile=blocked_tile,
+        blocker_entity=blocker_entity,
     )
 
 def movement_collision_allows(collision_result):
@@ -119,6 +121,7 @@ def emit_movement_collision_event(
         tile=tile,
         blocker_collision_type=collision_result.blocker_collision_type,
         blocked_tile=collision_result.blocked_tile,
+        blocker_entity=collision_result.blocker_entity,
         had_controller=controller is not None,
         influence_active=influence_active,
     )
@@ -1948,12 +1951,25 @@ def handle_dynamic_movement_collision(world, entity, next_tile):
     if behavior == "allow":
         return MOVEMENT_COLLISION_ALLOW
 
-    if is_dynamic_movement_placement_blocked(
+    blockers = get_dynamic_movement_blockers_for_placement(
         world,
-        entity,
-        next_tile,
-    ):
-        return make_movement_collision_result(behavior, blocker_collision_type="dynamic", blocked_tile=next_tile)
+        mover_entity=entity,
+        proposed_center_tile=next_tile,
+        proposed_body_tiles=get_movement_body_tiles_for_origin_tile(
+            world,
+            entity,
+            next_tile,
+        ),
+        include_reservations=True,
+    )
+
+    if blockers:
+        return make_movement_collision_result(
+            behavior,
+            blocker_collision_type="dynamic",
+            blocked_tile=next_tile,
+            blocker_entity=blockers[0],
+        )
 
     return MOVEMENT_COLLISION_ALLOW
 

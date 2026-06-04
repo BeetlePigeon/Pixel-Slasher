@@ -18,7 +18,10 @@
   "required_params": [
     "spawn_distance",
     "projectile_speed",
-    "projectile_lifetime"
+    "projectile_lifetime",
+    "effect_deliveries",
+    "effect_carrier_lifecycle",
+    "collides_with_teams"
   ],
 
   "allowed_param_values": {},
@@ -70,7 +73,33 @@
     "aim_offset_distance_scaling": "tighten_with_mouse_distance",
     "aim_offset_near_tiles": 2,
     "aim_offset_far_tiles": 14,
-    "aim_offset_far_percent": 10
+    "aim_offset_far_percent": 10,
+    "effect_deliveries": [
+      {
+        "activation": {
+          "type": "immediate"
+        },
+        "selection": {
+          "type": "contact_target"
+        },
+        "filtering": {
+          "requires": ["hittable", "health"]
+        },
+        "payloads": [
+          {
+            "type": "damage",
+            "params": {
+              "amount": 1,
+              "damage_type": "physical"
+            }
+          }
+        ]
+      }
+    ],
+    "effect_carrier_lifecycle": {
+      "destroy_when": "effect_deliveries_complete"
+    },
+    "collides_with_teams": ["enemy"]
   },
 
   "handler": "execute_cast_skill"

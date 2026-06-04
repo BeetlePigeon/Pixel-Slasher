@@ -15,6 +15,11 @@ def spawn_test_projectile(
     aim_vector,
     speed,
     lifetime_ticks,
+    source,
+    skill_id,
+    effect_delivery_templates,
+    effect_carrier_lifecycle,
+    collides_with_teams,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
         return None
@@ -39,10 +44,19 @@ def spawn_test_projectile(
         "influence_mode": "normal",
     }
 
-    world.projectile[eid] = {}
+    world.projectile[eid] = {
+        "source": source,
+        "skill_id": skill_id,
+        "effect_deliveries": effect_delivery_templates,
+        "effect_carrier_lifecycle": effect_carrier_lifecycle,
+    }
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
-        "dynamic_blockers": "allow",
+        "dynamic_blockers": "destroy",
+    }
+    world.contact_filter[eid] = {
+        "ignore_entities": {source},
+        "collides_with_teams": set(collides_with_teams),
     }
     world.influence_receiver[eid] = {
         "accepts": {"wind", "magnet"},

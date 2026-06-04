@@ -1,4 +1,5 @@
 from .reaction_system import reaction_system
+from .projectile_effect_system import projectile_effect_system
 from .feedback_system import feedback_system
 
 
@@ -18,6 +19,7 @@ def event_system(world):
         return
 
     reaction_system(world, current_events)
+    projectile_effect_system(world, current_events)
     feedback_system(world, current_events)
 
 

@@ -11,6 +11,7 @@ DEFAULT_PLAYER_STATE = {
         3: "magnet_orb",
         4: "dash",
         5: "spiral_projectile",
+        7: None,
         6: "debug_slash",
         8: "guard_counter",
         9: "debug_channel_projectile",
