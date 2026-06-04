@@ -15,5 +15,6 @@ DEFAULT_PLAYER_STATE = {
         8: "guard_counter",
         9: "debug_channel_projectile",
         10: "meteor",
+        11: "burning_field",
     },
 }

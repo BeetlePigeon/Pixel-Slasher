@@ -29,7 +29,7 @@
 # 7: *FREE*
 # 8: Guard Counter
 # 9: Meteor
-# 0: *FREE*
+# 0: Burning Field
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

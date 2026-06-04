@@ -323,6 +323,61 @@ def execute_meteor(world, caster, context):
     return eid is not None
 
 
+def execute_placed_effect(world, caster, context):
+    params = context["params"]
+
+    intent = get_context_intent_for_aim(
+        world,
+        caster,
+        context,
+    )
+    mouse_pos = intent.get("mouse_pos")
+    if mouse_pos is None:
+        return False
+
+    target_tile = internal_screen_to_world_tile(world, mouse_pos)
+    caster_tile = tile_from_cpos(world.transform[caster].cpos)
+
+    spawn_tile = find_nearest_valid_placement_tile_with_line_of_sight(
+        world,
+        target_tile=target_tile,
+        search_radius=params["placement_search_radius"],
+        max_miss_tiles=params["placement_max_miss_tiles"],
+        source_tile=caster_tile,
+        bias_mode="toward",
+    )
+    if spawn_tile is None:
+        return False
+
+    spawn_cpos = tile_center(spawn_tile)
+
+    eid = spawn_effect_carrier(
+        world,
+        spawn_cpos,
+        source=caster,
+        skill_id=context["skill_def"]["id"],
+        effect_delivery_templates=params["effect_deliveries"],
+        effect_carrier_lifecycle=params["effect_carrier_lifecycle"],
+        visual=params.get("visual"),
+        static_tiles_placement_handling=(
+            params.get("static_tiles_placement_handling", "reject")
+        ),
+    )
+
+    if eid is None:
+        return False
+
+    if "debug_highlight_ticks" in params:
+        add_effect_delivery_tile_debug_highlights(
+            world,
+            carrier=eid,
+            duration_ticks=params["debug_highlight_ticks"],
+            color=params["debug_highlight_color"],
+        )
+
+    return True
+
+
 HANDLERS = {
     "execute_dash": execute_dash,
     "execute_cast_skill": execute_cast_skill,
@@ -334,6 +389,7 @@ HANDLERS = {
     "execute_counter_slash": execute_counter_slash,
     "execute_channel_skill": execute_channel_skill,
     "execute_meteor": execute_meteor,
+    "execute_placed_effect": execute_placed_effect,
 }
 
 

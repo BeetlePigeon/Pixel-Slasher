@@ -28,19 +28,33 @@ def process_effect_delivery(world, carrier, effect_delivery):
         carrier,
         effect_delivery,
     )
+
     targets = resolve_delivery_targets(
         world,
         carrier,
         effect_delivery,
         context,
     )
+
+    targets = filter_targets_by_target_cadence(
+        effect_delivery,
+        targets,
+    )
+
     apply_effect_payloads_to_targets(
         world,
         effect_delivery,
         context,
         targets,
     )
-    complete_effect_delivery(effect_delivery)
+
+    record_target_cadence_hits(
+        effect_delivery,
+        targets,
+    )
+
+    if effect_delivery_completes_after_activation(effect_delivery):
+        complete_effect_delivery(effect_delivery)
 
 
 def advance_effect_runtime(effect_delivery):
@@ -190,6 +204,12 @@ def activation_should_fire(effect_delivery):
             runtime,
         )
 
+    if activation_type == "continuous":
+        return continuous_activation_should_fire(
+            activation,
+            runtime,
+        )
+
     raise NotImplementedError(
         f"Effect activation type not implemented: {activation_type}"
     )
@@ -203,6 +223,34 @@ def once_activation_should_fire(activation, runtime):
     return (
         not runtime.get("delivered", False)
         and runtime["age"] >= activation["tick"]
+    )
+
+
+def continuous_activation_should_fire(activation, runtime):
+    check_interval_ticks = activation.get("check_interval_ticks", 1)
+
+    if check_interval_ticks <= 0:
+        raise ValueError(
+            "continuous effect activation requires "
+            "check_interval_ticks > 0"
+        )
+
+    return (runtime["age"] - 1) % check_interval_ticks == 0
+
+
+def effect_delivery_completes_after_activation(effect_delivery):
+    activation = effect_delivery["activation"]
+    activation_type = activation["type"]
+
+    if activation_type in ("immediate", "once"):
+        return True
+
+    if activation_type == "continuous":
+        return False
+
+    raise NotImplementedError(
+        "Effect delivery completion behavior not implemented for "
+        f"activation type: {activation_type}"
     )
 
 
@@ -378,6 +426,117 @@ def entity_matches_relationship(world, source, target, relationship):
     raise NotImplementedError(
         f"Effect delivery target relationship not implemented: {relationship}"
     )
+
+
+def filter_targets_by_target_cadence(effect_delivery, targets):
+    target_cadence = effect_delivery.get("target_cadence")
+
+    if target_cadence is None:
+        return targets
+
+    cadence_type = target_cadence["type"]
+
+    if cadence_type == "once_per_delivery":
+        return filter_targets_once_per_delivery(
+            effect_delivery,
+            targets,
+        )
+
+    if cadence_type == "per_target_cooldown":
+        return filter_targets_per_target_cooldown(
+            effect_delivery,
+            target_cadence,
+            targets,
+        )
+
+    raise NotImplementedError(
+        f"Effect target cadence type not implemented: {cadence_type}"
+    )
+
+
+def filter_targets_once_per_delivery(effect_delivery, targets):
+    runtime = effect_delivery["runtime"]
+    hit_targets = runtime.setdefault("hit_targets", {})
+
+    return [
+        target
+        for target in targets
+        if target not in hit_targets
+    ]
+
+
+def filter_targets_per_target_cooldown(
+    effect_delivery,
+    target_cadence,
+    targets,
+):
+    runtime = effect_delivery["runtime"]
+    current_age = runtime["age"]
+    next_eligible_by_target = runtime.setdefault(
+        "next_eligible_by_target",
+        {},
+    )
+
+    return [
+        target
+        for target in targets
+        if current_age >= next_eligible_by_target.get(target, 0)
+    ]
+
+
+def record_target_cadence_hits(effect_delivery, targets):
+    target_cadence = effect_delivery.get("target_cadence")
+
+    if target_cadence is None:
+        return
+
+    cadence_type = target_cadence["type"]
+
+    if cadence_type == "once_per_delivery":
+        record_once_per_delivery_hits(
+            effect_delivery,
+            targets,
+        )
+        return
+
+    if cadence_type == "per_target_cooldown":
+        record_per_target_cooldown_hits(
+            effect_delivery,
+            target_cadence,
+            targets,
+        )
+        return
+
+    raise NotImplementedError(
+        f"Effect target cadence type not implemented: {cadence_type}"
+    )
+
+
+def record_once_per_delivery_hits(effect_delivery, targets):
+    runtime = effect_delivery["runtime"]
+    hit_targets = runtime.setdefault("hit_targets", {})
+
+    for target in targets:
+        hit_targets[target] = True
+
+
+def record_per_target_cooldown_hits(
+    effect_delivery,
+    target_cadence,
+    targets,
+):
+    runtime = effect_delivery["runtime"]
+    current_age = runtime["age"]
+    cooldown_ticks = target_cadence["cooldown_ticks"]
+    next_eligible_by_target = runtime.setdefault(
+        "next_eligible_by_target",
+        {},
+    )
+
+    for target in targets:
+        next_eligible_by_target[target] = (
+            current_age + cooldown_ticks
+        )
 
 
 def complete_effect_delivery(effect_delivery):

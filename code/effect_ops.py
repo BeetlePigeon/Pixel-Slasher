@@ -37,9 +37,9 @@ def spawn_effect_carrier(
     )
 
     world.effect_deliveries[eid] = effect_deliveries
-    world.effect_carrier_lifecycle[eid] = copy.deepcopy(
-        effect_carrier_lifecycle
-    )
+    lifecycle = copy.deepcopy(effect_carrier_lifecycle)
+    lifecycle["age"] = 0
+    world.effect_carrier_lifecycle[eid] = lifecycle
 
     if visual is not None:
         image_id = visual["image"]
