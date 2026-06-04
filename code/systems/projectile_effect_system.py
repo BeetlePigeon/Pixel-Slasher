@@ -85,8 +85,11 @@ def build_projectile_effect_context(projectile_entity, event):
         "blocker_collision_type": event.get("blocker_collision_type"),
     }
 
-    blocker_entity = event.get("blocker_entity")
-    if blocker_entity is not None:
-        effect_context["contact_target"] = blocker_entity
+    contact_target = event.get(
+        "contact_target",
+        event.get("blocker_entity"),
+    )
+    if contact_target is not None:
+        effect_context["contact_target"] = contact_target
 
     return effect_context

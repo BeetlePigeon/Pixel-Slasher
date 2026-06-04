@@ -24,16 +24,13 @@ def spawn_test_projectile(
         return None
 
     eid = world.entities.create()
-
     projectile_image = world.game.assets.images["test_projectile"]
-
     world.transform[eid] = Transform(
         tile=tile_from_cpos(cpos),
         cpos=cpos,
         prev_cpos=cpos,
         position_mode="free",
     )
-
     world.motion_state[eid] = {
         "controller": LinearProjectileController(
             aim_vector=aim_vector,
@@ -42,15 +39,18 @@ def spawn_test_projectile(
         "last_delta": Vec2i(0, 0),
         "influence_mode": "normal",
     }
-
     world.projectile[eid] = {
         "source": source,
         "skill_id": skill_id,
         "effect_triggers": effect_triggers,
+        "contact_footprint": "plus5",
+        "contact_response": {
+            "dynamic_actor": "destroy_self",
+        },
     }
     world.movement_collision[eid] = {
         "static_tiles": "destroy",
-        "dynamic_blockers": "destroy",
+        "dynamic_blockers": "allow",
     }
     world.space_occupier[eid] = {
         "blocks_movement": False,
@@ -68,17 +68,14 @@ def spawn_test_projectile(
         },
         "max_delta": TILE_UNITS // 8,
     }
-
     world.lifetime[eid] = {
         "remaining_ticks": lifetime_ticks,
     }
-
     world.sprite[eid] = {
         "image": projectile_image,
         "anchor": "center",
         "z": 0,
     }
-
     return eid
 
 

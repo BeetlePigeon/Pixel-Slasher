@@ -75,7 +75,7 @@
     "aim_offset_far_percent": 10,
     "effect_triggers": [
       {
-        "event": "entity_destroyed_by_movement_collision",
+        "event": "projectile_dynamic_actor_contact",
         "effect_deliveries": [
           {
             "activation": {

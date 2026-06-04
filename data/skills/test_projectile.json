@@ -50,7 +50,7 @@
     "projectile_lifetime": 300,
     "effect_triggers": [
       {
-        "event": "entity_destroyed_by_movement_collision",
+        "event": "projectile_dynamic_actor_contact",
         "effect_deliveries": [
           {
             "activation": {
