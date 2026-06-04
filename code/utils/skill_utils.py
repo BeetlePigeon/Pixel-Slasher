@@ -82,60 +82,6 @@ def aim_vector_to_tile_direction(aim_vector):
     )
 
 
-def build_ranged_slash_fan_tiles(
-    origin_tile,
-    direction,
-    range_tiles,
-):
-    tiles = set()
-
-    if direction.x == 0 and direction.y == 0:
-        return []
-
-    for step in range(1, range_tiles + 1):
-        forward_tile = Vec2i(
-            origin_tile.x + direction.x * step,
-            origin_tile.y + direction.y * step,
-        )
-
-        tiles.add(forward_tile)
-
-        if direction.x != 0 and direction.y != 0:
-            tiles.add(Vec2i(
-                origin_tile.x + direction.x * step,
-                origin_tile.y + direction.y * (step - 1),
-            ))
-
-            tiles.add(Vec2i(
-                origin_tile.x + direction.x * (step - 1),
-                origin_tile.y + direction.y * step,
-            ))
-
-        elif direction.x != 0:
-            tiles.add(Vec2i(
-                forward_tile.x,
-                forward_tile.y - 1,
-            ))
-
-            tiles.add(Vec2i(
-                forward_tile.x,
-                forward_tile.y + 1,
-            ))
-
-        else:
-            tiles.add(Vec2i(
-                forward_tile.x - 1,
-                forward_tile.y,
-            ))
-
-            tiles.add(Vec2i(
-                forward_tile.x + 1,
-                forward_tile.y,
-            ))
-
-    return list(tiles)
-
-
 def get_direction_to_entity(world, source_entity, target_entity):
     source_transform = world.transform.get(source_entity)
     target_transform = world.transform.get(target_entity)
@@ -154,55 +100,6 @@ def get_direction_to_entity(world, source_entity, target_entity):
         return None
 
     return direction
-
-
-def build_slash_fan_tiles(origin_tile, direction):
-    if direction.x == 0 and direction.y == 0:
-        return []
-
-    tiles = set()
-
-    forward_tile = Vec2i(
-        origin_tile.x + direction.x,
-        origin_tile.y + direction.y,
-    )
-
-    tiles.add(forward_tile)
-
-    if direction.x != 0 and direction.y != 0:
-        # Diagonal slash: include the two orthogonal tiles that form the corner.
-        tiles.add(Vec2i(
-            origin_tile.x + direction.x,
-            origin_tile.y,
-        ))
-        tiles.add(Vec2i(
-            origin_tile.x,
-            origin_tile.y + direction.y,
-        ))
-
-    elif direction.x != 0:
-        # Horizontal tile-space slash: include tiles above/below the forward tile.
-        tiles.add(Vec2i(
-            forward_tile.x,
-            forward_tile.y - 1,
-        ))
-        tiles.add(Vec2i(
-            forward_tile.x,
-            forward_tile.y + 1,
-        ))
-
-    else:
-        # Vertical tile-space slash: include tiles left/right of the forward tile.
-        tiles.add(Vec2i(
-            forward_tile.x - 1,
-            forward_tile.y,
-        ))
-        tiles.add(Vec2i(
-            forward_tile.x + 1,
-            forward_tile.y,
-        ))
-
-    return list(tiles)
 
 
 def apply_aim_offset_steps(aim_vector: Vec2i, offset_steps: int, lut_size: int):

@@ -10,8 +10,8 @@
 
   "required_components": ["transform", "facing"],
   "required_params": [
-    "damage",
-    "range_tiles",
+    "effect_deliveries",
+    "effect_carrier_lifecycle",
     "debug_highlight_ticks",
     "debug_highlight_color"
   ],
@@ -55,8 +55,37 @@
   "channel": null,
 
   "params": {
-    "damage": 2,
-    "range_tiles": 2,
+    "effect_deliveries": [
+      {
+        "activation": {
+          "type": "immediate"
+        },
+        "selection": {
+          "type": "tiles",
+          "shape": {
+            "type": "ranged_slash_fan",
+            "range_tiles": 2
+          }
+        },
+        "filtering": {
+          "relationship": "enemies",
+          "requires": ["hittable"],
+          "include_source": false
+        },
+        "payloads": [
+          {
+            "type": "damage",
+            "params": {
+              "amount": 2,
+              "damage_type": "physical"
+            }
+          }
+        ]
+      }
+    ],
+    "effect_carrier_lifecycle": {
+      "destroy_when": "effect_deliveries_complete"
+    },
     "debug_highlight_ticks": 12,
     "debug_highlight_color": "orange"
   },

@@ -20,8 +20,6 @@ from utils.skill_utils import (
     resolve_context_aim_vector,
     aim_vector_to_tile_direction,
     get_direction_to_entity,
-    build_slash_fan_tiles,
-    build_ranged_slash_fan_tiles,
 )
 from motion_controllers import DashController
 
@@ -214,39 +212,31 @@ def execute_debug_slash(world, caster, context):
         caster,
         context,
     )
-
     if aim_vector is None:
         return False
 
-    transform = world.transform[caster]
-    origin_tile = tile_from_cpos(transform.cpos)
-
     direction = aim_vector_to_tile_direction(aim_vector)
-
-    affected_tiles = build_slash_fan_tiles(
-        origin_tile,
-        direction,
-    )
-
     params = context["params"]
 
-    for tile in affected_tiles:
-        world.game.debug.add_debug_tile_highlight(
-            world,
-            tile,
-            duration_ticks=params.get("debug_highlight_ticks", 12),
-            color=params.get("debug_highlight_color", "yellow"),
-        )
-
-    eid = spawn_immediate_tile_damage_effect(
+    eid = spawn_directional_skill_effect(
         world,
         caster,
         skill_id=context["skill_def"]["id"],
-        tiles=affected_tiles,
-        amount=params["damage"],
+        params=params,
+        direction=direction,
     )
 
-    return eid is not None
+    if eid is None:
+        return False
+
+    add_effect_delivery_tile_debug_highlights(
+        world,
+        carrier=eid,
+        duration_ticks=params["debug_highlight_ticks"],
+        color=params["debug_highlight_color"],
+    )
+
+    return True
 
 
 def execute_counter_slash(world, caster, context):
@@ -256,7 +246,6 @@ def execute_counter_slash(world, caster, context):
     target_entity = intent.get("counter_target")
 
     direction = None
-
     if target_entity is not None:
         direction = get_direction_to_entity(
             world,
@@ -267,34 +256,28 @@ def execute_counter_slash(world, caster, context):
     if direction is None:
         direction = world.facing.get(caster, Vec2i(1, 0))
 
-    transform = world.transform[caster]
-    origin_tile = tile_from_cpos(transform.cpos)
-
-    affected_tiles = build_ranged_slash_fan_tiles(
-        origin_tile,
-        direction,
-        params["range_tiles"],
-    )
-
-    for tile in affected_tiles:
-        world.game.debug.add_debug_tile_highlight(
-            world,
-            tile,
-            duration_ticks=params["debug_highlight_ticks"],
-            color=params["debug_highlight_color"],
-        )
-    eid = spawn_immediate_tile_damage_effect(
+    eid = spawn_directional_skill_effect(
         world,
         caster,
         skill_id=context["skill_def"]["id"],
-        tiles=affected_tiles,
-        amount=params["damage"],
+        params=params,
+        direction=direction,
     )
 
     if caster in world.facing:
         world.facing[caster] = direction
 
-    return eid is not None
+    if eid is None:
+        return False
+
+    add_effect_delivery_tile_debug_highlights(
+        world,
+        carrier=eid,
+        duration_ticks=params["debug_highlight_ticks"],
+        color=params["debug_highlight_color"],
+    )
+
+    return True
 
 
 def execute_meteor(world, caster, context):
@@ -363,13 +346,12 @@ def get_skill_handler(handler_id):
     return HANDLERS[handler_id]
 
 
-def spawn_immediate_tile_damage_effect(
+def spawn_directional_skill_effect(
     world,
     caster,
     skill_id,
-    tiles,
-    amount,
-    damage_type="physical",
+    params,
+    direction,
 ):
     caster_transform = world.transform[caster]
 
@@ -378,34 +360,32 @@ def spawn_immediate_tile_damage_effect(
         caster_transform.cpos,
         source=caster,
         skill_id=skill_id,
-        effect_delivery_templates=[
-            {
-                "activation": {
-                    "type": "immediate",
-                },
-                "selection": {
-                    "type": "tiles",
-                    "tiles": list(tiles),
-                },
-                "filtering": {
-                    "relationship": "enemies",
-                    "requires": ["hittable"],
-                    "include_source": False,
-                },
-                "payloads": [
-                    {
-                        "type": "damage",
-                        "params": {
-                            "amount": amount,
-                            "damage_type": damage_type,
-                        },
-                    },
-                ],
-            }
-        ],
-        effect_carrier_lifecycle={
-            "destroy_when": "effect_deliveries_complete",
-        },
+        effect_delivery_templates=params["effect_deliveries"],
+        effect_carrier_lifecycle=params["effect_carrier_lifecycle"],
         visual=None,
         static_tiles_placement_handling="allow",
+        materialization_context={
+            "direction": direction,
+        },
     )
+
+
+def add_effect_delivery_tile_debug_highlights(
+    world,
+    carrier,
+    duration_ticks,
+    color,
+):
+    for effect_delivery in world.effect_deliveries.get(carrier, []):
+        selection = effect_delivery["selection"]
+
+        if selection["type"] != "tiles":
+            continue
+
+        for tile in selection["tiles"]:
+            world.game.debug.add_debug_tile_highlight(
+                world,
+                tile,
+                duration_ticks=duration_ticks,
+                color=color,
+            )

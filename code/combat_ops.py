@@ -96,29 +96,3 @@ def queue_heal_request(
         "skill_id": skill_id,
         "hit_tile": hit_tile,
     })
-
-
-def queue_area_damage(
-    world,
-    source,
-    tiles,
-    amount,
-    skill_id=None,
-):
-    targets = find_hittable_entities_on_tiles(
-        world,
-        source,
-        tiles,
-    )
-
-    for target in targets:
-        queue_damage_request(
-            world,
-            source=source,
-            target=target,
-            amount=amount,
-            skill_id=skill_id,
-            hit_tile=get_entity_current_tile(world, target),
-        )
-
-    return targets

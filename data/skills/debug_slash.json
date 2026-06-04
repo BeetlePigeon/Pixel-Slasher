@@ -18,7 +18,8 @@
   "required_params": [
     "debug_highlight_ticks",
     "debug_highlight_color",
-    "damage"
+    "effect_deliveries",
+    "effect_carrier_lifecycle"
   ],
 
   "allowed_param_values": {},
@@ -65,7 +66,36 @@
   "params": {
     "debug_highlight_ticks": 12,
     "debug_highlight_color": "yellow",
-    "damage": 1
+    "effect_deliveries": [
+      {
+        "activation": {
+          "type": "immediate"
+        },
+        "selection": {
+          "type": "tiles",
+          "shape": {
+            "type": "slash_fan"
+          }
+        },
+        "filtering": {
+          "relationship": "enemies",
+          "requires": ["hittable"],
+          "include_source": false
+        },
+        "payloads": [
+          {
+            "type": "damage",
+            "params": {
+              "amount": 1,
+              "damage_type": "physical"
+            }
+          }
+        ]
+      }
+    ],
+    "effect_carrier_lifecycle": {
+      "destroy_when": "effect_deliveries_complete"
+    }
   },
 
   "handler": "execute_cast_skill"
