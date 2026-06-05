@@ -24,12 +24,13 @@
 # 2: Burst Projectiles
 # 3: Magnet
 # 4: Dash
-# 5: Spiral Projectile
+# 5: Fireball Projectile
 # 6: Debug Slash
-# 7:
+# 7: Pierce Projectile
 # 8: Guard Counter
 # 9: Meteor
 # 0: Burning Field
+# Not Currently Assigned: Spiral Projectile
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

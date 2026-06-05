@@ -22,7 +22,8 @@
     "effect_triggers",
     "collides_with_teams",
     "contact_footprint",
-    "contact_response"
+    "contact_response",
+    "movement_footprint"
   ],
 
   "allowed_param_values": {},
@@ -109,7 +110,8 @@
     "contact_footprint": "plus5",
     "contact_response": {
       "dynamic_actor": "destroy_self"
-    }
+    },
+    "movement_footprint": "plus5"
   },
 
   "handler": "execute_cast_skill"

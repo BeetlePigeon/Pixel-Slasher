@@ -20,6 +20,7 @@ def spawn_test_projectile(
     skill_id,
     effect_triggers,
     collides_with_teams,
+    movement_footprint,
     contact_footprint,
     contact_response,
     contact_cadence=None,
@@ -62,7 +63,7 @@ def spawn_test_projectile(
     }
     world.space_occupier[eid] = {
         "blocks_movement": False,
-        "movement_footprint": "plus5",
+        "movement_footprint": movement_footprint,
     }
     world.contact_filter[eid] = {
         "ignore_entities": {source},

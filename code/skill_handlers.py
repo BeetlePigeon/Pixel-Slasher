@@ -114,6 +114,7 @@ def execute_test_projectile(world, caster, context):
         skill_id=context["skill_def"]["id"],
         effect_triggers=params["effect_triggers"],
         collides_with_teams=params["collides_with_teams"],
+        movement_footprint=params["movement_footprint"],
         contact_footprint=params["contact_footprint"],
         contact_response=params["contact_response"],
         contact_cadence=params.get("contact_cadence"),

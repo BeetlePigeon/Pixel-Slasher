@@ -1,6 +1,6 @@
 {
-  "id": "pierce_projectile",
-  "name": "Pierce Projectile",
+  "id": "fireball_projectile",
+  "name": "Fireball Projectile",
   "cooldown_ticks": 0,
   "trigger_mode": "held_repeat",
 
@@ -21,10 +21,9 @@
     "projectile_lifetime",
     "effect_triggers",
     "collides_with_teams",
+    "movement_footprint",
     "contact_footprint",
-    "contact_response",
-    "contact_cadence",
-    "movement_footprint"
+    "contact_response"
   ],
 
   "allowed_param_values": {},
@@ -36,7 +35,7 @@
   },
 
   "cast": {
-    "duration": 16,
+    "duration": 20,
     "tags": ["cast", "movement_locked", "skill_locked"],
     "events": [
       {
@@ -52,7 +51,6 @@
     "spawn_distance": 1024,
     "projectile_speed": 512,
     "projectile_lifetime": 300,
-
     "effect_triggers": [
       {
         "event": "projectile_dynamic_actor_contact",
@@ -62,17 +60,57 @@
               "type": "immediate"
             },
             "selection": {
-              "type": "contact_target"
+              "type": "tiles",
+              "shape": {
+                "type": "square",
+                "radius_tiles": 2
+              }
             },
             "filtering": {
-              "requires": ["hittable", "health"]
+              "relationship": "enemies",
+              "requires": ["hittable", "health"],
+              "include_source": false
             },
             "payloads": [
               {
                 "type": "damage",
                 "params": {
-                  "amount": 2,
-                  "damage_type": "physical"
+                  "amount": 4,
+                  "damage_type": "fire"
+                }
+              }
+            ]
+          }
+        ],
+        "effect_carrier_lifecycle": {
+          "destroy_when": "effect_deliveries_complete"
+        }
+      },
+      {
+        "event": "projectile_static_impact",
+        "effect_deliveries": [
+          {
+            "activation": {
+              "type": "immediate"
+            },
+            "selection": {
+              "type": "tiles",
+              "shape": {
+                "type": "square",
+                "radius_tiles": 3
+              }
+            },
+            "filtering": {
+              "relationship": "enemies",
+              "requires": ["hittable", "health"],
+              "include_source": false
+            },
+            "payloads": [
+              {
+                "type": "damage",
+                "params": {
+                  "amount": 4,
+                  "damage_type": "fire"
                 }
               }
             ]
@@ -85,14 +123,13 @@
     ],
 
     "collides_with_teams": ["enemy"],
+
+    "movement_footprint": "plus5",
     "contact_footprint": "plus5",
+
     "contact_response": {
-      "dynamic_actor": "continue"
-    },
-    "contact_cadence": {
-      "type": "once_per_projectile"
-    },
-    "movement_footprint": "plus5"
+      "dynamic_actor": "destroy_self"
+    }
   },
 
   "handler": "execute_cast_skill"

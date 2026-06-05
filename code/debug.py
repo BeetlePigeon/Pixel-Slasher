@@ -8,8 +8,7 @@ from utils.camera_utils import (
     scale_surface_by_camera_zoom,
 )
 from utils.tile_vec_utils import (
-    cpos_to_screen,
-    tile_center,
+    iso_to_screen,
     tile_from_cpos,
 )
 
@@ -655,18 +654,16 @@ class Debug:
                 scaled_debug_highlighted_tile_image,
             )
 
-
     def draw_debug_highlighted_tile_image_on_tile(
-        self,
-        world,
-        surface,
-        tile,
-        scaled_debug_highlighted_tile_image,
+            self,
+            world,
+            surface,
+            tile,
+            scaled_debug_highlighted_tile_image,
     ):
-        tile_center_cpos = tile_center(tile)
-
-        base_x, base_y = cpos_to_screen(
-            tile_center_cpos,
+        base_x, base_y = iso_to_screen(
+            tile.x,
+            tile.y,
             world.tile_size,
         )
         screen_x, screen_y = project_screen_point(
@@ -675,10 +672,7 @@ class Debug:
             base_y,
         )
 
-        draw_x = screen_x - scaled_debug_highlighted_tile_image.get_width() // 2
-        draw_y = screen_y - scaled_debug_highlighted_tile_image.get_height() // 2
-
         surface.blit(
             scaled_debug_highlighted_tile_image,
-            (draw_x, draw_y),
+            (screen_x, screen_y),
         )

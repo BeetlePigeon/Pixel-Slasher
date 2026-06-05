@@ -36,6 +36,12 @@ def process_effect_delivery(world, carrier, effect_delivery):
         context,
     )
 
+    targets = filter_targets_by_context_excluded_entities(
+        effect_delivery,
+        context,
+        targets,
+    )
+
     targets = filter_targets_by_target_cadence(
         effect_delivery,
         targets,
@@ -354,7 +360,10 @@ def resolve_direct_selection_target(world, entity, filtering):
 
 
 def get_direct_selection_requirements(filtering):
-    unsupported_keys = set(filtering) - {"requires"}
+    unsupported_keys = set(filtering) - {
+        "requires",
+        "exclude_context_entities",
+    }
 
     if unsupported_keys:
         raise NotImplementedError(
@@ -380,9 +389,9 @@ def resolve_targets_on_tiles(world, context, filtering, tiles):
             continue
 
         if not entity_satisfies_requirements(
-            world,
-            entity,
-            filtering["requires"],
+                world,
+                entity,
+                filtering["requires"],
         ):
             continue
 
@@ -444,6 +453,33 @@ def entity_matches_relationship(world, source, target, relationship):
     raise NotImplementedError(
         f"Effect delivery target relationship not implemented: {relationship}"
     )
+
+
+def filter_targets_by_context_excluded_entities(
+    effect_delivery,
+    context,
+    targets,
+):
+    filtering = get_effect_filtering(effect_delivery)
+    excluded_context_entities = filtering.get(
+        "exclude_context_entities",
+        [],
+    )
+
+    if not excluded_context_entities:
+        return targets
+
+    excluded_entities = {
+        context[context_key]
+        for context_key in excluded_context_entities
+        if context_key in context
+    }
+
+    return [
+        target
+        for target in targets
+        if target not in excluded_entities
+    ]
 
 
 def filter_targets_by_target_cadence(effect_delivery, targets):
