@@ -26,7 +26,8 @@ from systems import (
     effect_carrier_lifecycle_system,
     sprite_system,
     tile_render_system,
-    combat_system, projectile_contact_system,
+    combat_system,
+    projectile_impact_system,
 )
 
 
@@ -350,7 +351,7 @@ class StateGameplay(State):
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
         destacking_system(self.game.world)
-        projectile_contact_system(self.game.world)
+        projectile_impact_system(self.game.world)
 
         # Phase 4: lifetime, camera, and events.
         #

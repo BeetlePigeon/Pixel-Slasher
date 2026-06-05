@@ -21,8 +21,9 @@ def spawn_test_projectile(
     effect_triggers,
     collides_with_teams,
     movement_footprint,
+    movement_collision,
     contact_footprint,
-    contact_response,
+    impact_responses,
     contact_cadence=None,
 ):
     if not can_spawn_at(world, cpos, static_tiles="reject"):
@@ -49,7 +50,7 @@ def spawn_test_projectile(
         "skill_id": skill_id,
         "effect_triggers": effect_triggers,
         "contact_footprint": contact_footprint,
-        "contact_response": copy.deepcopy(contact_response),
+        "impact_responses": copy.deepcopy(impact_responses),
         "contact_runtime": {},
     }
 
@@ -57,10 +58,7 @@ def spawn_test_projectile(
         projectile["contact_cadence"] = copy.deepcopy(contact_cadence)
 
     world.projectile[eid] = projectile
-    world.movement_collision[eid] = {
-        "static_tiles": "destroy",
-        "dynamic_blockers": "allow",
-    }
+    world.movement_collision[eid] = copy.deepcopy(movement_collision)
     world.space_occupier[eid] = {
         "blocks_movement": False,
         "movement_footprint": movement_footprint,

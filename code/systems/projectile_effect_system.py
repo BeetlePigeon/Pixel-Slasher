@@ -1,6 +1,13 @@
 from effect_ops import spawn_effect_carrier
 
 
+PROJECTILE_EFFECT_EVENT_TYPES = {
+    "projectile_dynamic_actor_contact",
+    "projectile_dynamic_movement_impact",
+    "projectile_static_impact",
+}
+
+
 def projectile_effect_system(world, events):
     for event in events:
         handle_projectile_effect_event(
@@ -10,7 +17,10 @@ def projectile_effect_system(world, events):
 
 
 def handle_projectile_effect_event(world, event):
-    projectile_entity = get_projectile_entity_from_event(event)
+    if event["type"] not in PROJECTILE_EFFECT_EVENT_TYPES:
+        return False
+
+    projectile_entity = event.get("projectile")
     if projectile_entity is None:
         return False
 
@@ -20,49 +30,23 @@ def handle_projectile_effect_event(world, event):
 
     triggered = False
 
-    for projectile_event in iter_projectile_effect_events(event):
-        for effect_trigger in projectile.get("effect_triggers", []):
-            if not projectile_effect_trigger_matches_event(
-                effect_trigger,
-                projectile_event,
-            ):
-                continue
+    for effect_trigger in projectile.get("effect_triggers", []):
+        if not projectile_effect_trigger_matches_event(
+            effect_trigger,
+            event,
+        ):
+            continue
 
-            if spawn_projectile_effect_carrier(
-                world,
-                projectile_entity,
-                projectile,
-                effect_trigger,
-                projectile_event,
-            ):
-                triggered = True
+        if spawn_projectile_effect_carrier(
+            world,
+            projectile_entity,
+            projectile,
+            effect_trigger,
+            event,
+        ):
+            triggered = True
 
     return triggered
-
-
-def get_projectile_entity_from_event(event):
-    return event.get(
-        "projectile",
-        event.get("entity"),
-    )
-
-
-def iter_projectile_effect_events(event):
-    event_type = event["type"]
-
-    if event_type == "projectile_dynamic_actor_contact":
-        return (event,)
-
-    if (
-        event_type == "entity_destroyed_by_movement_collision"
-        and event.get("blocker_collision_type") == "static"
-    ):
-        projectile_event = dict(event)
-        projectile_event["source_event_type"] = event_type
-        projectile_event["type"] = "projectile_static_impact"
-        return (projectile_event,)
-
-    return ()
 
 
 def projectile_effect_trigger_matches_event(effect_trigger, event):

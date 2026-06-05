@@ -22,7 +22,8 @@
     "effect_triggers",
     "collides_with_teams",
     "contact_footprint",
-    "contact_response",
+    "movement_collision",
+    "impact_responses",
     "contact_cadence",
     "movement_footprint"
   ],
@@ -86,8 +87,13 @@
 
     "collides_with_teams": ["enemy"],
     "contact_footprint": "plus5",
-    "contact_response": {
-      "dynamic_actor": "continue"
+    "movement_collision": {
+      "static_tiles": "block",
+      "dynamic_blockers": "allow"
+    },
+    "impact_responses": {
+      "projectile_static_impact": "destroy_self",
+      "projectile_dynamic_actor_contact": "continue"
     },
     "contact_cadence": {
       "type": "once_per_projectile"

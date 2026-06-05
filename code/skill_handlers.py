@@ -116,7 +116,8 @@ def execute_test_projectile(world, caster, context):
         collides_with_teams=params["collides_with_teams"],
         movement_footprint=params["movement_footprint"],
         contact_footprint=params["contact_footprint"],
-        contact_response=params["contact_response"],
+        movement_collision=params["movement_collision"],
+        impact_responses=params["impact_responses"],
         contact_cadence=params.get("contact_cadence"),
     )
     return eid is not None
