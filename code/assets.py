@@ -14,13 +14,18 @@ class Assets:
         return pygame.image.load(path).convert_alpha()
 
     def load(self):
-        # Entities
+        # Player Characters
         self.images["player"] = self.load_image("characters", "player.png")
+
+        # Enemies
+        self.images["enemy_normal"] = self.load_image("enemies", "enemy_normal.png")
+        self.images["enemy_angry"] = self.load_image("enemies", "enemy_angry.png")
+
+        # Projectiles
+        self.images["fireball"] = self.load_image("projectiles", "fireball.png")
         self.images["test_projectile"] = self.load_image("projectiles", "test_projectile.png")
         self.images["magnet"] = self.load_image("projectiles", "magnet.png")
         self.images["meteor"] = self.load_image("projectiles", "meteor.png")
-        self.images["enemy_normal"] = self.load_image("enemies", "enemy_normal.png")
-        self.images["enemy_angry"] = self.load_image("enemies", "enemy_angry.png")
 
         # Tiles
         self.images["block"] = self.load_image("tiles", "block.png")

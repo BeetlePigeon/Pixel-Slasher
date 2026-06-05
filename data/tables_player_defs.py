@@ -10,7 +10,7 @@ DEFAULT_PLAYER_STATE = {
         2: "burst_projectile",
         3: "magnet_orb",
         4: "dash",
-        5: "fireball_projectile",
+        5: "fireball",
         6: "debug_slash",
         7: "pierce_projectile",
         8: "guard_counter",

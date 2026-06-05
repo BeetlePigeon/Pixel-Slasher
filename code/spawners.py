@@ -8,6 +8,88 @@ from motion_controllers import (
     LinearProjectileController,
     SpiralProjectileController,
 )
+from projectile_info_registry import PROJECTILE_INFO
+from utils.projectile_utils import build_projectile_influence_receiver
+
+
+
+
+def spawn_fireball(
+    world,
+    cpos,
+    aim_vector,
+    source,
+    skill_id,
+):
+    fireball_info = PROJECTILE_INFO["fireball"]
+
+    if not can_spawn_at(world, cpos, static_tiles="reject"):
+        return None
+
+    eid = world.entities.create()
+    sprite_info = fireball_info["sprite"]
+    projectile_image = world.game.assets.images[sprite_info["image"]]
+
+    world.transform[eid] = Transform(
+        tile=tile_from_cpos(cpos),
+        cpos=cpos,
+        prev_cpos=cpos,
+        position_mode="free",
+    )
+
+    world.motion_state[eid] = {
+        "controller": LinearProjectileController(
+            aim_vector=aim_vector,
+            speed=fireball_info["speed"],
+        ),
+        "last_delta": Vec2i(0, 0),
+        "influence_mode": "normal",
+    }
+
+    world.projectile[eid] = {
+        "source": source,
+        "skill_id": skill_id,
+        "effect_triggers": copy.deepcopy(
+            fireball_info["effect_triggers"],
+        ),
+        "contact_footprint": fireball_info["contact_footprint"],
+        "impact_responses": copy.deepcopy(
+            fireball_info["impact_responses"],
+        ),
+        "contact_runtime": {},
+    }
+
+    world.movement_collision[eid] = copy.deepcopy(
+        fireball_info["movement_collision"],
+    )
+
+    world.space_occupier[eid] = {
+        "blocks_movement": False,
+        "movement_footprint": fireball_info["movement_footprint"],
+    }
+
+    world.contact_filter[eid] = {
+        "ignore_entities": {source},
+        "collides_with_teams": set(
+            fireball_info["collides_with_teams"],
+        ),
+    }
+
+    world.influence_receiver[eid] = build_projectile_influence_receiver(
+        fireball_info,
+    )
+
+    world.lifetime[eid] = {
+        "remaining_ticks": fireball_info["lifetime_ticks"],
+    }
+
+    world.sprite[eid] = {
+        "image": projectile_image,
+        "anchor": sprite_info["anchor"],
+        "z": sprite_info["z"],
+    }
+
+    return eid
 
 
 def spawn_test_projectile(

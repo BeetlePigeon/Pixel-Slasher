@@ -2,7 +2,6 @@
 # ESC: Quit
 # `: Toggle Debug Mode
 # WASD / L Click: Move
-# R Click: Channel Projectile
 # SPACE: Test Projectile
 # LSHIFT: Toggle Camera Mode
 # K: Move Diag
@@ -24,12 +23,13 @@
 # 2: Burst Projectiles
 # 3: Magnet
 # 4: Dash
-# 5: Fireball Projectile
+# 5: Fireball
 # 6: Debug Slash
 # 7: Pierce Projectile
 # 8: Guard Counter
 # 9: Meteor
 # 0: Burning Field
+# R Click: Channel Projectile
 # Not Currently Assigned: Spiral Projectile
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
