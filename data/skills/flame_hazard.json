@@ -1,0 +1,49 @@
+{
+  "id": "flame_hazard",
+  "name": "Flame Hazard",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform"],
+  "required_params": [
+    "projectile_id",
+    "placement_search_radius",
+    "placement_max_miss_tiles"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": null,
+
+  "cast": {
+    "duration": 20,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 10,
+        "handler": "execute_placed_projectile"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "projectile_id": "flame_hazard",
+    "placement_search_radius": 2,
+    "placement_max_miss_tiles": 2,
+    "placement_bias_mode": "toward"
+  },
+
+  "handler": "execute_cast_skill"
+}

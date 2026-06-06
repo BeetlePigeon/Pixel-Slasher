@@ -1,0 +1,70 @@
+{
+  "id": "flame_hazard",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
+
+  "motion": {
+    "type": "static"
+  },
+
+  "lifetime_ticks": 18000,
+
+  "sprite": {
+    "image": "fireball",
+    "anchor": "center",
+    "z": 0
+  },
+
+  "blocks_movement": false,
+  "movement_footprint": "single_tile",
+  "contact_footprint": "plus5",
+
+  "movement_collision": {
+    "static_tiles": "allow",
+    "dynamic_blockers": "allow"
+  },
+
+  "impact_responses": {
+    "projectile_dynamic_actor_contact": "continue"
+  },
+
+  "contact_cadence": {
+    "type": "per_target_cooldown",
+    "cooldown_ticks": 20
+  },
+
+  "collides_with_teams": ["enemy"],
+
+  "effect_triggers": [
+    {
+      "event": "projectile_dynamic_actor_contact",
+      "effect_deliveries": [
+        {
+          "activation": {
+            "type": "immediate"
+          },
+          "selection": {
+            "type": "contact_target"
+          },
+          "filtering": {
+            "requires": ["hittable", "health"]
+          },
+          "payloads": [
+            {
+              "type": "damage",
+              "params": {
+                "amount": 1,
+                "damage_type": "fire"
+              }
+            }
+          ]
+        }
+      ],
+      "effect_carrier_lifecycle": {
+        "destroy_when": "effect_deliveries_complete"
+      }
+    }
+  ]
+}

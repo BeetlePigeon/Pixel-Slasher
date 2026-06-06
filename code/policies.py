@@ -191,3 +191,15 @@ data_file = {
 # "block":
 #   The full movement footprint is blocked by static map collision.
 STATIC_WING_COLLISION_POLICY = "block"
+
+# Projectile contact footprint vs actor collision footprint.
+#
+# "center_body":
+# Contact occurs if either center tile is inside the other entity's body.
+# This allows projectile-center/actor-wing and actor-center/projectile-wing,
+# but rejects wing-wing overlap.
+#
+# "any_tile":
+# Contact occurs if any projectile contact footprint tile overlaps any
+# actor collision footprint tile. This includes wing-wing overlap.
+PROJECTILE_DYNAMIC_ACTOR_CONTACT_OVERLAP_POLICY = "any_tile"

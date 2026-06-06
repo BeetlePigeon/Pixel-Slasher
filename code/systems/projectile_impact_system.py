@@ -5,6 +5,7 @@ from utils.combat_body_utils import (
 )
 from utils.contact_filtering_utils import filter_contact_candidates
 from utils.tile_vec_utils import tile_from_cpos
+from policies import PROJECTILE_DYNAMIC_ACTOR_CONTACT_OVERLAP_POLICY
 
 
 RAW_PROJECTILE_MOVEMENT_EVENT_TYPES = {
@@ -319,9 +320,37 @@ def projectile_contacts_dynamic_actor(
         target_tile,
     )
 
-    return (
-        projectile_tile in target_body_tiles
-        or target_tile in projectile_body_tiles
+    return projectile_contact_footprints_overlap(
+        projectile_tile,
+        projectile_body_tiles,
+        target_tile,
+        target_body_tiles,
+    )
+
+
+def projectile_contact_footprints_overlap(
+    projectile_tile,
+    projectile_body_tiles,
+    target_tile,
+    target_body_tiles,
+):
+    policy = PROJECTILE_DYNAMIC_ACTOR_CONTACT_OVERLAP_POLICY
+
+    if policy == "center_body":
+        return (
+            projectile_tile in target_body_tiles
+            or target_tile in projectile_body_tiles
+        )
+
+    if policy == "any_tile":
+        return bool(
+            set(projectile_body_tiles)
+            & set(target_body_tiles)
+        )
+
+    raise ValueError(
+        "Unknown projectile dynamic actor contact overlap policy: "
+        f"{policy!r}"
     )
 
 
