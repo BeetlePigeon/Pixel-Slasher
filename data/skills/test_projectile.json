@@ -16,15 +16,8 @@
 
   "required_components": ["transform"],
   "required_params": [
-    "spawn_distance",
-    "projectile_speed",
-    "projectile_lifetime",
-    "effect_triggers",
-    "collides_with_teams",
-    "contact_footprint",
-    "movement_collision",
-    "impact_responses",
-    "movement_footprint"
+    "projectile_id",
+    "spawn_distance"
   ],
 
   "allowed_param_values": {},
@@ -41,7 +34,7 @@
     "events": [
       {
         "tick": 10,
-        "handler": "execute_test_projectile"
+        "handler": "execute_projectile"
       }
     ]
   },
@@ -49,50 +42,8 @@
   "channel": null,
 
   "params": {
-    "spawn_distance": 1024,
-    "projectile_speed": 512,
-    "projectile_lifetime": 300,
-    "effect_triggers": [
-      {
-        "event": "projectile_dynamic_actor_contact",
-        "effect_deliveries": [
-          {
-            "activation": {
-              "type": "immediate"
-            },
-            "selection": {
-              "type": "contact_target"
-            },
-            "filtering": {
-              "requires": ["hittable", "health"]
-            },
-            "payloads": [
-              {
-                "type": "damage",
-                "params": {
-                  "amount": 5,
-                  "damage_type": "physical"
-                }
-              }
-            ]
-          }
-        ],
-        "effect_carrier_lifecycle": {
-          "destroy_when": "effect_deliveries_complete"
-        }
-      }
-    ],
-    "collides_with_teams": ["enemy"],
-    "contact_footprint": "plus5",
-    "movement_collision": {
-      "static_tiles": "block",
-      "dynamic_blockers": "allow"
-    },
-    "impact_responses": {
-      "projectile_static_impact": "destroy_self",
-      "projectile_dynamic_actor_contact": "destroy_self"
-    },
-    "movement_footprint": "plus5"
+    "projectile_id": "test_projectile",
+    "spawn_distance": 1024
   },
 
   "handler": "execute_cast_skill"

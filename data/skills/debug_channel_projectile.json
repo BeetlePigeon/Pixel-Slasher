@@ -55,7 +55,7 @@
       {
         "start_tick": 20,
         "interval": 7,
-        "handler": "execute_test_projectile",
+        "handler": "execute_projectile",
         "params": {
           "aim_timing": "live"
         }

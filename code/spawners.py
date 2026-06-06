@@ -14,21 +14,25 @@ from utils.projectile_utils import build_projectile_influence_receiver
 
 
 
-def spawn_fireball(
+def spawn_projectile(
     world,
+    projectile_id,
     cpos,
     aim_vector,
     source,
     skill_id,
 ):
-    fireball_info = PROJECTILE_INFO["fireball"]
+    projectile_info = PROJECTILE_INFO[projectile_id]
 
-    if not can_spawn_at(world, cpos, static_tiles="reject"):
+    spawn_info = projectile_info.get("spawn", {})
+    if not can_spawn_at(
+        world,
+        cpos,
+        static_tiles=spawn_info.get("static_tiles", "reject"),
+    ):
         return None
 
     eid = world.entities.create()
-    sprite_info = fireball_info["sprite"]
-    projectile_image = world.game.assets.images[sprite_info["image"]]
 
     world.transform[eid] = Transform(
         tile=tile_from_cpos(cpos),
@@ -37,135 +41,138 @@ def spawn_fireball(
         position_mode="free",
     )
 
-    world.motion_state[eid] = {
-        "controller": LinearProjectileController(
-            aim_vector=aim_vector,
-            speed=fireball_info["speed"],
-        ),
-        "last_delta": Vec2i(0, 0),
-        "influence_mode": "normal",
-    }
+    motion_state = build_projectile_motion_state(
+        projectile_info,
+        aim_vector,
+    )
+    if motion_state is not None:
+        world.motion_state[eid] = motion_state
 
-    world.projectile[eid] = {
-        "source": source,
-        "skill_id": skill_id,
-        "effect_triggers": copy.deepcopy(
-            fireball_info["effect_triggers"],
-        ),
-        "contact_footprint": fireball_info["contact_footprint"],
-        "impact_responses": copy.deepcopy(
-            fireball_info["impact_responses"],
-        ),
-        "contact_runtime": {},
-    }
+    world.projectile[eid] = build_projectile_component(
+        projectile_info,
+        source,
+        skill_id,
+    )
 
     world.movement_collision[eid] = copy.deepcopy(
-        fireball_info["movement_collision"],
+        projectile_info["movement_collision"],
     )
 
     world.space_occupier[eid] = {
-        "blocks_movement": False,
-        "movement_footprint": fireball_info["movement_footprint"],
+        "blocks_movement": projectile_info.get("blocks_movement", False),
+        "movement_footprint": projectile_info["movement_footprint"],
     }
 
-    world.contact_filter[eid] = {
-        "ignore_entities": {source},
-        "collides_with_teams": set(
-            fireball_info["collides_with_teams"],
-        ),
-    }
-
-    world.influence_receiver[eid] = build_projectile_influence_receiver(
-        fireball_info,
+    world.contact_filter[eid] = build_projectile_contact_filter(
+        projectile_info,
+        source,
     )
 
-    world.lifetime[eid] = {
-        "remaining_ticks": fireball_info["lifetime_ticks"],
-    }
+    if "influence_receiver" in projectile_info:
+        world.influence_receiver[eid] = (
+            build_projectile_influence_receiver(projectile_info)
+        )
 
-    world.sprite[eid] = {
-        "image": projectile_image,
-        "anchor": sprite_info["anchor"],
-        "z": sprite_info["z"],
-    }
+    if "lifetime_ticks" in projectile_info:
+        world.lifetime[eid] = {
+            "remaining_ticks": projectile_info["lifetime_ticks"],
+        }
+
+    if "sprite" in projectile_info:
+        sprite_info = projectile_info["sprite"]
+        world.sprite[eid] = {
+            "image": world.game.assets.images[sprite_info["image"]],
+            "anchor": sprite_info["anchor"],
+            "z": sprite_info["z"],
+        }
 
     return eid
 
 
-def spawn_test_projectile(
-    world,
-    cpos,
-    aim_vector,
-    speed,
-    lifetime_ticks,
-    source,
-    skill_id,
-    effect_triggers,
-    collides_with_teams,
-    movement_footprint,
-    movement_collision,
-    contact_footprint,
-    impact_responses,
-    contact_cadence=None,
-):
-    if not can_spawn_at(world, cpos, static_tiles="reject"):
+def build_projectile_motion_state(projectile_info, aim_vector):
+    motion_info = projectile_info.get("motion", {})
+    motion_type = motion_info.get("type", "linear")
+
+    if motion_type in {"none", "static"}:
         return None
 
-    eid = world.entities.create()
-    projectile_image = world.game.assets.images["test_projectile"]
-    world.transform[eid] = Transform(
-        tile=tile_from_cpos(cpos),
-        cpos=cpos,
-        prev_cpos=cpos,
-        position_mode="free",
+    if motion_type == "linear":
+        if aim_vector is None:
+            raise ValueError(
+                "Linear projectile requires aim_vector"
+            )
+
+        return {
+            "controller": LinearProjectileController(
+                aim_vector=aim_vector,
+                speed=motion_info["speed"],
+            ),
+            "last_delta": Vec2i(0, 0),
+            "influence_mode": motion_info.get(
+                "influence_mode",
+                "normal",
+            ),
+        }
+
+    raise NotImplementedError(
+        f"Projectile motion type not implemented: {motion_type}"
     )
-    world.motion_state[eid] = {
-        "controller": LinearProjectileController(
-            aim_vector=aim_vector,
-            speed=speed,
-        ),
-        "last_delta": Vec2i(0, 0),
-        "influence_mode": "normal",
-    }
+
+
+def build_projectile_component(
+    projectile_info,
+    source,
+    skill_id,
+):
     projectile = {
         "source": source,
         "skill_id": skill_id,
-        "effect_triggers": effect_triggers,
-        "contact_footprint": contact_footprint,
-        "impact_responses": copy.deepcopy(impact_responses),
+        "effect_triggers": copy.deepcopy(
+            projectile_info.get("effect_triggers", []),
+        ),
+        "impact_responses": copy.deepcopy(
+            projectile_info.get("impact_responses", {}),
+        ),
         "contact_runtime": {},
     }
 
-    if contact_cadence is not None:
-        projectile["contact_cadence"] = copy.deepcopy(contact_cadence)
+    if "contact_footprint" in projectile_info:
+        projectile["contact_footprint"] = projectile_info[
+            "contact_footprint"
+        ]
 
-    world.projectile[eid] = projectile
-    world.movement_collision[eid] = copy.deepcopy(movement_collision)
-    world.space_occupier[eid] = {
-        "blocks_movement": False,
-        "movement_footprint": movement_footprint,
+    if "contact_cadence" in projectile_info:
+        projectile["contact_cadence"] = copy.deepcopy(
+            projectile_info["contact_cadence"],
+        )
+
+    return projectile
+
+
+def build_projectile_contact_filter(projectile_info, source):
+    contact_filter = {
+        "ignore_entities": set(),
     }
-    world.contact_filter[eid] = {
-        "ignore_entities": {source},
-        "collides_with_teams": set(collides_with_teams),
-    }
-    world.influence_receiver[eid] = {
-        "accepts": {"wind", "magnet"},
-        "scales": {
-            "wind": (1, 1),
-            "magnet": (1, 1),
-        },
-        "max_delta": TILE_UNITS // 8,
-    }
-    world.lifetime[eid] = {
-        "remaining_ticks": lifetime_ticks,
-    }
-    world.sprite[eid] = {
-        "image": projectile_image,
-        "anchor": "center",
-        "z": 0,
-    }
-    return eid
+
+    if projectile_info.get("ignore_source", True):
+        contact_filter["ignore_entities"].add(source)
+
+    if "collides_with_teams" in projectile_info:
+        contact_filter["collides_with_teams"] = set(
+            projectile_info["collides_with_teams"],
+        )
+
+    if "collision_group" in projectile_info:
+        contact_filter["collision_group"] = projectile_info[
+            "collision_group"
+        ]
+
+    if "ignore_collision_groups" in projectile_info:
+        contact_filter["ignore_collision_groups"] = set(
+            projectile_info["ignore_collision_groups"],
+        )
+
+    return contact_filter
 
 
 def spawn_spiral_projectile(

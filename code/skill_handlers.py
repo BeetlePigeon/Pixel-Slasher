@@ -9,8 +9,7 @@ from utils.placement_utils import find_nearest_valid_placement_tile_with_line_of
 from utils.camera_utils import internal_screen_to_world_tile, snap_camera_to_entity_now
 from effect_ops import spawn_effect_carrier
 from spawners import (
-    spawn_fireball,
-    spawn_test_projectile,
+    spawn_projectile,
     spawn_spiral_projectile,
     spawn_magnet_orb,
     spawn_meteor,
@@ -25,7 +24,7 @@ from utils.skill_utils import (
 from motion_controllers import DashController
 
 
-def execute_fireball(world, caster, context):
+def execute_projectile(world, caster, context):
     params = context["params"]
 
     caster_cpos = world.transform[caster].cpos
@@ -44,8 +43,9 @@ def execute_fireball(world, caster, context):
     )
     spawn_cpos = caster_cpos + spawn_offset
 
-    eid = spawn_fireball(
+    eid = spawn_projectile(
         world,
+        params["projectile_id"],
         spawn_cpos,
         aim_vector,
         source=caster,
@@ -111,46 +111,6 @@ def execute_dash(world, caster, context):
     motion_state["influence_mode"] = params["influence_mode"]
 
     return True
-
-
-def execute_test_projectile(world, caster, context):
-    params = context["params"]
-
-    caster_cpos = world.transform[caster].cpos
-
-    aim_vector = resolve_context_aim_vector(
-        world,
-        caster,
-        context,
-    )
-
-    if aim_vector is None:
-        return False
-
-    spawn_offset = scale_normalized_dir(
-        aim_vector,
-        params["spawn_distance"],
-    )
-
-    spawn_cpos = caster_cpos + spawn_offset
-
-    eid = spawn_test_projectile(
-        world,
-        spawn_cpos,
-        aim_vector,
-        speed=params["projectile_speed"],
-        lifetime_ticks=params["projectile_lifetime"],
-        source=caster,
-        skill_id=context["skill_def"]["id"],
-        effect_triggers=params["effect_triggers"],
-        collides_with_teams=params["collides_with_teams"],
-        movement_footprint=params["movement_footprint"],
-        contact_footprint=params["contact_footprint"],
-        movement_collision=params["movement_collision"],
-        impact_responses=params["impact_responses"],
-        contact_cadence=params.get("contact_cadence"),
-    )
-    return eid is not None
 
 
 def execute_spiral_projectile(world, caster, context):
@@ -421,8 +381,7 @@ HANDLERS = {
     "execute_cast_skill": execute_cast_skill,
     "execute_spiral_projectile": execute_spiral_projectile,
     "execute_magnet_orb": execute_magnet_orb,
-    "execute_test_projectile": execute_test_projectile,
-    "execute_fireball": execute_fireball,
+    "execute_projectile": execute_projectile,
     "execute_teleport": execute_teleport,
     "execute_debug_slash": execute_debug_slash,
     "execute_counter_slash": execute_counter_slash,

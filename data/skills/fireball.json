@@ -16,6 +16,7 @@
 
   "required_components": ["transform"],
   "required_params": [
+    "projectile_id",
     "spawn_distance"
   ],
 
@@ -33,7 +34,7 @@
     "events": [
       {
         "tick": 17,
-        "handler": "execute_fireball"
+        "handler": "execute_projectile"
       }
     ]
   },
@@ -41,6 +42,7 @@
   "channel": null,
 
   "params": {
+    "projectile_id": "fireball",
     "spawn_distance": 1024
   },
 

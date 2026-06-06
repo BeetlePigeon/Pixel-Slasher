@@ -1,19 +1,25 @@
 {
-  "id": "fireball",
+  "id": "test_projectile",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
 
   "motion": {
     "type": "linear",
     "speed": 512,
     "influence_mode": "normal"
   },
+
   "lifetime_ticks": 300,
 
   "sprite": {
-    "image": "fireball",
+    "image": "test_projectile",
     "anchor": "center",
     "z": 0
   },
 
+  "blocks_movement": false,
   "movement_footprint": "plus5",
   "contact_footprint": "plus5",
 
@@ -47,57 +53,17 @@
             "type": "immediate"
           },
           "selection": {
-            "type": "tiles",
-            "shape": {
-              "type": "square",
-              "radius_tiles": 2
-            }
+            "type": "contact_target"
           },
           "filtering": {
-            "relationship": "enemies",
-            "requires": ["hittable", "health"],
-            "include_source": false
+            "requires": ["hittable", "health"]
           },
           "payloads": [
             {
               "type": "damage",
               "params": {
-                "amount": 4,
-                "damage_type": "fire"
-              }
-            }
-          ]
-        }
-      ],
-      "effect_carrier_lifecycle": {
-        "destroy_when": "effect_deliveries_complete"
-      }
-    },
-    {
-      "event": "projectile_static_impact",
-      "effect_deliveries": [
-        {
-          "activation": {
-            "type": "immediate"
-          },
-          "selection": {
-            "type": "tiles",
-            "shape": {
-              "type": "square",
-              "radius_tiles": 3
-            }
-          },
-          "filtering": {
-            "relationship": "enemies",
-            "requires": ["hittable", "health"],
-            "include_source": false
-          },
-          "payloads": [
-            {
-              "type": "damage",
-              "params": {
-                "amount": 4,
-                "damage_type": "fire"
+                "amount": 5,
+                "damage_type": "physical"
               }
             }
           ]

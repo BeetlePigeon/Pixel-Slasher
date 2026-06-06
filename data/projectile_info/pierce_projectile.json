@@ -1,0 +1,81 @@
+{
+  "id": "pierce_projectile",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
+
+  "motion": {
+    "type": "linear",
+    "speed": 512,
+    "influence_mode": "normal"
+  },
+
+  "lifetime_ticks": 300,
+
+  "sprite": {
+    "image": "test_projectile",
+    "anchor": "center",
+    "z": 0
+  },
+
+  "blocks_movement": false,
+  "movement_footprint": "plus5",
+  "contact_footprint": "plus5",
+
+  "movement_collision": {
+    "static_tiles": "block",
+    "dynamic_blockers": "allow"
+  },
+
+  "impact_responses": {
+    "projectile_static_impact": "destroy_self",
+    "projectile_dynamic_actor_contact": "continue"
+  },
+
+  "contact_cadence": {
+    "type": "once_per_projectile"
+  },
+
+  "collides_with_teams": ["enemy"],
+
+  "influence_receiver": {
+    "accepts": ["wind", "magnet"],
+    "scales": {
+      "wind": [1, 1],
+      "magnet": [1, 1]
+    },
+    "max_delta_tile_units_divisor": 8
+  },
+
+  "effect_triggers": [
+    {
+      "event": "projectile_dynamic_actor_contact",
+      "effect_deliveries": [
+        {
+          "activation": {
+            "type": "immediate"
+          },
+          "selection": {
+            "type": "contact_target"
+          },
+          "filtering": {
+            "requires": ["hittable", "health"]
+          },
+          "payloads": [
+            {
+              "type": "damage",
+              "params": {
+                "amount": 2,
+                "damage_type": "physical"
+              }
+            }
+          ]
+        }
+      ],
+      "effect_carrier_lifecycle": {
+        "destroy_when": "effect_deliveries_complete"
+      }
+    }
+  ]
+}
