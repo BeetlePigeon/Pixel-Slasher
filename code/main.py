@@ -29,8 +29,8 @@
 # 8: Guard Counter
 # 9: Meteor
 # 0: Burning Field
-# R Click: Channel Projectile
-# Not Currently Assigned: Spiral Projectile
+# R Click: Spiral Projectile
+# Not Currently Assigned: Channel Projectile
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

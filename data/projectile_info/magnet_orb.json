@@ -1,0 +1,35 @@
+{
+  "id": "magnet_orb",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
+
+  "motion": {
+    "type": "static"
+  },
+
+  "lifetime_ticks": 720,
+
+  "sprite": {
+    "image": "magnet",
+    "anchor": "center",
+    "z": 0
+  },
+
+  "blocks_movement": false,
+  "movement_footprint": "single_tile",
+
+  "movement_collision": {
+    "static_tiles": "allow",
+    "dynamic_blockers": "allow"
+  },
+
+  "impact_responses": {},
+
+  "influence_emitter": {
+    "type": "magnet",
+    "radius": 40960,
+    "strength": 170
+  }
+}

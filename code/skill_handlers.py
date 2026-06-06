@@ -10,8 +10,6 @@ from utils.camera_utils import internal_screen_to_world_tile, snap_camera_to_ent
 from effect_ops import spawn_effect_carrier
 from spawners import (
     spawn_projectile,
-    spawn_spiral_projectile,
-    spawn_magnet_orb,
     spawn_meteor,
 )
 from utils.skill_utils import (
@@ -29,19 +27,23 @@ def execute_projectile(world, caster, context):
 
     caster_cpos = world.transform[caster].cpos
 
-    aim_vector = resolve_context_aim_vector(
-        world,
-        caster,
-        context,
-    )
-    if aim_vector is None:
-        return False
+    aim_vector = None
+    if context["skill_def"]["aim"] is not None:
+        aim_vector = resolve_context_aim_vector(
+            world,
+            caster,
+            context,
+        )
+        if aim_vector is None:
+            return False
 
-    spawn_offset = scale_normalized_dir(
+    spawn_cpos = resolve_projectile_spawn_cpos(
+        caster_cpos,
         aim_vector,
-        params["spawn_distance"],
+        params,
     )
-    spawn_cpos = caster_cpos + spawn_offset
+    if spawn_cpos is None:
+        return False
 
     eid = spawn_projectile(
         world,
@@ -50,9 +52,84 @@ def execute_projectile(world, caster, context):
         aim_vector,
         source=caster,
         skill_id=context["skill_def"]["id"],
+        spawn_params=params,
     )
 
     return eid is not None
+
+
+def execute_placed_projectile(world, caster, context):
+    params = context["params"]
+
+    intent = get_context_intent_for_aim(
+        world,
+        caster,
+        context,
+    )
+    mouse_pos = intent.get("mouse_pos")
+    if mouse_pos is None:
+        return False
+
+    target_tile = internal_screen_to_world_tile(
+        world,
+        mouse_pos,
+    )
+    caster_tile = tile_from_cpos(
+        world.transform[caster].cpos,
+    )
+
+    spawn_tile = find_nearest_valid_placement_tile_with_line_of_sight(
+        world,
+        target_tile=target_tile,
+        search_radius=params["placement_search_radius"],
+        max_miss_tiles=params["placement_max_miss_tiles"],
+        source_tile=caster_tile,
+        bias_mode=params.get("placement_bias_mode", "toward"),
+    )
+    if spawn_tile is None:
+        return False
+
+    spawn_cpos = tile_center(spawn_tile)
+
+    eid = spawn_projectile(
+        world,
+        params["projectile_id"],
+        spawn_cpos,
+        aim_vector=None,
+        source=caster,
+        skill_id=context["skill_def"]["id"],
+        spawn_params=params,
+    )
+
+    return eid is not None
+
+
+def resolve_projectile_spawn_cpos(
+    caster_cpos,
+    aim_vector,
+    params,
+):
+    spawn_origin = params.get(
+        "spawn_origin",
+        "aim_offset",
+    )
+
+    if spawn_origin == "caster":
+        return caster_cpos
+
+    if spawn_origin == "aim_offset":
+        if aim_vector is None:
+            return None
+
+        spawn_offset = scale_normalized_dir(
+            aim_vector,
+            params["spawn_distance"],
+        )
+        return caster_cpos + spawn_offset
+
+    raise ValueError(
+        f"Unknown projectile spawn_origin: {spawn_origin!r}"
+    )
 
 
 def execute_cast_skill(world, caster, context):
@@ -111,61 +188,6 @@ def execute_dash(world, caster, context):
     motion_state["influence_mode"] = params["influence_mode"]
 
     return True
-
-
-def execute_spiral_projectile(world, caster, context):
-    params = context["params"]
-
-    caster_cpos = world.transform[caster].cpos
-
-    eid = spawn_spiral_projectile(
-        world,
-        caster_cpos,
-        lifetime_ticks=params["projectile_lifetime"],
-        radius_per_tick=params["radius_per_tick"],
-        spawn_angle_step_offset=params["spawn_angle_step_offset"],
-        angle_step_fp=params["angle_step_fp"],
-    )
-
-    return eid is not None
-
-
-def execute_magnet_orb(world, caster, context):
-    params = context["params"]
-    intent = get_context_intent_for_aim(world, caster, context)
-
-    mouse_pos = intent.get("mouse_pos")
-
-    if mouse_pos is None:
-        return False
-
-    target_tile = internal_screen_to_world_tile(world, mouse_pos)
-
-    caster_tile = world.transform[caster].tile
-
-    spawn_tile = find_nearest_valid_placement_tile_with_line_of_sight(
-        world,
-        target_tile=target_tile,
-        search_radius=params["placement_search_radius"],
-        max_miss_tiles=params["placement_max_miss_tiles"],
-        source_tile=caster_tile,
-        bias_mode="toward",
-    )
-
-    if spawn_tile is None:
-        return False
-
-    spawn_cpos = tile_center(spawn_tile)
-
-    eid = spawn_magnet_orb(
-        world,
-        spawn_cpos,
-        radius=params["radius"],
-        strength=params["strength"],
-        lifetime_ticks=params["lifetime"],
-    )
-
-    return eid is not None
 
 
 def execute_teleport(world, caster, context):
@@ -377,15 +399,16 @@ def execute_placed_effect(world, caster, context):
 
 
 HANDLERS = {
-    "execute_dash": execute_dash,
     "execute_cast_skill": execute_cast_skill,
-    "execute_spiral_projectile": execute_spiral_projectile,
-    "execute_magnet_orb": execute_magnet_orb,
+    "execute_channel_skill": execute_channel_skill,
     "execute_projectile": execute_projectile,
+    "execute_placed_projectile": execute_placed_projectile,
+
+    "execute_dash": execute_dash,
     "execute_teleport": execute_teleport,
+
     "execute_debug_slash": execute_debug_slash,
     "execute_counter_slash": execute_counter_slash,
-    "execute_channel_skill": execute_channel_skill,
     "execute_meteor": execute_meteor,
     "execute_placed_effect": execute_placed_effect,
 }

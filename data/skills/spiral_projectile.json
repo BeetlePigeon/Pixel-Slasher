@@ -16,13 +16,13 @@
 
   "required_components": ["transform"],
   "required_params": [
-    "projectile_lifetime",
-    "radius_per_tick",
-    "angle_step_fp",
-    "spawn_angle_step_offset"
+    "projectile_id",
+    "spawn_origin"
   ],
 
-  "allowed_param_values": {},
+  "allowed_param_values": {
+    "spawn_origin": ["caster"]
+  },
 
   "aim": null,
 
@@ -32,16 +32,30 @@
     "events": [
       {
         "tick": 10,
-        "handler": "execute_spiral_projectile",
+        "handler": "execute_projectile",
         "params": {
           "spawn_angle_step_offset": 0
         }
       },
       {
         "tick": 10,
-        "handler": "execute_spiral_projectile",
+        "handler": "execute_projectile",
         "params": {
           "spawn_angle_step_offset": 32
+        }
+      },
+      {
+        "tick": 10,
+        "handler": "execute_projectile",
+        "params": {
+          "spawn_angle_step_offset": 16
+        }
+      },
+      {
+        "tick": 10,
+        "handler": "execute_projectile",
+        "params": {
+          "spawn_angle_step_offset": 48
         }
       }
     ]
@@ -50,10 +64,8 @@
   "channel": null,
 
   "params": {
-    "projectile_lifetime": 300,
-    "radius_per_tick": 128,
-    "angle_step_fp": 256,
-    "spawn_angle_step_offset": 0
+    "projectile_id": "spiral_projectile",
+    "spawn_origin": "caster"
   },
 
   "handler": "execute_cast_skill"

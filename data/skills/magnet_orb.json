@@ -16,11 +16,9 @@
 
   "required_components": ["transform"],
   "required_params": [
+    "projectile_id",
     "placement_search_radius",
-    "placement_max_miss_tiles",
-    "radius",
-    "strength",
-    "lifetime"
+    "placement_max_miss_tiles"
   ],
 
   "allowed_param_values": {},
@@ -32,8 +30,8 @@
     "tags": ["cast", "movement_locked", "skill_locked"],
     "events": [
       {
-        "tick": 55,
-        "handler": "execute_magnet_orb"
+        "tick": 30,
+        "handler": "execute_placed_projectile"
       }
     ]
   },
@@ -41,11 +39,10 @@
   "channel": null,
 
   "params": {
+    "projectile_id": "magnet_orb",
     "placement_search_radius": 2,
     "placement_max_miss_tiles": 2,
-    "radius": 40960,
-    "strength": 170,
-    "lifetime": 720
+    "placement_bias_mode": "toward"
   },
 
   "handler": "execute_cast_skill"

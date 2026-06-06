@@ -1,0 +1,40 @@
+{
+  "id": "spiral_projectile",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
+
+  "motion": {
+    "type": "spiral",
+    "radius_per_tick": 128,
+    "angle_step_fp": 256,
+    "spawn_angle_step_offset": 0,
+    "influence_mode": "ignore_all"
+  },
+
+  "lifetime_ticks": 300,
+
+  "sprite": {
+    "image": "test_projectile",
+    "anchor": "center",
+    "z": 0
+  },
+
+  "blocks_movement": false,
+  "movement_footprint": "single_tile",
+
+  "movement_collision": {
+    "static_tiles": "destroy",
+    "dynamic_blockers": "allow"
+  },
+
+  "influence_receiver": {
+    "accepts": [],
+    "scales": {
+      "wind": [1, 1],
+      "magnet": [1, 1]
+    },
+    "max_delta_tile_units_divisor": 8
+  }
+}

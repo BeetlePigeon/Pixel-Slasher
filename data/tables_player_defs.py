@@ -14,7 +14,7 @@ DEFAULT_PLAYER_STATE = {
         6: "debug_slash",
         7: "pierce_projectile",
         8: "guard_counter",
-        9: "debug_channel_projectile",
+        9: "spiral_projectile",
         10: "meteor",
         11: "burning_field",
     },
