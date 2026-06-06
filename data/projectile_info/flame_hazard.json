@@ -35,7 +35,7 @@
     "cooldown_ticks": 20
   },
 
-  "collides_with_teams": ["enemy"],
+  "collides_with_teams": ["enemy", "player"],
 
   "effect_triggers": [
     {

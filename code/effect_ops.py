@@ -73,12 +73,13 @@ def materialize_effect_deliveries(
     for effect_delivery_template in effect_delivery_templates:
         effect_delivery = copy.deepcopy(effect_delivery_template)
 
-        selection = effect_delivery["selection"]
-        materialize_snapshot_effect_selection(
-            selection,
-            anchor_tile=anchor_tile,
-            materialization_context=materialization_context,
-        )
+        if "selection" in effect_delivery:
+            selection = effect_delivery["selection"]
+            materialize_snapshot_effect_selection(
+                selection,
+                anchor_tile=anchor_tile,
+                materialization_context=materialization_context,
+            )
 
         context = {
             "owner": source,

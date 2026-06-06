@@ -1,7 +1,7 @@
 DEFAULT_PLAYER_STATE = {
     "health": {
-        "current": 80,
-        "max": 100,
+        "current": 14000,
+        "max": 15000,
     },
 
     "skills": {

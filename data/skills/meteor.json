@@ -91,29 +91,41 @@
           }
         }
       ]
-    },
+      },
       {
       "activation": {
         "type": "once",
         "tick": 75
       },
-      "selection": {
-        "type": "tiles",
-        "shape": {
-          "type": "square",
-          "radius_tiles": 2
-        }
-      },
-      "filtering": {
-        "relationship": "allies",
-        "requires": ["hittable", "health"],
-        "include_source": true
-      },
       "payloads": [
         {
-          "type": "heal",
+          "type": "spawn_projectiles",
           "params": {
-            "amount": 4
+            "projectile_id": "flame_hazard",
+            "origin": "carrier",
+            "pattern": {
+              "type": "tile_offsets",
+              "offsets": [
+                [-1, -1],
+                [1, 1],
+                [-2, -2],
+                [-3, -2],
+                [-4, -2],
+                [-1, -3],
+                [0, -4],
+                [1, -3],
+                [2, -1],
+                [2, -2],
+                [3, -3],
+                [4, -2],
+                [0, 2],
+                [0, 3],
+                [0, 5],
+                [-1, 2],
+                [-3, 3],
+                [3, 3]
+              ]
+            }
           }
         }
       ]

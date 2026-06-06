@@ -1,3 +1,6 @@
+from support import Vec2i
+from spawners import spawn_projectile
+from utils.tile_vec_utils import tile_center, tile_from_cpos
 from utils.status_utils import apply_status_effect
 from combat_ops import (
     entities_are_enemies,
@@ -6,6 +9,17 @@ from combat_ops import (
     queue_damage_request,
     queue_heal_request,
 )
+
+
+TARGET_PAYLOAD_TYPES = {
+    "damage",
+    "heal",
+    "status",
+}
+
+DELIVERY_PAYLOAD_TYPES = {
+    "spawn_projectiles",
+}
 
 
 def effect_delivery_system(world):
@@ -29,29 +43,36 @@ def process_effect_delivery(world, carrier, effect_delivery):
         effect_delivery,
     )
 
-    targets = resolve_delivery_targets(
-        world,
-        carrier,
-        effect_delivery,
-        context,
-    )
+    targets = []
 
-    targets = filter_targets_by_context_excluded_entities(
-        effect_delivery,
-        context,
-        targets,
-    )
-
-    targets = filter_targets_by_target_cadence(
-        effect_delivery,
-        targets,
-    )
+    if effect_delivery_has_target_payloads(effect_delivery):
+        targets = resolve_delivery_targets(
+            world,
+            carrier,
+            effect_delivery,
+            context,
+        )
+        targets = filter_targets_by_context_excluded_entities(
+            effect_delivery,
+            context,
+            targets,
+        )
+        targets = filter_targets_by_target_cadence(
+            effect_delivery,
+            targets,
+        )
 
     apply_effect_payloads_to_targets(
         world,
         effect_delivery,
         context,
         targets,
+    )
+
+    apply_delivery_level_payloads(
+        world,
+        effect_delivery,
+        context,
     )
 
     record_target_cadence_hits(
@@ -78,6 +99,9 @@ def apply_effect_payloads_to_targets(
 
     for target in targets:
         for payload in payloads:
+            if get_effect_payload_scope(payload) != "target":
+                continue
+
             apply_effect_payload_to_target(
                 world,
                 context,
@@ -124,6 +148,118 @@ def apply_effect_payload_to_target(
     raise NotImplementedError(
         f"Effect payload type not implemented: {payload_type}"
     )
+
+
+def apply_delivery_level_payloads(
+    world,
+    effect_delivery,
+    context,
+):
+    payloads = effect_delivery["payloads"]
+
+    for payload in payloads:
+        if get_effect_payload_scope(payload) != "delivery":
+            continue
+
+        apply_delivery_level_payload(
+            world,
+            context,
+            payload,
+        )
+
+
+def apply_delivery_level_payload(world, context, payload):
+    payload_type = payload["type"]
+
+    if payload_type == "spawn_projectiles":
+        apply_spawn_projectiles_payload(
+            world,
+            context,
+            payload,
+        )
+        return
+
+    raise NotImplementedError(
+        f"Delivery-level payload type not implemented: {payload_type}"
+    )
+
+
+def apply_spawn_projectiles_payload(world, context, payload):
+    params = payload["params"]
+
+    origin_tile = resolve_spawn_projectiles_origin_tile(
+        world,
+        context,
+        params,
+    )
+    spawn_tiles = build_spawn_projectile_pattern_tiles(
+        origin_tile,
+        params["pattern"],
+    )
+
+    source = get_effect_source(context)
+    skill_id = context.get("source_id")
+    projectile_id = params["projectile_id"]
+    spawn_params = params.get("spawn_params", {})
+
+    for spawn_tile in spawn_tiles:
+        spawn_projectile(
+            world,
+            projectile_id,
+            tile_center(spawn_tile),
+            aim_vector=None,
+            source=source,
+            skill_id=skill_id,
+            spawn_params=spawn_params,
+        )
+
+
+def resolve_spawn_projectiles_origin_tile(
+    world,
+    context,
+    params,
+):
+    origin = params["origin"]
+
+    if origin == "carrier":
+        carrier = context["carrier"]
+        return tile_from_cpos(
+            world.transform[carrier].cpos,
+        )
+
+    raise NotImplementedError(
+        f"spawn_projectiles origin not implemented: {origin!r}"
+    )
+
+
+def build_spawn_projectile_pattern_tiles(origin_tile, pattern):
+    pattern_type = pattern["type"]
+
+    if pattern_type == "tile_offsets":
+        return build_spawn_projectile_tile_offset_pattern(
+            origin_tile,
+            pattern,
+        )
+
+    raise NotImplementedError(
+        f"spawn_projectiles pattern not implemented: {pattern_type!r}"
+    )
+
+
+def build_spawn_projectile_tile_offset_pattern(
+    origin_tile,
+    pattern,
+):
+    tiles = []
+
+    for offset_pair in pattern["offsets"]:
+        offset = Vec2i(
+            offset_pair[0],
+            offset_pair[1],
+        )
+        tiles.append(origin_tile + offset)
+
+    return tiles
 
 
 def apply_damage_payload(
@@ -596,3 +732,24 @@ def record_per_target_cooldown_hits(
 def complete_effect_delivery(effect_delivery):
     runtime = effect_delivery["runtime"]
     runtime["delivered"] = True
+
+
+def get_effect_payload_scope(payload):
+    payload_type = payload["type"]
+
+    if payload_type in TARGET_PAYLOAD_TYPES:
+        return "target"
+
+    if payload_type in DELIVERY_PAYLOAD_TYPES:
+        return "delivery"
+
+    raise NotImplementedError(
+        f"Effect payload type not implemented: {payload_type}"
+    )
+
+
+def effect_delivery_has_target_payloads(effect_delivery):
+    return any(
+        get_effect_payload_scope(payload) == "target"
+        for payload in effect_delivery["payloads"]
+    )
