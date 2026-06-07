@@ -37,7 +37,7 @@
     "type": "once_per_projectile"
   },
 
-  "collides_with_teams": ["enemy"],
+  "collides_with_relationship": "enemies",
 
   "influence_receiver": {
     "accepts": ["wind", "magnet"],

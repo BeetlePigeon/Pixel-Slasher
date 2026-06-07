@@ -33,7 +33,7 @@
     "projectile_dynamic_actor_contact": "destroy_self"
   },
 
-  "collides_with_teams": ["enemy"],
+  "collides_with_relationship": "enemies",
 
   "influence_receiver": {
     "accepts": ["wind", "magnet"],

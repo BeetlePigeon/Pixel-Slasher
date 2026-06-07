@@ -1,0 +1,51 @@
+{
+  "id": "frozen_orb",
+
+  "spawn": {
+    "static_tiles": "reject"
+  },
+
+  "motion": {
+    "type": "linear",
+    "speed": 192,
+    "influence_mode": "normal"
+  },
+
+  "lifetime_ticks": 180,
+
+  "sprite": {
+    "image": "frozen_orb",
+    "anchor": "center",
+    "z": 0
+  },
+
+  "blocks_movement": false,
+  "movement_footprint": "single_tile",
+
+  "movement_collision": {
+    "static_tiles": "block",
+    "dynamic_blockers": "allow"
+  },
+
+  "impact_responses": {
+    "projectile_static_impact": "destroy_self"
+  },
+
+  "behaviors": [
+    {
+      "type": "emit_projectiles",
+      "projectile_id": "ice_shard",
+      "start_tick": 0,
+      "end_tick": 300,
+      "interval_ticks": 8,
+      "origin": "self",
+      "spawn_distance": 0,
+      "pattern": {
+        "type": "rotating_radial",
+        "start_angle_index": 0,
+        "angle_step": 5,
+        "directions_per_burst": 1
+      }
+    }
+  ]
+}

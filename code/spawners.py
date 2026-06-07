@@ -179,16 +179,28 @@ def build_projectile_component(
             projectile_info["contact_cadence"],
         )
 
+    if "behaviors" in projectile_info:
+        projectile["behaviors"] = copy.deepcopy(
+            projectile_info["behaviors"],
+        )
+        projectile["behavior_runtime"] = {}
+
     return projectile
 
 
 def build_projectile_contact_filter(projectile_info, source):
     contact_filter = {
+        "source": source,
         "ignore_entities": set(),
     }
 
     if projectile_info.get("ignore_source", True):
         contact_filter["ignore_entities"].add(source)
+
+    if "collides_with_relationship" in projectile_info:
+        contact_filter["collides_with_relationship"] = (
+            projectile_info["collides_with_relationship"]
+        )
 
     if "collides_with_teams" in projectile_info:
         contact_filter["collides_with_teams"] = set(

@@ -23,6 +23,9 @@ class Assets:
 
         # Projectiles
         self.images["fireball"] = self.load_image("projectiles", "fireball.png")
+        self.images["flame_hazard"] = self.load_image("projectiles", "flame_hazard.png")
+        self.images["frozen_orb"] = self.load_image("projectiles", "frozen_orb.png")
+        self.images["ice_shard"] = self.load_image("projectiles", "ice_shard.png")
         self.images["test_projectile"] = self.load_image("projectiles", "test_projectile.png")
         self.images["magnet"] = self.load_image("projectiles", "magnet.png")
         self.images["meteor"] = self.load_image("projectiles", "meteor.png")

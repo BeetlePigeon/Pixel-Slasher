@@ -28,9 +28,9 @@
 # 7: Pierce Projectile
 # 8: Guard Counter
 # 9: Meteor
-# 0: Flame Hazard
+# 0: Frozen Orb
 # R Click: Spiral Projectile
-# Not Currently Assigned: Channel Projectile, Burning Field
+# Not Currently Assigned: Flame Hazard, Channel Projectile, Burning Field
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

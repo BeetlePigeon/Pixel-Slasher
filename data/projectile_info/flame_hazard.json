@@ -9,11 +9,11 @@
     "type": "static"
   },
 
-  "lifetime_ticks": 18000,
+  "lifetime_ticks": 480,
 
   "sprite": {
-    "image": "fireball",
-    "anchor": "center",
+    "image": "flame_hazard",
+    "anchor": "bottom_center",
     "z": 0
   },
 
@@ -35,7 +35,8 @@
     "cooldown_ticks": 20
   },
 
-  "collides_with_teams": ["enemy", "player"],
+  "ignore_source": true,
+  "collides_with_relationship": "enemies",
 
   "effect_triggers": [
     {

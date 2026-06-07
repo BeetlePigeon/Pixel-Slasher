@@ -1,5 +1,5 @@
 {
-  "id": "test_projectile",
+  "id": "ice_shard",
 
   "spawn": {
     "static_tiles": "reject"
@@ -7,21 +7,21 @@
 
   "motion": {
     "type": "linear",
-    "speed": 512,
+    "speed": 640,
     "influence_mode": "normal"
   },
 
-  "lifetime_ticks": 300,
+  "lifetime_ticks": 180,
 
   "sprite": {
-    "image": "test_projectile",
+    "image": "ice_shard",
     "anchor": "center",
     "z": 0
   },
 
   "blocks_movement": false,
-  "movement_footprint": "plus5",
-  "contact_footprint": "plus5",
+  "movement_footprint": "single_tile",
+  "contact_footprint": "single_tile",
 
   "movement_collision": {
     "static_tiles": "block",
@@ -34,15 +34,6 @@
   },
 
   "collides_with_relationship": "enemies",
-
-  "influence_receiver": {
-    "accepts": ["wind", "magnet"],
-    "scales": {
-      "wind": [1, 1],
-      "magnet": [1, 1]
-    },
-    "max_delta_tile_units_divisor": 8
-  },
 
   "effect_triggers": [
     {
@@ -62,8 +53,8 @@
             {
               "type": "damage",
               "params": {
-                "amount": 5,
-                "damage_type": "physical"
+                "amount": 1,
+                "damage_type": "cold"
               }
             }
           ]
@@ -73,5 +64,13 @@
         "destroy_when": "effect_deliveries_complete"
       }
     }
-  ]
+  ],
+  "influence_receiver": {
+    "accepts": ["wind", "magnet"],
+    "scales": {
+      "wind": [1, 1],
+      "magnet": [1, 1]
+    },
+    "max_delta_tile_units_divisor": 8
+  }
 }

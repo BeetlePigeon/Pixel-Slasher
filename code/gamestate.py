@@ -28,6 +28,7 @@ from systems import (
     tile_render_system,
     combat_system,
     projectile_impact_system,
+    projectile_behavior_system,
 )
 
 
@@ -351,6 +352,7 @@ class StateGameplay(State):
         movement_system(self.game.world)
         movement_arbiter_system(self.game.world)
         destacking_system(self.game.world)
+        projectile_behavior_system(self.game.world)
         projectile_impact_system(self.game.world)
 
         # Phase 4: lifetime, camera, and events.

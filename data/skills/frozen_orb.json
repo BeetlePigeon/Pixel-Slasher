@@ -1,0 +1,50 @@
+{
+  "id": "frozen_orb",
+  "name": "Frozen Orb",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+
+  "required_components": ["transform"],
+  "required_params": [
+    "projectile_id",
+    "spawn_distance"
+  ],
+
+  "allowed_param_values": {},
+
+  "aim": {
+    "traditional_source": "mouse_tile",
+    "modern_source": "mouse_tile",
+    "resolution": "tile_center"
+  },
+
+  "cast": {
+    "duration": 44,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 22,
+        "handler": "execute_projectile"
+      }
+    ]
+  },
+
+  "channel": null,
+
+  "params": {
+    "projectile_id": "frozen_orb",
+    "spawn_distance": 1024
+  },
+
+  "handler": "execute_cast_skill"
+}

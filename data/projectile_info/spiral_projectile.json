@@ -22,15 +22,53 @@
   },
 
   "blocks_movement": false,
-  "movement_footprint": "single_tile",
+  "movement_footprint": "plus5",
+  "contact_footprint": "plus5",
 
   "movement_collision": {
-    "static_tiles": "destroy",
+    "static_tiles": "block",
     "dynamic_blockers": "allow"
   },
 
+  "impact_responses": {
+    "projectile_static_impact": "destroy_self",
+    "projectile_dynamic_actor_contact": "destroy_self"
+  },
+
+  "collides_with_relationship": "enemies",
+  "effect_triggers": [
+    {
+      "event": "projectile_dynamic_actor_contact",
+      "effect_deliveries": [
+        {
+          "activation": {
+            "type": "immediate"
+          },
+          "selection": {
+            "type": "contact_target"
+          },
+          "filtering": {
+            "requires": ["hittable", "health"]
+          },
+          "payloads": [
+            {
+              "type": "damage",
+              "params": {
+                "amount": 8,
+                "damage_type": "arcane"
+              }
+            }
+          ]
+        }
+      ],
+      "effect_carrier_lifecycle": {
+        "destroy_when": "effect_deliveries_complete"
+      }
+    }
+  ],
+
   "influence_receiver": {
-    "accepts": [],
+    "accepts": ["wind", "magnet"],
     "scales": {
       "wind": [1, 1],
       "magnet": [1, 1]
