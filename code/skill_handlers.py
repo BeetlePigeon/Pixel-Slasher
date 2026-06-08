@@ -45,6 +45,12 @@ def execute_projectile(world, caster, context):
     if spawn_cpos is None:
         return False
 
+    spawn_params = dict(params)
+
+    target_entity = context["intent"].get("target_entity")
+    if target_entity is not None:
+        spawn_params["explicit_target"] = target_entity
+
     eid = spawn_projectile(
         world,
         params["projectile_id"],
@@ -52,7 +58,7 @@ def execute_projectile(world, caster, context):
         aim_vector,
         source=caster,
         skill_id=context["skill_def"]["id"],
-        spawn_params=params,
+        spawn_params=spawn_params,
     )
 
     return eid is not None

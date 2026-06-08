@@ -43,7 +43,7 @@
 
   "params": {
     "projectile_id": "test_projectile",
-    "spawn_distance": 1024
+    "spawn_distance": 4096
   },
 
   "handler": "execute_cast_skill"

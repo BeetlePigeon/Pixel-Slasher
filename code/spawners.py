@@ -56,6 +56,7 @@ def spawn_projectile(
         projectile_info,
         source,
         skill_id,
+        spawn_params,
     )
 
     world.movement_collision[eid] = copy.deepcopy(
@@ -156,6 +157,7 @@ def build_projectile_component(
     projectile_info,
     source,
     skill_id,
+    spawn_params,
 ):
     projectile = {
         "source": source,
@@ -168,6 +170,11 @@ def build_projectile_component(
         ),
         "contact_runtime": {},
     }
+
+    explicit_target = spawn_params.get("explicit_target")
+
+    if explicit_target is not None:
+        projectile["explicit_target"] = explicit_target
 
     if "contact_footprint" in projectile_info:
         projectile["contact_footprint"] = projectile_info[

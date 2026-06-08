@@ -105,6 +105,12 @@
       "id": "training_dummy_2",
       "type": "training_dummy",
       "tile": [7, 6]
+    },
+    {
+      "id": "debug_chest_1",
+      "type": "debug_interactable",
+      "interact_kind": "debug_chest",
+      "tile": [5, 7]
     }
   ],
 

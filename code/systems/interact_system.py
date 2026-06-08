@@ -29,12 +29,15 @@ def handle_interaction(
     handler_id,
 ):
     if handler_id == "debug_print":
+        interactable["used_count"] = interactable.get("used_count", 0) + 1
+
         print(
             "[interact] "
             f"tick={world.tick} "
             f"actor={actor} "
             f"target={target} "
-            f"kind={interactable.get('kind')}"
+            f"kind={interactable.get('kind')} "
+            f"used_count={interactable['used_count']}"
         )
         return
 

@@ -39,15 +39,18 @@
     {
       "type": "homing",
       "targeting": {
+        "mode": "explicit_target_else_none",
         "relationship": "enemies",
-        "radius_tiles": 8,
-        "requires": ["hittable", "health"],
-        "mode": "nearest"
+        "explicit_target_max_range_tiles": 50,
+        "requires": ["hittable", "health"]
       },
       "retarget": {
-        "mode": "when_invalid"
+        "mode": "nearest_when_no_target",
+        "relationship": "enemies",
+        "radius_tiles": 2,
+        "requires": ["hittable", "health"]
       },
-      "turn_rate_steps_per_tick": 2
+      "turn_rate_steps_per_tick": 1
     }
   ],
 

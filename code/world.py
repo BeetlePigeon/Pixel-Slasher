@@ -370,7 +370,59 @@ class World:
             tile = vec2i_from_pair(entity_def["tile"])
             return self.spawn_training_dummy(tile)
 
+        if entity_type == "debug_interactable":
+            tile = vec2i_from_pair(entity_def["tile"])
+            interact_kind = entity_def.get("interact_kind", "debug_chest")
+            return self.spawn_debug_interactable(tile, interact_kind)
+
         raise ValueError(f"Unsupported placed entity type: {entity_type!r}")
+
+
+    def spawn_debug_interactable(self, tile, interact_kind):
+        eid = self.entities.create()
+        cpos = tile_center(tile)
+
+        self.transform[eid] = Transform(
+            tile=tile,
+            cpos=cpos,
+            prev_cpos=cpos,
+            position_mode="grid",
+        )
+
+        self.selectable[eid] = {
+            "kind": "interactable",
+            "enabled": True,
+            "screen_priority": 10,
+            "click_box": {
+                "type": "rect",
+                "anchor": "bottom_center",
+                "offset": (0, -4),
+                "size": (34, 34),
+            },
+        }
+
+        self.interactable[eid] = {
+            "kind": interact_kind,
+            "handler": "debug_print",
+            "used_count": 0,
+        }
+
+        # Non-blocking for this test object. Later doors/chests can become
+        # physical blockers with approach-to-adjacent logic.
+        self.space_occupier[eid] = {
+            "blocks_movement": False,
+            "movement_footprint": "single_tile",
+        }
+
+        self.sprite[eid] = {
+            "image": self.game.assets.images["block"],
+            "anchor": "bottom_center",
+            "z": 0,
+        }
+
+        self.track_area_entity(eid)
+        mark_dynamic_occupancy_dirty(self)
+        return eid
 
 
     def focus_camera_on_player(self):
@@ -538,8 +590,8 @@ class World:
             "blackboard": {},
         }
         self.health[eid] = {
-            "current": 10,
-            "max": 10,
+            "current": 30,
+            "max": 30,
         }
         self.hittable[eid] = {
             "enabled": True,

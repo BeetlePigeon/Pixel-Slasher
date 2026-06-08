@@ -1,3 +1,5 @@
+from support import Vec2i
+from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.action_order_utils import (
     action_order_actor_is_valid,
     action_order_target_is_valid,
@@ -9,6 +11,8 @@ from utils.action_order_utils import (
 )
 from utils.tile_vec_utils import (
     tile_from_cpos,
+    chebyshev_tile_distance,
+    tile_center,
 )
 
 
@@ -21,6 +25,7 @@ def action_order_system(world, intents):
         order = world.action_order[actor]
 
         if not action_order_target_is_valid(world, order):
+            mark_pointer_action_invalidated(world, actor, order)
             clear_action_order(world, actor)
             continue
 
@@ -73,6 +78,7 @@ def process_interact_with_entity_order(world, intents, actor, order):
             intents,
             actor,
             target,
+            interact_range_tiles,
         )
         return
 
@@ -111,6 +117,7 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
                 intents,
                 actor,
                 target,
+                use_range_tiles,
             )
             return
 
@@ -195,18 +202,109 @@ def order_button_is_held(world, actor, order):
     return button in pointer_actions
 
 
-def append_approach_entity_intent(world, intents, actor, target):
-    target_cpos = world.transform[target].cpos
-    target_tile = tile_from_cpos(target_cpos)
+def append_approach_entity_intent(
+    world,
+    intents,
+    actor,
+    target,
+    desired_range_tiles,
+):
+    approach_tile = find_entity_approach_tile(
+        world,
+        actor,
+        target,
+        desired_range_tiles,
+    )
+
+    if approach_tile is None:
+        return
+
+    target_cpos = tile_center(approach_tile)
 
     intents.setdefault(actor, []).append(
         {
             "type": "move_to_tile",
-            "target_tile": target_tile,
+            "target_tile": approach_tile,
             "target_cpos": target_cpos,
             "path_policy": get_approach_path_policy(world, actor),
         }
     )
+
+
+def find_entity_approach_tile(
+    world,
+    actor,
+    target,
+    desired_range_tiles,
+):
+    actor_tile = tile_from_cpos(
+        world.transform[actor].cpos,
+    )
+    target_tile = tile_from_cpos(
+        world.transform[target].cpos,
+    )
+
+    if chebyshev_tile_distance(
+        actor_tile,
+        target_tile,
+    ) <= desired_range_tiles:
+        return actor_tile
+
+    candidates = []
+
+    for candidate_tile in iter_tiles_within_range(
+        target_tile,
+        desired_range_tiles,
+    ):
+        if (
+            desired_range_tiles > 0
+            and candidate_tile == target_tile
+        ):
+            continue
+
+        if not is_tile_valid_for_entity_placement(
+            world,
+            candidate_tile,
+            entity=actor,
+            include_dynamic=True,
+        ):
+            continue
+
+        candidates.append(
+            (
+                chebyshev_tile_distance(
+                    actor_tile,
+                    candidate_tile,
+                ),
+                chebyshev_tile_distance(
+                    candidate_tile,
+                    target_tile,
+                ),
+                candidate_tile.y,
+                candidate_tile.x,
+                candidate_tile,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def iter_tiles_within_range(center_tile, range_tiles):
+    for dy in range(-range_tiles, range_tiles + 1):
+        for dx in range(-range_tiles, range_tiles + 1):
+            candidate_tile = center_tile + Vec2i(dx, dy)
+
+            if chebyshev_tile_distance(
+                candidate_tile,
+                center_tile,
+            ) > range_tiles:
+                continue
+
+            yield candidate_tile
 
 
 def get_approach_path_policy(world, actor):
@@ -214,3 +312,20 @@ def get_approach_path_policy(world, actor):
         return "player_click_move"
 
     return "actor_move"
+
+
+def mark_pointer_action_invalidated(world, actor, order):
+    button = order.get("button")
+    if button is None:
+        return
+
+    pointer_actions = world.pointer_action_state.get(actor, {})
+    action_state = pointer_actions.get(button)
+
+    if action_state is None:
+        return
+
+    if not action_state.get("consumes_button_until_release", False):
+        return
+
+    action_state["hard_target_invalidated"] = True

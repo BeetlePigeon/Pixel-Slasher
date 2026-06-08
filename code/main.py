@@ -18,7 +18,7 @@
 # .: Gamma Up
 # /: Reset Display Calibration
 # WASD / L Click: Move
-# R Click: Test Projectile
+# R Click: Homing Bolt
 # SPACE: Debug Slash
 # Not Currently Assigned: Flame Hazard, Channel Projectile, Burning Field, Frozen Orb, Spiral Projectile
 # 1: Teleport
@@ -30,7 +30,7 @@
 # 7: Pierce Projectile
 # 8: Guard Counter
 # 9: Meteor
-# 0: Homing Bolt
+# 0: Test Projectile
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

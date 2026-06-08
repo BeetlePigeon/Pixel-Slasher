@@ -6,6 +6,7 @@ from gameplay_ui import GameplayUI
 from skill_registry import SKILL_DEFS
 from utils.tile_vec_utils import tile_from_cpos, tile_center
 from utils.selectable_utils import resolve_hovered_selectable
+from utils.targeting_policy_utils import skill_allows_hard_target_kind
 from utils.action_order_utils import (
     clear_action_order,
     set_action_order,
@@ -175,12 +176,17 @@ class StateGameplay(State):
             "press_hovered_kind": hovered_kind,
             "hard_target": None,
             "hard_target_kind": None,
+            "consumes_button_until_release": False,
+            "hard_target_invalidated": False,
         }
 
-        if hovered_kind in {"enemy", "interactable"}:
+        if (
+                hovered_kind in {"enemy", "interactable"}
+                and skill_allows_hard_target_kind(skill_id, hovered_kind)
+        ):
             action_state["hard_target"] = hovered
             action_state["hard_target_kind"] = hovered_kind
-
+            action_state["consumes_button_until_release"] = True
             set_action_order(
                 world,
                 actor,
@@ -201,6 +207,49 @@ class StateGameplay(State):
             {},
         )
         pointer_actions[button] = action_state
+
+
+    def get_hovered_combat_target_for_skill(self, skill_id):
+        world = self.game.world
+        hovered = world.hovered_selectable
+
+        if hovered is None:
+            return None
+
+        hovered_kind = world.selectable.get(
+            hovered,
+            {},
+        ).get("kind")
+
+        if hovered_kind != "enemy":
+            return None
+
+        if hovered not in world.transform:
+            return None
+
+        if hovered not in world.health:
+            return None
+
+        if hovered not in world.hittable:
+            return None
+
+        return hovered
+
+    def add_skill_target_context_to_intent(self, intent, actor):
+        slot = intent.get("slot")
+        if slot is None:
+            return intent
+
+        skill_id = self.game.world.skills.get((actor, slot))
+        target = self.get_hovered_combat_target_for_skill(skill_id)
+
+        if target is None:
+            return intent
+
+        intent = dict(intent)
+        intent["target_entity"] = target
+        intent["target_source"] = "hovered"
+        return intent
 
 
     def clear_pointer_action_releases(self, input_state):
@@ -230,6 +279,38 @@ class StateGameplay(State):
             return False
 
         return order.get("target_lock") == "hard"
+
+
+    def pointer_button_is_consumed_until_release(self, actor, button):
+        pointer_actions = self.game.world.pointer_action_state.get(
+            actor,
+            {},
+        )
+        action_state = pointer_actions.get(button)
+
+        if action_state is None:
+            return False
+
+        return action_state.get(
+            "consumes_button_until_release",
+            False,
+        )
+
+
+    def mark_consumed_pointer_action_invalidated(self, actor, button):
+        pointer_actions = self.game.world.pointer_action_state.get(
+            actor,
+            {},
+        )
+        action_state = pointer_actions.get(button)
+
+        if action_state is None:
+            return
+
+        if not action_state.get("consumes_button_until_release", False):
+            return
+
+        action_state["hard_target_invalidated"] = True
 
 
     def build_hard_target_action_order(
@@ -327,37 +408,65 @@ class StateGameplay(State):
 
         for key, slot in KEY_TO_SLOT.items():
             if key in input_state.keys_pressed:
-                intents.append({
+                intent = {
                     "type": "skill_pressed",
                     "slot": slot,
                     "mouse_pos": input_state.mouse_pos,
-                })
+                }
+                intents.append(
+                    self.add_skill_target_context_to_intent(
+                        intent,
+                        self.game.world.player,
+                    )
+                )
 
             if input_state.keys[key]:
-                intents.append({
+                intent = {
                     "type": "skill_held",
                     "slot": slot,
                     "mouse_pos": input_state.mouse_pos,
-                })
+                }
+                intents.append(
+                    self.add_skill_target_context_to_intent(
+                        intent,
+                        self.game.world.player,
+                    )
+                )
 
             if key in input_state.keys_released:
-                intents.append({
+                intent = {
                     "type": "skill_released",
                     "slot": slot,
                     "mouse_pos": input_state.mouse_pos,
-                })
+                }
+                intents.append(
+                    self.add_skill_target_context_to_intent(
+                        intent,
+                        self.game.world.player,
+                    )
+                )
 
 
     def append_mouse_skill_intents(self, intents, input_state, mouse_to_slot):
+        actor = self.game.world.player
+
         for button, slot in mouse_to_slot.items():
-            if button in input_state.mouse_pressed:
+            button_is_consumed = self.pointer_button_is_consumed_until_release(
+                actor,
+                button,
+            )
+
+            if button in input_state.mouse_pressed and not button_is_consumed:
                 intents.append({
                     "type": "skill_pressed",
                     "slot": slot,
                     "mouse_pos": input_state.mouse_pos,
                 })
 
-            if self.is_mouse_button_held(input_state, button):
+            if (
+                    self.is_mouse_button_held(input_state, button)
+                    and not button_is_consumed
+            ):
                 intents.append({
                     "type": "skill_held",
                     "slot": slot,
@@ -392,7 +501,7 @@ class StateGameplay(State):
         # Traditional controls:
         # LMB on ground means move toward clicked tile.
         if 1 in input_state.mouse_pressed or self.is_mouse_button_held(input_state, 1):
-            if not self.pointer_button_has_hard_target_order(
+            if not self.pointer_button_is_consumed_until_release(
                     self.game.world.player,
                     1,
             ):
