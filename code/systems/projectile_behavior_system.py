@@ -115,18 +115,20 @@ def resolve_homing_target(
 ):
     current_target = runtime.get("target")
 
-    if homing_target_is_valid(
+    if homing_existing_target_is_valid(
         world,
         projectile,
         projectile_data,
         behavior,
+        runtime,
         current_target,
-        filter_def=behavior.get("retarget", {}),
-        radius_origin="projectile",
     ):
         return current_target
 
-    target = acquire_initial_homing_target(
+    runtime.pop("target", None)
+    runtime.pop("target_acquisition_kind", None)
+
+    target, acquisition_kind = acquire_initial_homing_target(
         world,
         projectile,
         projectile_data,
@@ -135,14 +137,17 @@ def resolve_homing_target(
     )
 
     if target is None:
-        target = acquire_retarget_homing_target(
+        target, acquisition_kind = acquire_retarget_homing_target(
             world,
             projectile,
             projectile_data,
             behavior,
         )
 
-    runtime["target"] = target
+    if target is not None:
+        runtime["target"] = target
+        runtime["target_acquisition_kind"] = acquisition_kind
+
     return target
 
 
@@ -154,7 +159,7 @@ def acquire_initial_homing_target(
     runtime,
 ):
     if runtime.get("initial_acquisition_attempted", False):
-        return None
+        return None, None
 
     runtime["initial_acquisition_attempted"] = True
 
@@ -173,9 +178,9 @@ def acquire_initial_homing_target(
             filter_def=targeting,
             radius_origin="source",
         ):
-            return explicit_target
+            return explicit_target, "explicit"
 
-        return None
+        return None, None
 
     if mode == "explicit_target_else_nearest":
         explicit_target = projectile_data.get("explicit_target")
@@ -189,9 +194,9 @@ def acquire_initial_homing_target(
             filter_def=targeting,
             radius_origin="source",
         ):
-            return explicit_target
+            return explicit_target, "explicit"
 
-        return acquire_nearest_homing_target(
+        target = acquire_nearest_homing_target(
             world,
             projectile,
             projectile_data,
@@ -199,9 +204,10 @@ def acquire_initial_homing_target(
             filter_def=targeting,
             radius_origin="projectile",
         )
+        return target, "retarget"
 
     if mode == "nearest":
-        return acquire_nearest_homing_target(
+        target = acquire_nearest_homing_target(
             world,
             projectile,
             projectile_data,
@@ -209,6 +215,7 @@ def acquire_initial_homing_target(
             filter_def=targeting,
             radius_origin="projectile",
         )
+        return target, "retarget"
 
     raise NotImplementedError(
         f"Homing targeting mode not implemented: {mode!r}"
@@ -225,10 +232,10 @@ def acquire_retarget_homing_target(
     mode = retarget.get("mode", "when_invalid")
 
     if mode == "none":
-        return None
+        return None, None
 
     if mode == "nearest_when_no_target":
-        return acquire_nearest_homing_target(
+        target = acquire_nearest_homing_target(
             world,
             projectile,
             projectile_data,
@@ -236,9 +243,10 @@ def acquire_retarget_homing_target(
             filter_def=retarget,
             radius_origin="projectile",
         )
+        return target, "retarget"
 
     if mode == "when_invalid":
-        return acquire_nearest_homing_target(
+        target = acquire_nearest_homing_target(
             world,
             projectile,
             projectile_data,
@@ -246,49 +254,36 @@ def acquire_retarget_homing_target(
             filter_def=retarget,
             radius_origin="projectile",
         )
+        return target, "retarget"
 
     raise NotImplementedError(
         f"Homing retarget mode not implemented: {mode!r}"
     )
 
 
-def acquire_homing_target(
+def homing_existing_target_is_valid(
     world,
     projectile,
     projectile_data,
     behavior,
+    runtime,
+    target,
 ):
-    targeting = behavior["targeting"]
-    mode = targeting.get("mode", "nearest")
+    acquisition_kind = runtime.get("target_acquisition_kind")
 
-    if mode == "explicit_target_else_nearest":
-        explicit_target = projectile_data.get("explicit_target")
-        if homing_target_is_valid(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-            explicit_target,
-        ):
-            return explicit_target
+    if acquisition_kind == "explicit":
+        filter_def = behavior.get("targeting", {})
+    else:
+        filter_def = behavior.get("retarget", {})
 
-        return acquire_nearest_homing_target(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-        )
-
-    if mode == "nearest":
-        return acquire_nearest_homing_target(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-        )
-
-    raise NotImplementedError(
-        f"Homing targeting mode not implemented: {mode!r}"
+    return homing_target_is_valid(
+        world,
+        projectile,
+        projectile_data,
+        behavior,
+        target,
+        filter_def=filter_def,
+        radius_origin=None,
     )
 
 
@@ -426,6 +421,9 @@ def homing_target_is_within_radius(
     filter_def,
     radius_origin,
 ):
+    if radius_origin is None:
+        return True
+
     radius_tiles = filter_def.get("radius_tiles")
 
     if radius_tiles is None:

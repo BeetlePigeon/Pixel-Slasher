@@ -7,11 +7,11 @@
 
   "motion": {
     "type": "linear",
-    "speed": 384,
+    "speed": 334,
     "influence_mode": "normal"
   },
 
-  "lifetime_ticks": 180,
+  "lifetime_ticks": 600,
 
   "sprite": {
     "image": "ice_shard",
@@ -47,7 +47,7 @@
       "retarget": {
         "mode": "nearest_when_no_target",
         "relationship": "enemies",
-        "radius_tiles": 2,
+        "radius_tiles": 4,
         "requires": ["hittable", "health"]
       },
       "turn_rate_steps_per_tick": 1
