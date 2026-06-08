@@ -298,7 +298,38 @@ def get_skill_aim_config(world, skill_def):
     return source, resolution
 
 
+def vector_from_caster_to_target_entity(world, caster, intent):
+    target_entity = intent.get("target_entity")
+    if target_entity is None:
+        return None
+
+    caster_transform = world.transform.get(caster)
+    target_transform = world.transform.get(target_entity)
+
+    if caster_transform is None or target_transform is None:
+        return None
+
+    vector = target_transform.cpos - caster_transform.cpos
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    return vector
+
+
 def resolve_skill_aim_vector(world, caster, intent, skill_def):
+    target_vector = vector_from_caster_to_target_entity(
+        world,
+        caster,
+        intent,
+    )
+    if target_vector is not None:
+        aim_vector = normalize_vector_to_dir_scale(target_vector)
+        if aim_vector is not None:
+            return aim_vector
+
+    if intent.get("requires_target_entity", False):
+        return None
+
     source, resolution = get_skill_aim_config(world, skill_def)
 
     if source == "facing":
@@ -340,6 +371,21 @@ def resolve_skill_aim_vector(world, caster, intent, skill_def):
     raise ValueError(f"Unknown skill aim source: {source}")
 
 
+def direction_toward_target_entity(world, caster, intent):
+    target_vector = vector_from_caster_to_target_entity(
+        world,
+        caster,
+        intent,
+    )
+    if target_vector is None:
+        return None
+
+    return Vec2i(
+        sign(target_vector.x),
+        sign(target_vector.y),
+    )
+
+
 def direction_from_cpos_to_cpos(start_cpos, target_cpos):
     direction = Vec2i(
         sign(target_cpos.x - start_cpos.x),
@@ -379,6 +425,17 @@ def get_skill_aim_source(world, skill_def):
 
 
 def resolve_skill_aim_direction(world, caster, intent, skill_def):
+    target_direction = direction_toward_target_entity(
+        world,
+        caster,
+        intent,
+    )
+    if target_direction is not None:
+        return target_direction
+
+    if intent.get("requires_target_entity", False):
+        return None
+
     aim_source = get_skill_aim_source(world, skill_def)
 
     if aim_source == "facing":

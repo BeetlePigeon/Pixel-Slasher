@@ -333,3 +333,89 @@ def tiles_crossed_by_segment(start_cpos: Vec2i, end_cpos: Vec2i):
             next_cross_y += TILE_UNITS
 
     return tiles
+
+
+def turn_direction_toward_vector(
+    current_direction,
+    target_vector,
+    turn_rate_steps_per_tick,
+):
+    current_index = find_best_circle_direction_index(
+        current_direction,
+    )
+    target_index = find_best_circle_direction_index(
+        target_vector,
+    )
+
+    if current_index is None or target_index is None:
+        return CIRCLE_DIRECTION_LUT[target_index]
+
+    step = clamped_lut_turn_step(
+        current_index,
+        target_index,
+        turn_rate_steps_per_tick,
+    )
+
+    return CIRCLE_DIRECTION_LUT[
+        (current_index + step) % len(CIRCLE_DIRECTION_LUT)
+    ]
+
+
+def find_best_circle_direction_index(vector):
+    if vector is None:
+        return None
+
+    if vector.x == 0 and vector.y == 0:
+        return None
+
+    best_index = None
+    best_dot = None
+
+    for index, direction in enumerate(CIRCLE_DIRECTION_LUT):
+        dot = (
+            vector.x * direction.x
+            + vector.y * direction.y
+        )
+
+        if best_dot is None or dot > best_dot:
+            best_dot = dot
+            best_index = index
+
+    return best_index
+
+
+def clamped_lut_turn_step(
+    current_index,
+    target_index,
+    turn_rate_steps_per_tick,
+):
+    direction_count = len(CIRCLE_DIRECTION_LUT)
+
+    delta = (
+        target_index
+        - current_index
+    ) % direction_count
+
+    if delta > direction_count // 2:
+        delta -= direction_count
+
+    max_step = max(
+        0,
+        turn_rate_steps_per_tick,
+    )
+
+    if delta > max_step:
+        return max_step
+
+    if delta < -max_step:
+        return -max_step
+
+    return delta
+
+
+def squared_cpos_distance(a, b):
+    delta = b - a
+    return (
+        delta.x * delta.x
+        + delta.y * delta.y
+    )

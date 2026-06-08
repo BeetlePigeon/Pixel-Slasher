@@ -5,7 +5,7 @@ DEFAULT_PLAYER_STATE = {
     },
 
     "skills": {
-        0: "test_projectile",
+        0: "debug_slash",   # L Click
         1: "teleport",
         2: "burst_projectile",
         3: "magnet_orb",
@@ -14,8 +14,8 @@ DEFAULT_PLAYER_STATE = {
         6: "debug_slash",
         7: "pierce_projectile",
         8: "guard_counter",
-        9: "spiral_projectile",
+        9: "test_projectile",   # R Click
         10: "meteor",
-        11: "frozen_orb",
+        11: "homing_bolt",
     },
 }

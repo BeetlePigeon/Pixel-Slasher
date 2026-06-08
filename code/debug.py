@@ -3,6 +3,7 @@ from utils.status_utils import apply_status_effect
 from combat_ops import queue_damage_request
 from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake, internal_screen_to_world_tile
 from data.tables_tile_footprints import get_footprint_offsets
+from utils.action_order_utils import get_action_order_summary
 from utils.camera_utils import (
     project_screen_point,
     scale_surface_by_camera_zoom,
@@ -28,12 +29,44 @@ class Debug:
         statuses = self.game.world.status_effects.get(self.game.world.player, {})
         stun = True if statuses.get("debug_stun") else False
         freeze = True if statuses.get("debug_freeze") else False
+        hovered_selectable = self.game.world.hovered_selectable
+        hovered_kind = None
+        if hovered_selectable is not None:
+            hovered_kind = self.game.world.selectable.get(
+                hovered_selectable,
+                {},
+            ).get("kind")
+        player = self.game.world.player
+        pointer_action_summary = "None"
+        action_order_summary = "None"
+        if player is not None:
+            pointer_actions = self.game.world.pointer_action_state.get(
+                player,
+                {},
+            )
+
+            if pointer_actions:
+                pointer_action_summary = ", ".join(
+                    (
+                        f"button={button} "
+                        f"hard={state.get('hard_target')} "
+                        f"kind={state.get('hard_target_kind')} "
+                        f"skill={state.get('skill_id')}"
+                    )
+                    for button, state in sorted(pointer_actions.items())
+                )
+
+            action_order_summary = get_action_order_summary(
+                self.game.world,
+                player,
+            )
+
         lines = [
             f"FPS: {self.game.fps:.1f}",
 #            f"Entities next_id: {self.game.entities.next_id}",
 #            f"Transforms: {len(self.game.world.transform)}",
-            f"MotionState: {len(self.game.world.motion_state)}",
-            f"Sprites: {len(self.game.world.sprite)}",
+#            f"MotionState: {len(self.game.world.motion_state)}",
+#            f"Sprites: {len(self.game.world.sprite)}",
 #            f"Projectiles: {len(self.game.world.projectile)}",
 #            f"Emitters: {len(self.game.world.influence_emitter)}",
 #            f"Receivers: {len(self.game.world.influence_receiver)}",
@@ -41,9 +74,9 @@ class Debug:
             f"Player HP: {self.game.world.health[self.game.world.player]}",
             f"Display: {self.game.display.display_mode}",
             f"Scale: {self.game.display.scale}x",
-            f"Brightness: {self.game.display.brightness}",
-            f"Contrast: {self.game.display.contrast}",
-            f"Gamma: {self.game.display.gamma}",
+#            f"Brightness: {self.game.display.brightness}",
+#            f"Contrast: {self.game.display.contrast}",
+#            f"Gamma: {self.game.display.gamma}",
             f"Windowed scale: {self.game.display.windowed_scale}x",
             f"VSync: {'on' if self.game.display.vsync_enabled else 'off'}",
             f"FPS cap: {'uncapped' if self.game.display.fps_cap == 0 else self.game.display.fps_cap}",
@@ -54,9 +87,10 @@ class Debug:
             f"Action State: {self.game.world.action_state}",
             f"Player motion: {self.game.world.motion_state[self.game.world.player]}",
             f"Ticks: {self.game.world.tick}",
-            f"Statuses: {len(statuses)}",
-            f"Stun: {stun}",
-            f"Freeze: {freeze}",
+            f"Hovered selectable: {hovered_selectable} {hovered_kind}",
+#            f"Statuses: {len(statuses)}",
+#            f"Stun: {stun}",
+#            f"Freeze: {freeze}",
             (
                 f"Zoom: "
                 f"{self.game.world.world_camera.camera['zoom_current_fp'] / 1024:.2f}x "
@@ -64,7 +98,10 @@ class Debug:
                 f"{self.game.world.world_camera.camera['zoom_target_den']} "
                 f"({'smooth' if self.game.world.world_camera.camera['zoom_smooth'] else 'snap'})"
             ),
+            f"Pointer action: {pointer_action_summary}",
+            f"Action order: {action_order_summary}",
         ]
+
         y = 4
 
         for line in lines:

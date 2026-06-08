@@ -4,11 +4,23 @@ from systems.movement_system import set_move_target, clear_move_target, buffer_m
 
 def intent_system(world, intents):
     world.move_intent.clear()
+    world.interact_request.clear()
 
     for entity, entity_intents in intents.items():
         found_move_intent = False
 
         for intent in entity_intents:
+            if intent["type"] == "interact":
+                world.interact_request.append(
+                    {
+                        "actor": entity,
+                        "target": intent["target"],
+                        "skill_id": intent.get("skill_id"),
+                        "button": intent.get("button"),
+                    }
+                )
+                continue
+
             if intent["type"] == "stop_moving":
                 cancel_voluntary_movement(
                     world,

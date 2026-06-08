@@ -2,6 +2,7 @@ import pygame
 from utils.camera_utils import project_screen_point, scale_surface_by_camera_zoom, scale_vec_by_camera_zoom, scale_length_by_camera_zoom
 from support import Vec2i
 from constants import TILE_UNITS
+from utils.selectable_utils import get_selectable_click_rect
 from utils.occupancy_utils import get_entity_occupied_tiles
 from utils.tile_vec_utils import interp_cpos, cpos_to_screen, iso_to_screen, tile_center
 
@@ -191,6 +192,7 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
     debug_radius = scale_length_by_camera_zoom(world, 4)
 
     for entity, base_x, base_y in debug_draw_list:
+
         draw_debug_path_target_overlay(world, surface, entity)
 
         actor_x, actor_y = project_screen_point(
@@ -201,6 +203,12 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
 
         # Movement footprint tiles.
         draw_debug_entity_occupied_tiles(
+            world,
+            surface,
+            entity,
+        )
+
+        draw_debug_selectable_click_box(
             world,
             surface,
             entity,
@@ -236,6 +244,26 @@ def draw_sprite_debug_overlays(world, surface, debug_draw_list):
                 (arrow_end_x, arrow_end_y),
                 scale_length_by_camera_zoom(world, 2),
             )
+
+
+def draw_debug_selectable_click_box(world, surface, entity):
+    if entity not in world.selectable:
+        return
+
+    rect = get_selectable_click_rect(world, entity)
+    if rect is None:
+        return
+
+    color = "yellow"
+    if world.hovered_selectable == entity:
+        color = "orange"
+
+    pygame.draw.rect(
+        surface,
+        color,
+        rect,
+        scale_length_by_camera_zoom(world, 1),
+    )
 
 
 def draw_debug_entity_occupied_tiles(world, surface, entity):

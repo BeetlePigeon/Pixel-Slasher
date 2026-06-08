@@ -21,6 +21,7 @@ class World:
         self.tick = 0
         self.failed_path_queries = {}
         self.path_build_state = {}
+        self.hovered_selectable = None
 
         control_settings = self.game.settings["controls"]
         self.control_scheme = control_settings["control_scheme"]
@@ -54,6 +55,8 @@ class World:
         self.buffered_move_intent = {}
         self.move_target = {}
         self.aim_state = {}
+        self.pointer_action_state = {}
+        self.action_order = {}
         self.intent = {}
         self.input_controlled = {}
         self.skills = {}
@@ -73,9 +76,12 @@ class World:
         self.ai_agent = {}
         self.contact_filter = {}
         self.hittable = {}
+        self.selectable = {}
+        self.interactable = {}
         self.combat_body = {}
         self.damage_requests = []
         self.heal_requests = []
+        self.interact_request = []
         self.combat_attack = {}
         self.movement_collision = {}
 
@@ -180,6 +186,8 @@ class World:
             self.move_target,
             self.aim_state,
             self.intent,
+            self.pointer_action_state,
+            self.action_order,
             self.input_controlled,
             self.active_skill,
             self.sprite,
@@ -194,6 +202,8 @@ class World:
             self.ai_agent,
             self.contact_filter,
             self.hittable,
+            self.selectable,
+            self.interactable,
             self.combat_body,
             self.combat_attack,
             self.movement_collision,
@@ -534,11 +544,22 @@ class World:
         self.hittable[eid] = {
             "enabled": True,
         }
+        self.selectable[eid] = {
+            "kind": "enemy",
+            "enabled": True,
+            "screen_priority": 0,
+            "click_box": {
+                "type": "rect",
+                "anchor": "bottom_center",
+                "offset": (0, -4),
+                "size": (36, 52),
+            },
+        }
         self.combat_body[eid] = {
             "collision_footprint": "plus5",
         }
         self.combat_attack[eid] = {
-            "range_tiles": 2,
+            "range_tiles": 42,
         }
         # Reuse player art for now. Replace later with enemy/dummy art.
         dummy_image = self.game.assets.images["player"]

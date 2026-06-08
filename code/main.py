@@ -1,8 +1,6 @@
 # Debug controls:
 # ESC: Quit
 # `: Toggle Debug Mode
-# WASD / L Click: Move
-# SPACE: Test Projectile
 # LSHIFT: Toggle Camera Mode
 # K: Move Diag
 # I: Print Profiler Rows
@@ -19,6 +17,10 @@
 # ,: Gamma Down
 # .: Gamma Up
 # /: Reset Display Calibration
+# WASD / L Click: Move
+# R Click: Test Projectile
+# SPACE: Debug Slash
+# Not Currently Assigned: Flame Hazard, Channel Projectile, Burning Field, Frozen Orb, Spiral Projectile
 # 1: Teleport
 # 2: Burst Projectiles
 # 3: Magnet
@@ -28,9 +30,7 @@
 # 7: Pierce Projectile
 # 8: Guard Counter
 # 9: Meteor
-# 0: Frozen Orb
-# R Click: Spiral Projectile
-# Not Currently Assigned: Flame Hazard, Channel Projectile, Burning Field
+# 0: Homing Bolt
 # F1: Spawn Enemy
 # F2: Toggle Entity Sizes
 # F3: Live Reload Skill Definitions

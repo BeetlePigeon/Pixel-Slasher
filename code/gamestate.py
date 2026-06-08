@@ -5,10 +5,16 @@ from utils.camera_utils import internal_screen_to_world_cpos
 from gameplay_ui import GameplayUI
 from skill_registry import SKILL_DEFS
 from utils.tile_vec_utils import tile_from_cpos, tile_center
+from utils.selectable_utils import resolve_hovered_selectable
+from utils.action_order_utils import (
+    clear_action_order,
+    set_action_order,
+)
 from systems import (
     snapshot_system,
     action_state_system,
     lifetime_system,
+    action_order_system,
     ai_system,
     movement_arbiter_system,
     movement_system,
@@ -18,6 +24,7 @@ from systems import (
     skill_execution_system,
     influence_system,
     intent_system,
+    interact_system,
     camera_update_system,
     camera_system,
     camera_shake_system,
@@ -90,6 +97,185 @@ class StateGameplay(State):
         return input_state.mouse_buttons[index]
 
 
+    def get_pointer_action_slot(self, button):
+        control_scheme = self.game.world.control_scheme
+
+        if control_scheme == "traditional":
+            if button == 1:
+                return 0
+
+            if button == 3:
+                return 9
+
+            return None
+
+        if control_scheme == "modern":
+            if button == 1:
+                return "LMB"
+
+            if button == 3:
+                return "RMB"
+
+            return None
+
+        return None
+
+
+    def get_bound_skill_id_for_pointer_action(self, actor, button):
+        slot = self.get_pointer_action_slot(button)
+        if slot is None:
+            return None
+
+        return self.game.world.skills.get((actor, slot))
+
+
+    def capture_pointer_action_presses(self, input_state):
+        world = self.game.world
+        actor = world.player
+
+        if actor is None:
+            return
+
+        for button in sorted(input_state.mouse_pressed):
+            if button not in {1, 3}:
+                continue
+
+            self.capture_pointer_action_press(
+                input_state,
+                actor,
+                button,
+            )
+
+
+    def capture_pointer_action_press(self, input_state, actor, button):
+        world = self.game.world
+
+        hovered = world.hovered_selectable
+        hovered_kind = None
+
+        if hovered is not None:
+            hovered_kind = world.selectable.get(
+                hovered,
+                {},
+            ).get("kind")
+
+        slot = self.get_pointer_action_slot(button)
+        skill_id = self.get_bound_skill_id_for_pointer_action(
+            actor,
+            button,
+        )
+
+        action_state = {
+            "button": button,
+            "slot": slot,
+            "skill_id": skill_id,
+            "press_tick": world.tick,
+            "press_mouse_pos": input_state.mouse_pos,
+            "press_hovered_entity": hovered,
+            "press_hovered_kind": hovered_kind,
+            "hard_target": None,
+            "hard_target_kind": None,
+        }
+
+        if hovered_kind in {"enemy", "interactable"}:
+            action_state["hard_target"] = hovered
+            action_state["hard_target_kind"] = hovered_kind
+
+            set_action_order(
+                world,
+                actor,
+                self.build_hard_target_action_order(
+                    actor,
+                    hovered,
+                    hovered_kind,
+                    skill_id,
+                    slot,
+                    button,
+                ),
+            )
+        else:
+            clear_action_order(world, actor)
+
+        pointer_actions = world.pointer_action_state.setdefault(
+            actor,
+            {},
+        )
+        pointer_actions[button] = action_state
+
+
+    def clear_pointer_action_releases(self, input_state):
+        world = self.game.world
+        actor = world.player
+
+        if actor is None:
+            return
+
+        pointer_actions = world.pointer_action_state.get(actor)
+        if pointer_actions is None:
+            return
+
+        for button in sorted(input_state.mouse_released):
+            pointer_actions.pop(button, None)
+
+        if not pointer_actions:
+            world.pointer_action_state.pop(actor, None)
+
+
+    def pointer_button_has_hard_target_order(self, actor, button):
+        order = self.game.world.action_order.get(actor)
+        if order is None:
+            return False
+
+        if order.get("button") != button:
+            return False
+
+        return order.get("target_lock") == "hard"
+
+
+    def build_hard_target_action_order(
+            self,
+            actor,
+            target,
+            target_kind,
+            skill_id,
+            slot,
+            button,
+    ):
+        world = self.game.world
+
+        if target_kind == "interactable":
+            return {
+                "type": "interact_with_entity",
+                "actor": actor,
+                "target": target,
+                "target_kind": target_kind,
+                "skill_id": skill_id,
+                "slot": slot,
+                "button": button,
+                "target_lock": "hard",
+                "created_tick": world.tick,
+                "fired_once": False,
+            }
+
+        if target_kind == "enemy":
+            return {
+                "type": "use_skill_on_entity",
+                "actor": actor,
+                "target": target,
+                "target_kind": target_kind,
+                "skill_id": skill_id,
+                "slot": slot,
+                "button": button,
+                "target_lock": "hard",
+                "created_tick": world.tick,
+                "fired_once": False,
+            }
+
+        raise ValueError(
+            f"Unsupported hard target kind: {target_kind!r}"
+        )
+
+
     def append_wasd_move_intent(self, intents, input_state):
         keys = input_state.keys
 
@@ -122,6 +308,7 @@ class StateGameplay(State):
                 "type": "move",
                 "direction": (tile_dx, tile_dy),
             })
+
 
     def append_keyboard_skill_intents(self, intents, input_state):
         KEY_TO_SLOT = {
@@ -160,6 +347,7 @@ class StateGameplay(State):
                     "mouse_pos": input_state.mouse_pos,
                 })
 
+
     def append_mouse_skill_intents(self, intents, input_state, mouse_to_slot):
         for button, slot in mouse_to_slot.items():
             if button in input_state.mouse_pressed:
@@ -185,13 +373,16 @@ class StateGameplay(State):
 
 
     def build_player_intents(self, input_state):
+        self.update_hovered_selectable(input_state)
+
         gameplay_input_state = self.build_gameplay_input_state(input_state)
 
-        control_scheme = self.game.world.control_scheme
+        self.capture_pointer_action_presses(gameplay_input_state)
+        self.clear_pointer_action_releases(gameplay_input_state)
 
+        control_scheme = self.game.world.control_scheme
         if control_scheme == "traditional":
             return self.build_traditional_player_intents(gameplay_input_state)
-
         return self.build_modern_player_intents(gameplay_input_state)
 
 
@@ -201,20 +392,22 @@ class StateGameplay(State):
         # Traditional controls:
         # LMB on ground means move toward clicked tile.
         if 1 in input_state.mouse_pressed or self.is_mouse_button_held(input_state, 1):
-            target_cpos = internal_screen_to_world_cpos(
-                self.game.world,
-                input_state.mouse_pos,
-            )
-
-            target_tile = tile_from_cpos(target_cpos)
-
-            intents.append({
-                "type": "move_to_tile",
-                "target_tile": target_tile,
-                "target_cpos": target_cpos,
-                "mouse_pos": input_state.mouse_pos,
-                "path_policy": "player_click_move",
-            })
+            if not self.pointer_button_has_hard_target_order(
+                    self.game.world.player,
+                    1,
+            ):
+                target_cpos = internal_screen_to_world_cpos(
+                    self.game.world,
+                    input_state.mouse_pos,
+                )
+                target_tile = tile_from_cpos(target_cpos)
+                intents.append({
+                    "type": "move_to_tile",
+                    "target_tile": target_tile,
+                    "target_cpos": target_cpos,
+                    "mouse_pos": input_state.mouse_pos,
+                    "path_policy": "player_click_move",
+                })
 
         self.append_keyboard_skill_intents(intents, input_state)
 
@@ -247,6 +440,19 @@ class StateGameplay(State):
         )
 
         return intents, input_state.mouse_pos
+
+    def update_hovered_selectable(self, input_state):
+        world = self.game.world
+
+        if self.gameplay_ui.mouse_over_ui(input_state.mouse_pos):
+            world.hovered_selectable = None
+            return
+
+        world.hovered_selectable = resolve_hovered_selectable(
+            world,
+            input_state.mouse_pos,
+        )
+
 
     def update(self, dt, input_state):
         self.game.world.tick += 1
@@ -295,6 +501,7 @@ class StateGameplay(State):
         # AI is another input source. It reads world state and appends
         # intents; existing intent/movement/skill systems execute them.
         ai_system(self.game.world, intents)
+        action_order_system(self.game.world, intents)
 
         # Debug Inputs Bypass Arbiters
         if self.game.debug_mode:
@@ -335,6 +542,7 @@ class StateGameplay(State):
         # skill_execution_system starts casts, channels, instant skills, and
         # other skill-driven behavior.
         intent_system(self.game.world, intents)
+        interact_system(self.game.world)
         skill_intent_resolution_system(self.game.world, intents)
         skill_execution_system(self.game.world)
 

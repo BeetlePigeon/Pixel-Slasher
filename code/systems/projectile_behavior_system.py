@@ -1,6 +1,18 @@
 from data.tables_dirs import CIRCLE_DIRECTION_LUT
 from spawners import spawn_projectile
-from utils.tile_vec_utils import scale_normalized_dir
+from combat_ops import (
+    entities_are_allies,
+    entities_are_enemies,
+    entity_is_hittable,
+)
+from motion_controllers import LinearProjectileController
+from utils.tile_vec_utils import (
+    chebyshev_tile_distance,
+    scale_normalized_dir,
+    tile_from_cpos,
+    turn_direction_toward_vector,
+    squared_cpos_distance,
+)
 
 
 def projectile_behavior_system(world):
@@ -54,8 +66,303 @@ def process_projectile_behavior(
         )
         return
 
+    if behavior_type == "homing":
+        process_homing_behavior(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+            runtime,
+        )
+        return
+
     raise NotImplementedError(
         f"Projectile behavior type not implemented: {behavior_type}"
+    )
+
+
+def process_homing_behavior(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+    runtime,
+):
+    target = resolve_homing_target(
+        world,
+        projectile,
+        projectile_data,
+        behavior,
+        runtime,
+    )
+    if target is None:
+        return
+
+    steer_projectile_toward_target(
+        world,
+        projectile,
+        target,
+        behavior,
+    )
+
+
+def resolve_homing_target(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+    runtime,
+):
+    current_target = runtime.get("target")
+    retarget_mode = behavior.get(
+        "retarget",
+        {},
+    ).get(
+        "mode",
+        "when_invalid",
+    )
+
+    if retarget_mode == "when_invalid":
+        if homing_target_is_valid(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+            current_target,
+        ):
+            return current_target
+
+        target = acquire_homing_target(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+        )
+        runtime["target"] = target
+        return target
+
+    raise NotImplementedError(
+        f"Homing retarget mode not implemented: {retarget_mode!r}"
+    )
+
+
+def acquire_homing_target(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+):
+    targeting = behavior["targeting"]
+    mode = targeting.get("mode", "nearest")
+
+    if mode != "nearest":
+        raise NotImplementedError(
+            f"Homing targeting mode not implemented: {mode!r}"
+        )
+
+    candidates = []
+
+    for candidate in sorted(world.transform):
+        if not homing_target_is_valid(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+            candidate,
+        ):
+            continue
+
+        distance_sq = squared_cpos_distance(
+            world.transform[projectile].cpos,
+            world.transform[candidate].cpos,
+        )
+        candidates.append(
+            (
+                distance_sq,
+                candidate,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+    return candidates[0][1]
+
+
+def homing_target_is_valid(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+    target,
+):
+    if target is None:
+        return False
+
+    if target == projectile:
+        return False
+
+    if target == projectile_data.get("source"):
+        return False
+
+    if target not in world.transform:
+        return False
+
+    targeting = behavior["targeting"]
+
+    if not homing_target_matches_relationship(
+        world,
+        projectile_data,
+        target,
+        targeting,
+    ):
+        return False
+
+    if not homing_target_is_within_radius(
+        world,
+        projectile,
+        target,
+        targeting,
+    ):
+        return False
+
+    if not homing_target_satisfies_requirements(
+        world,
+        target,
+        targeting.get("requires", []),
+    ):
+        return False
+
+    return True
+
+
+def homing_target_matches_relationship(
+    world,
+    projectile_data,
+    target,
+    targeting,
+):
+    relationship = targeting.get("relationship", "enemies")
+    source = projectile_data.get("source")
+
+    if relationship == "any":
+        return True
+
+    if source is None:
+        return False
+
+    if relationship == "enemies":
+        return entities_are_enemies(
+            world,
+            source,
+            target,
+        )
+
+    if relationship == "allies":
+        return entities_are_allies(
+            world,
+            source,
+            target,
+        )
+
+    raise NotImplementedError(
+        f"Homing relationship not implemented: {relationship!r}"
+    )
+
+
+def homing_target_is_within_radius(
+    world,
+    projectile,
+    target,
+    targeting,
+):
+    radius_tiles = targeting.get("radius_tiles")
+    if radius_tiles is None:
+        return True
+
+    projectile_tile = tile_from_cpos(
+        world.transform[projectile].cpos,
+    )
+    target_tile = tile_from_cpos(
+        world.transform[target].cpos,
+    )
+
+    return (
+        chebyshev_tile_distance(
+            projectile_tile,
+            target_tile,
+        )
+        <= radius_tiles
+    )
+
+
+def homing_target_satisfies_requirements(
+    world,
+    target,
+    requirements,
+):
+    for requirement in requirements:
+        if not homing_target_satisfies_requirement(
+            world,
+            target,
+            requirement,
+        ):
+            return False
+
+    return True
+
+
+def homing_target_satisfies_requirement(
+    world,
+    target,
+    requirement,
+):
+    if requirement == "transform":
+        return target in world.transform
+
+    if requirement == "health":
+        return target in world.health
+
+    if requirement == "hittable":
+        return entity_is_hittable(
+            world,
+            target,
+        )
+
+    if requirement == "team":
+        return target in world.team
+
+    raise NotImplementedError(
+        f"Homing target requirement not implemented: {requirement!r}"
+    )
+
+
+def steer_projectile_toward_target(
+    world,
+    projectile,
+    target,
+    behavior,
+):
+    motion_state = world.motion_state.get(projectile)
+    if motion_state is None:
+        return
+
+    controller = motion_state.get("controller")
+    if not isinstance(controller, LinearProjectileController):
+        return
+
+    to_target = (
+        world.transform[target].cpos
+        - world.transform[projectile].cpos
+    )
+    if to_target.x == 0 and to_target.y == 0:
+        return
+
+    controller.aim_vector = turn_direction_toward_vector(
+        controller.aim_vector,
+        to_target,
+        behavior["turn_rate_steps_per_tick"],
     )
 
 

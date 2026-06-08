@@ -7,7 +7,9 @@ from systems.destacking_system import destacking_system
 from systems.event_system import event_system
 from systems.skill_system import skill_intent_resolution_system, skill_execution_system
 from systems.influence_system import influence_system
+from systems.action_order_system import action_order_system
 from systems.intent_system import intent_system
+from systems.interact_system import interact_system
 from systems.camera_system import camera_update_system, camera_system, camera_shake_system
 from systems.status_effect_system import status_effect_system
 from systems.effect_delivery_system import effect_delivery_system
@@ -30,7 +32,9 @@ __all__ = [
     "skill_intent_resolution_system",
     "skill_execution_system",
     "influence_system",
+    "action_order_system",
     "intent_system",
+    "interact_system",
     "camera_update_system",
     "camera_system",
     "camera_shake_system",
