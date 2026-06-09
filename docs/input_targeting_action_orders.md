@@ -248,7 +248,7 @@ RMB on enemy with Fireball:
 
 
 
-This is why hard-target mouse actions feel different from keyboard skill keys.
+This hard-target behavior is now shared by pointer buttons and keyboard skill keys when the press begins over an enemy. Pointer buttons can also create interaction, movement, and soft-target orders; keyboard skill keys only create enemy hard-target orders.
 
 
 
@@ -352,6 +352,51 @@ RMB press over empty ground:
 
 Those cannot be reconstructed only from the current mouse position.
 
+
+---
+
+# 4.5. Keyboard action state
+
+Keyboard skill keys can also create action state, but only for enemy hard targets.
+
+```text
+keyboard key pressed while hovering enemy
+  -> keyboard_action_state
+  -> use_skill_on_entity order
+```
+
+Keyboard action state remembers:
+
+```text
+key
+slot
+skill_id
+press_mouse_pos
+press_hovered_entity
+hard_target
+hard_target_kind
+consumes_key_until_release
+```
+
+This lets keyboard skills share the same hard-target behavior as RMB/LMB enemy clicks:
+
+```text
+press skill key while hovering enemy
+  -> lock that enemy
+  -> keep using the skill on that enemy while key is held
+  -> if the enemy dies, stop using the skill
+  -> do not resume normal casting until key release
+```
+
+Keyboard action state is narrower than pointer action state.
+
+Keyboard skill keys do **not** create default movement orders.
+
+Keyboard skill keys do **not** interact with chests, doors, items, or waypoints by default.
+
+Keyboard skill keys do **not** create melee move-with-soft-attack orders by default.
+
+They only create enemy hard-target orders when the key press starts over a valid enemy.
 
 
 \---
@@ -908,118 +953,93 @@ Hard-target mouse presses are different. They remain stable until release.
 
 
 
-\# 11. Keyboard skill keys
+# 11. Keyboard skill keys
 
+Keyboard skill keys have two modes.
 
+## 11.1 Direct skill use
 
-Keyboard skill keys are direct skill inputs.
-
-
-
-They do not create pointer action state or action orders by default.
-
-
+If the key press starts over empty ground, an interactable, or anything that is not a valid enemy hard target:
 
 ```text
-
 press keyboard skill key:
-
-&#x20; emit skill\_pressed
-
-
+  emit skill_pressed
 
 hold keyboard skill key:
-
-&#x20; emit skill\_held every tick
-
-
+  emit skill_held every tick
 
 release keyboard skill key:
-
-&#x20; emit skill\_released
-
+  emit skill_released
 ```
 
-
-
-Keyboard skills can still receive a hovered enemy as target context.
-
-
+This is direct skill input.
 
 Example:
 
+```text
+press Homing Bolt key while cursor is over ground
+  -> fire/cast normally toward cursor
+  -> continue while key is held, according to trigger mode
+```
 
+## 11.2 Enemy hard-target use
+
+If the key press starts while hovering a valid enemy, and the skill allows enemy hard targets:
 
 ```text
+press keyboard skill key while hovering enemy
+  -> create keyboard_action_state
+  -> create use_skill_on_entity action order
+  -> consume key until release
+```
 
+Then:
+
+```text
+while key is held:
+  keep using the skill on the hard target
+
+if target dies:
+  clear action order
+  keep key consumed
+  do not resume normal direct skill use
+
+when key is released:
+  clear keyboard action state
+```
+
+Example:
+
+```text
 mouse hovering enemy
-
-press Homing Bolt key
-
-&#x20; -> skill intent gets target\_entity = hovered enemy
-
+hold Homing Bolt key
+  -> Homing Bolt targets that enemy
+  -> if the enemy dies, casting stops
+  -> holding the key does not start firing at the cursor
+  -> player must release and press again
 ```
 
+This matches mouse hard-target behavior for enemies.
 
-
-But this is not a persistent hard target order.
-
-
-
-The important distinction:
-
-
+The important distinction is now:
 
 ```text
+RMB/LMB pointer actions:
+  can hard-target enemies
+  can hard-target interactables
+  can move
+  can move_then_interact
+  can move_then_attack
+  can use soft acquisition depending on skill/input policy
 
-RMB hard target:
-
-&#x20; clicked enemy is locked for that held mouse action
-
-&#x20; if it dies, action stops until release
-
-
-
-keyboard held skill:
-
-&#x20; key keeps producing skill intents while held
-
-&#x20; no mouse-button hard target is consumed until release
-
+keyboard skill keys:
+  can hard-target enemies
+  otherwise directly use the skill
+  do not move or interact by default
 ```
-
-
-
-So keyboard skill behavior is closer to:
-
-
-
-```text
-
-keep using this skill while key is held
-
-```
-
-
-
-not:
-
-
-
-```text
-
-keep this specific clicked target locked until release
-
-```
-
-
-
-This difference is intentional.
-
 
 
 \---
-
 
 
 \# 12. Homing target behavior
@@ -1041,10 +1061,28 @@ RMB Homing Bolt on enemy:
 &#x20; hard-target order emits skill intent with target\_entity
 
 
-
+  
 keyboard Homing Bolt while hovering enemy:
 
-&#x20; keyboard skill intent gets target\_entity from hover
+&#x20; keyboard hard-target order emits skill intent with target\_entity
+
+
+
+RMB Homing Bolt on enemy:
+
+&#x20; pointer hard-target order emits skill intent with target_entity
+
+
+
+keyboard Homing Bolt on enemy:
+
+&#x20; keyboard hard-target order emits skill intent with target_entity
+
+
+
+keyboard Homing Bolt on ground:
+
+&#x20; direct skill intent fires toward cursor without a hard target
 
 
 
@@ -1362,7 +1400,7 @@ move\_then\_interact or interact immediately
 
 
 
-\## Keyboard skill key
+\## Keyboard skill key on ground
 
 
 
@@ -1370,14 +1408,39 @@ move\_then\_interact or interact immediately
 
 fire skill directly
 
-can use hovered enemy as target context
-
-does not create hard-target mouse order
-
-continues while key is held according to skill trigger mode
+continue while key is held according to skill trigger mode
 
 ```
 
+
+\## Keyboard skill key on enemy
+
+
+
+```text
+
+create enemy hard-target order
+
+keep using skill on that enemy while key is held
+
+stop when enemy dies
+
+do not resume direct casting until key release
+
+```
+
+
+\## Keyboard skill key on interactable
+
+
+
+```text
+
+does not interact by default
+
+uses normal direct skill behavior unless a future skill policy says otherwise
+
+```
 
 
 \---
@@ -1512,7 +1575,9 @@ Do not make hover UI depend on soft targets.
 
 
 
-Do not make keyboard skill keys create mouse-button hard-target state by default.
+Do not make keyboard skill keys create pointer action state.
+
+Keyboard keys may create keyboard action state for enemy hard targets, but they should not inherit pointer-button behaviors like movement, interactables, or move-with-soft-attack unless explicitly designed later.
 
 
 

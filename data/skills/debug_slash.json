@@ -137,6 +137,18 @@
           "fov_degrees": 180,
           "reference_direction": "facing"
         }
+      },
+      "keyboard_skill": {
+        "attack_in_place": true,
+        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "soft_targeting": {
+          "enabled": true,
+          "relationship": "enemies",
+          "requires": ["hittable", "health"],
+          "range_tiles": 1,
+          "fov_degrees": 180,
+          "reference_direction": "facing"
+        }
       }
     }
   }

@@ -13,6 +13,8 @@ from utils.targeting_policy_utils import (
 )
 from utils.action_order_utils import (
     clear_action_order,
+    entities_are_within_tile_range,
+    get_skill_use_range_tiles,
     set_action_order,
 )
 from systems import (
@@ -105,6 +107,91 @@ class StateGameplay(State):
     def build_gameplay_input_state(self, input_state):
         return self.gameplay_ui.filter_input_for_gameplay(
             input_state,
+        )
+
+
+    def get_keyboard_input_context(self, key):
+        if key in KEY_TO_SKILL_SLOT:
+            return "keyboard_skill"
+
+        return None
+
+
+    def should_create_no_hard_target_keyboard_order(
+            self,
+            skill_id,
+            input_context,
+    ):
+        if input_context is None:
+            return False
+
+        order_type = get_no_hard_target_action_order_type(
+            skill_id,
+            input_context,
+        )
+
+        return order_type is not None
+
+
+    def build_keyboard_no_hard_target_action_order(
+            self,
+            actor,
+            skill_id,
+            slot,
+            key,
+            input_context,
+            input_state,
+    ):
+        world = self.game.world
+
+        order_type = get_no_hard_target_action_order_type(
+            skill_id,
+            input_context,
+        )
+
+        if order_type == "soft_skill_use_or_attack_air":
+            return {
+                "type": "soft_skill_use_or_attack_air",
+                "actor": actor,
+                "skill_id": skill_id,
+                "slot": slot,
+                "input_kind": "keyboard",
+                "key": key,
+                "input_context": input_context,
+                "target_lock": "none",
+                "created_tick": world.tick,
+                "press_mouse_pos": input_state.mouse_pos,
+                "fired_once": False,
+            }
+
+        raise NotImplementedError(
+            f"Keyboard no-hard-target order type not implemented: {order_type!r}"
+        )
+
+
+    def keyboard_hard_target_is_allowed_now(
+            self,
+            actor,
+            target,
+            skill_id,
+            input_context,
+    ):
+        if not input_context_uses_attack_in_place(
+                skill_id,
+                input_context,
+        ):
+            return True
+
+        use_range_tiles = get_skill_use_range_tiles(skill_id)
+
+        if use_range_tiles is None:
+            return True
+
+        return entities_are_within_tile_range(
+            self.game.world,
+            actor,
+            target,
+            use_range_tiles,
         )
 
 
@@ -651,11 +738,13 @@ class StateGameplay(State):
             actor,
             key,
         )
+        input_context = self.get_keyboard_input_context(key)
 
         action_state = {
             "key": key,
             "slot": slot,
             "skill_id": skill_id,
+            "input_context": input_context,
             "press_tick": world.tick,
             "press_mouse_pos": input_state.mouse_pos,
             "press_hovered_entity": hovered,
@@ -669,6 +758,12 @@ class StateGameplay(State):
         if (
                 hovered_kind == "enemy"
                 and skill_allows_hard_target_kind(skill_id, hovered_kind)
+                and self.keyboard_hard_target_is_allowed_now(
+            actor,
+            hovered,
+            skill_id,
+            input_context,
+        )
         ):
             action_state["hard_target"] = hovered
             action_state["hard_target_kind"] = hovered_kind
@@ -687,11 +782,31 @@ class StateGameplay(State):
                 ),
             )
 
+        elif self.should_create_no_hard_target_keyboard_order(
+                skill_id,
+                input_context,
+        ):
+            action_state["consumes_key_until_release"] = True
+
+            set_action_order(
+                world,
+                actor,
+                self.build_keyboard_no_hard_target_action_order(
+                    actor,
+                    skill_id,
+                    slot,
+                    key,
+                    input_context,
+                    input_state,
+                ),
+            )
+
         keyboard_actions = world.keyboard_action_state.setdefault(
             actor,
             {},
         )
         keyboard_actions[key] = action_state
+
 
     def build_keyboard_hard_target_action_order(
             self,
@@ -723,6 +838,7 @@ class StateGameplay(State):
             "fired_once": False,
         }
 
+
     def clear_keyboard_action_releases(self, input_state):
         world = self.game.world
         actor = world.player
@@ -739,6 +855,7 @@ class StateGameplay(State):
 
         if not keyboard_actions:
             world.keyboard_action_state.pop(actor, None)
+
 
     def keyboard_key_is_consumed_until_release(self, actor, key):
         keyboard_actions = self.game.world.keyboard_action_state.get(
