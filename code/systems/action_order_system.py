@@ -1,5 +1,11 @@
 from support import Vec2i
 from utils.placement_utils import is_tile_valid_for_entity_placement
+from utils.camera_utils import internal_screen_to_world_cpos
+from utils.soft_targeting_utils import (
+    acquire_soft_target,
+    soft_target_is_valid,
+)
+from utils.targeting_policy_utils import get_soft_targeting_profile
 from utils.action_order_utils import (
     action_order_actor_is_valid,
     action_order_target_is_valid,
@@ -53,12 +59,142 @@ def process_action_order(world, intents, actor, order):
         )
         return
 
+    if order_type == "move_with_soft_skill_use":
+        process_move_with_soft_skill_use_order(
+            world,
+            intents,
+            actor,
+            order,
+        )
+        return
+
+    if order_type == "soft_skill_use_or_attack_air":
+        process_soft_skill_use_or_attack_air_order(
+            world,
+            intents,
+            actor,
+            order,
+        )
+        return
+
     # Kept temporarily so older local debug captures do not crash.
     if order_type == "captured_hard_target":
         return
 
     raise NotImplementedError(
         f"Action order type not implemented: {order_type!r}"
+    )
+
+
+def process_soft_skill_use_or_attack_air_order(
+    world,
+    intents,
+    actor,
+    order,
+):
+    if not order_button_is_held(world, actor, order):
+        clear_action_order(world, actor)
+        return
+
+    skill_id = order.get("skill_id")
+    slot = order.get("slot")
+
+    if skill_id is None or slot is None:
+        clear_action_order(world, actor)
+        return
+
+    soft_policy = get_soft_targeting_profile(
+        skill_id,
+        context_id=order.get("input_context"),
+    )
+
+    target = resolve_order_soft_target(
+        world,
+        actor,
+        order,
+        soft_policy,
+    )
+
+    if target is not None:
+        append_soft_target_skill_intents(
+            world,
+            intents,
+            actor,
+            order,
+            target,
+        )
+        return
+
+    order.pop("soft_target", None)
+    append_attack_air_skill_intents(
+        world,
+        intents,
+        actor,
+        order,
+    )
+
+
+def append_attack_air_skill_intents(
+    world,
+    intents,
+    actor,
+    order,
+):
+    intents.setdefault(actor, []).append(
+        {
+            "type": "stop_moving",
+        }
+    )
+
+    if not should_emit_order_skill_intent(world, actor, order):
+        maybe_clear_completed_skill_order(world, actor, order)
+        return
+
+    intents.setdefault(actor, []).append(
+        build_order_air_skill_intent(
+            world,
+            actor,
+            order,
+        )
+    )
+
+    order["fired_once"] = True
+    maybe_clear_completed_skill_order(world, actor, order)
+
+
+def build_order_air_skill_intent(world, actor, order):
+    trigger_mode = get_skill_trigger_mode(
+        order.get("skill_id"),
+    )
+
+    if trigger_mode == "press":
+        intent_type = "skill_pressed"
+    elif trigger_mode == "held_repeat":
+        intent_type = "skill_held"
+    else:
+        raise ValueError(
+            f"Unsupported attack-air skill trigger mode: {trigger_mode!r}"
+        )
+
+    return {
+        "type": intent_type,
+        "slot": order["slot"],
+        "mouse_pos": get_order_mouse_pos(
+            world,
+            actor,
+            order,
+        ),
+        "target_source": "air",
+        "button": order.get("button"),
+    }
+
+
+def get_order_mouse_pos(world, actor, order):
+    aim_state = world.aim_state.get(actor, {})
+
+    return aim_state.get(
+        "mouse_pos",
+        order.get("press_mouse_pos"),
     )
 
 
@@ -135,6 +271,215 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
 
     order["fired_once"] = True
     maybe_clear_completed_skill_order(world, actor, order)
+
+
+def process_move_with_soft_skill_use_order(world, intents, actor, order):
+    if not order_button_is_held(world, actor, order):
+        clear_action_order(world, actor)
+        return
+
+    skill_id = order.get("skill_id")
+    slot = order.get("slot")
+
+    if skill_id is None or slot is None:
+        clear_action_order(world, actor)
+        return
+
+    soft_policy = get_soft_targeting_profile(
+        skill_id,
+        context_id=order.get("input_context"),
+    )
+
+    target = resolve_order_soft_target(
+        world,
+        actor,
+        order,
+        soft_policy,
+    )
+
+    if target is not None:
+        append_soft_target_skill_intents(
+            world,
+            intents,
+            actor,
+            order,
+            target,
+        )
+        return
+
+    order.pop("soft_target", None)
+    append_order_mouse_move_intent(
+        world,
+        intents,
+        actor,
+        order,
+    )
+
+
+def resolve_order_soft_target(world, actor, order, soft_policy):
+    current_target = order.get("soft_target")
+    reference_direction = get_soft_target_reference_direction(
+        world,
+        actor,
+        order,
+        soft_policy,
+    )
+
+    if soft_target_is_valid(
+        world,
+        actor,
+        current_target,
+        soft_policy,
+        reference_direction=reference_direction,
+    ):
+        return current_target
+
+    target = acquire_soft_target(
+        world,
+        actor,
+        soft_policy,
+        reference_direction=reference_direction,
+    )
+
+    if target is not None:
+        order["soft_target"] = target
+
+    return target
+
+
+def get_soft_target_reference_direction(
+    world,
+    actor,
+    order,
+    soft_policy,
+):
+    direction_source = soft_policy.get(
+        "reference_direction",
+        "facing",
+    )
+
+    if direction_source == "none":
+        return None
+
+    if direction_source == "facing":
+        return world.facing.get(actor)
+
+    if direction_source == "mouse":
+        target_cpos = get_order_mouse_target_cpos(
+            world,
+            actor,
+            order,
+        )
+        if target_cpos is None:
+            return world.facing.get(actor)
+
+        actor_cpos = world.transform[actor].cpos
+        delta = target_cpos - actor_cpos
+
+        if delta.x == 0 and delta.y == 0:
+            return world.facing.get(actor)
+
+        return delta
+
+    raise NotImplementedError(
+        f"Soft target reference direction not implemented: {direction_source!r}"
+    )
+
+
+def append_soft_target_skill_intents(
+    world,
+    intents,
+    actor,
+    order,
+    target,
+):
+    intents.setdefault(actor, []).append(
+        {
+            "type": "stop_moving",
+        }
+    )
+
+    intents.setdefault(actor, []).append(
+        build_soft_target_skill_intent(
+            world,
+            actor,
+            order,
+            target,
+        )
+    )
+
+
+def build_soft_target_skill_intent(
+    world,
+    actor,
+    order,
+    target,
+):
+    trigger_mode = get_skill_trigger_mode(
+        order.get("skill_id"),
+    )
+
+    if trigger_mode == "press":
+        intent_type = "skill_pressed"
+    elif trigger_mode == "held_repeat":
+        intent_type = "skill_held"
+    else:
+        raise ValueError(
+            f"Unsupported soft-target skill trigger mode: {trigger_mode!r}"
+        )
+
+    return {
+        "type": intent_type,
+        "slot": order["slot"],
+        "target_entity": target,
+        "target_source": "soft",
+        "requires_target_entity": True,
+        "button": order.get("button"),
+    }
+
+
+def append_order_mouse_move_intent(
+    world,
+    intents,
+    actor,
+    order,
+):
+    target_cpos = get_order_mouse_target_cpos(
+        world,
+        actor,
+        order,
+    )
+
+    if target_cpos is None:
+        return
+
+    target_tile = tile_from_cpos(target_cpos)
+
+    intents.setdefault(actor, []).append(
+        {
+            "type": "move_to_tile",
+            "target_tile": target_tile,
+            "target_cpos": target_cpos,
+            "mouse_pos": order.get("press_mouse_pos"),
+            "path_policy": get_approach_path_policy(world, actor),
+        }
+    )
+
+
+def get_order_mouse_target_cpos(world, actor, order):
+    aim_state = world.aim_state.get(actor, {})
+    mouse_pos = aim_state.get(
+        "mouse_pos",
+        order.get("press_mouse_pos"),
+    )
+
+    if mouse_pos is None:
+        return None
+
+    return internal_screen_to_world_cpos(
+        world,
+        mouse_pos,
+    )
 
 
 def should_emit_order_skill_intent(world, actor, order):

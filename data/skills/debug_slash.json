@@ -88,7 +88,7 @@
           {
             "type": "damage",
             "params": {
-              "amount": 1,
+              "amount": 4,
               "damage_type": "physical"
             }
           }
@@ -108,7 +108,36 @@
     },
     "soft_targeting": {
       "enabled": true,
-      "profile": "melee_default"
+      "relationship": "enemies",
+      "requires": ["hittable", "health"],
+      "range_tiles": 1,
+      "fov_degrees": 360,
+      "reference_direction": "none"
+    },
+    "input_contexts": {
+      "traditional_right": {
+        "no_hard_target_order": "move_with_soft_skill_use",
+        "soft_targeting": {
+          "enabled": true,
+          "relationship": "enemies",
+          "requires": ["hittable", "health"],
+          "range_tiles": 1,
+          "fov_degrees": 360,
+          "reference_direction": "none"
+        }
+      },
+      "traditional_shift_left": {
+        "attack_in_place": true,
+        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "soft_targeting": {
+          "enabled": true,
+          "relationship": "enemies",
+          "requires": ["hittable", "health"],
+          "range_tiles": 1,
+          "fov_degrees": 180,
+          "reference_direction": "facing"
+        }
+      }
     }
   }
 }

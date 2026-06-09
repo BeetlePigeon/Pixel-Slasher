@@ -6,7 +6,11 @@ from gameplay_ui import GameplayUI
 from skill_registry import SKILL_DEFS
 from utils.tile_vec_utils import tile_from_cpos, tile_center
 from utils.selectable_utils import resolve_hovered_selectable
-from utils.targeting_policy_utils import skill_allows_hard_target_kind
+from utils.targeting_policy_utils import (
+    get_no_hard_target_action_order_type,
+    input_context_uses_attack_in_place,
+    skill_allows_hard_target_kind,
+)
 from utils.action_order_utils import (
     clear_action_order,
     set_action_order,
@@ -165,11 +169,16 @@ class StateGameplay(State):
             actor,
             button,
         )
+        input_context = self.get_pointer_input_context(
+            button,
+            input_state,
+        )
 
         action_state = {
             "button": button,
             "slot": slot,
             "skill_id": skill_id,
+            "input_context": input_context,
             "press_tick": world.tick,
             "press_mouse_pos": input_state.mouse_pos,
             "press_hovered_entity": hovered,
@@ -180,13 +189,19 @@ class StateGameplay(State):
             "hard_target_invalidated": False,
         }
 
+        attack_in_place = input_context_uses_attack_in_place(
+            skill_id,
+            input_context,
+        )
+
         if (
-                hovered_kind in {"enemy", "interactable"}
+                hovered_kind == "interactable"
                 and skill_allows_hard_target_kind(skill_id, hovered_kind)
         ):
             action_state["hard_target"] = hovered
             action_state["hard_target_kind"] = hovered_kind
             action_state["consumes_button_until_release"] = True
+
             set_action_order(
                 world,
                 actor,
@@ -199,6 +214,48 @@ class StateGameplay(State):
                     button,
                 ),
             )
+
+        elif (
+                hovered_kind == "enemy"
+                and not attack_in_place
+                and skill_allows_hard_target_kind(skill_id, hovered_kind)
+        ):
+            action_state["hard_target"] = hovered
+            action_state["hard_target_kind"] = hovered_kind
+            action_state["consumes_button_until_release"] = True
+
+            set_action_order(
+                world,
+                actor,
+                self.build_hard_target_action_order(
+                    actor,
+                    hovered,
+                    hovered_kind,
+                    skill_id,
+                    slot,
+                    button,
+                ),
+            )
+
+        elif self.should_create_no_hard_target_pointer_order(
+                skill_id,
+                input_context,
+        ):
+            action_state["consumes_button_until_release"] = True
+
+            set_action_order(
+                world,
+                actor,
+                self.build_no_hard_target_action_order(
+                    actor,
+                    skill_id,
+                    slot,
+                    button,
+                    input_context,
+                    input_state,
+                ),
+            )
+
         else:
             clear_action_order(world, actor)
 
@@ -207,6 +264,84 @@ class StateGameplay(State):
             {},
         )
         pointer_actions[button] = action_state
+
+
+    def shift_modifier_is_held(self, input_state):
+        return (
+                input_state.keys[pygame.K_LSHIFT]
+                or input_state.keys[pygame.K_RSHIFT]
+        )
+
+
+    def get_pointer_input_context(self, button, input_state):
+        control_scheme = self.game.world.control_scheme
+
+        if control_scheme == "traditional":
+            if button == 1:
+                if self.shift_modifier_is_held(input_state):
+                    return "traditional_shift_left"
+                return "traditional_left"
+
+            if button == 3:
+                return "traditional_right"
+
+        if control_scheme == "modern":
+            if button == 1:
+                return "modern_left"
+            if button == 3:
+                return "modern_right"
+
+        return None
+
+
+    def should_create_no_hard_target_pointer_order(
+            self,
+            skill_id,
+            input_context,
+    ):
+        if input_context is None:
+            return False
+
+        order_type = get_no_hard_target_action_order_type(
+            skill_id,
+            input_context,
+        )
+
+        return order_type is not None
+
+
+    def build_no_hard_target_action_order(
+            self,
+            actor,
+            skill_id,
+            slot,
+            button,
+            input_context,
+            input_state,
+    ):
+        world = self.game.world
+
+        order_type = get_no_hard_target_action_order_type(
+            skill_id,
+            input_context,
+        )
+
+        if order_type == "move_with_soft_skill_use":
+            return {
+                "type": "move_with_soft_skill_use",
+                "actor": actor,
+                "skill_id": skill_id,
+                "slot": slot,
+                "button": button,
+                "input_context": input_context,
+                "target_lock": "none",
+                "created_tick": world.tick,
+                "press_mouse_pos": input_state.mouse_pos,
+            }
+
+        raise NotImplementedError(
+            f"No-hard-target order type not implemented: {order_type!r}"
+        )
 
 
     def get_hovered_combat_target_for_skill(self, skill_id):
@@ -498,12 +633,13 @@ class StateGameplay(State):
     def build_traditional_player_intents(self, input_state):
         intents = []
 
-        # Traditional controls:
-        # LMB on ground means move toward clicked tile.
         if 1 in input_state.mouse_pressed or self.is_mouse_button_held(input_state, 1):
-            if not self.pointer_button_is_consumed_until_release(
-                    self.game.world.player,
-                    1,
+            if (
+                    not self.shift_modifier_is_held(input_state)
+                    and not self.pointer_button_is_consumed_until_release(
+                self.game.world.player,
+                1,
+            )
             ):
                 target_cpos = internal_screen_to_world_cpos(
                     self.game.world,

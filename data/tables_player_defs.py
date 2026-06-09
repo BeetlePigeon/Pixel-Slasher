@@ -14,7 +14,7 @@ DEFAULT_PLAYER_STATE = {
         6: "debug_slash",
         7: "pierce_projectile",
         8: "guard_counter",
-        9: "homing_bolt",   # R Click
+        9: "debug_slash",   # R Click
         10: "meteor",
         11: "homing_bolt",
     },
