@@ -1,7 +1,7 @@
 # Debug controls:
 # ESC: Quit
 # `: Toggle Debug Mode
-# LSHIFT: Toggle Camera Mode
+# RSHIFT: Toggle Camera Mode
 # K: Move Diag
 # I: Print Profiler Rows
 # P: Pause

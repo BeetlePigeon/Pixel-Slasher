@@ -416,7 +416,7 @@ class Debug:
             else:
                 settings["modern_movement_skill_aim_source"] = "facing"
 
-        if pygame.K_LSHIFT in input_state.keys_pressed:
+        if pygame.K_RSHIFT in input_state.keys_pressed:
             camera = self.game.world.world_camera.camera
 
             if camera["mode"] == "follow":

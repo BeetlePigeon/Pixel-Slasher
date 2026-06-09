@@ -309,7 +309,6 @@ class StateGameplay(State):
 
         return order_type is not None
 
-
     def build_no_hard_target_action_order(
             self,
             actor,
@@ -337,10 +336,115 @@ class StateGameplay(State):
                 "target_lock": "none",
                 "created_tick": world.tick,
                 "press_mouse_pos": input_state.mouse_pos,
+                "fired_once": False,
+            }
+
+        if order_type == "soft_skill_use_or_attack_air":
+            return {
+                "type": "soft_skill_use_or_attack_air",
+                "actor": actor,
+                "skill_id": skill_id,
+                "slot": slot,
+                "button": button,
+                "input_context": input_context,
+                "target_lock": "none",
+                "created_tick": world.tick,
+                "press_mouse_pos": input_state.mouse_pos,
+                "fired_once": False,
             }
 
         raise NotImplementedError(
             f"No-hard-target order type not implemented: {order_type!r}"
+        )
+
+    def update_held_pointer_action_contexts(self, input_state):
+        world = self.game.world
+        actor = world.player
+
+        if actor is None:
+            return
+
+        pointer_actions = world.pointer_action_state.get(actor)
+        if pointer_actions is None:
+            return
+
+        for button, action_state in sorted(list(pointer_actions.items())):
+            if not self.is_mouse_button_held(input_state, button):
+                continue
+
+            self.update_held_pointer_action_context(
+                input_state,
+                actor,
+                button,
+                action_state,
+            )
+
+    def update_held_pointer_action_context(
+            self,
+            input_state,
+            actor,
+            button,
+            action_state,
+    ):
+        # Hard-target presses are intentionally stable until release.
+        # Example: click monster, monster dies, button stays consumed.
+        if action_state.get("hard_target") is not None:
+            return
+
+        old_context = action_state.get("input_context")
+        new_context = self.get_pointer_input_context(
+            button,
+            input_state,
+        )
+
+        if new_context == old_context:
+            return
+
+        action_state["input_context"] = new_context
+
+        skill_id = action_state.get("skill_id")
+        slot = action_state.get("slot")
+
+        if self.should_create_no_hard_target_pointer_order(
+                skill_id,
+                new_context,
+        ):
+            action_state["consumes_button_until_release"] = True
+
+            set_action_order(
+                self.game.world,
+                actor,
+                self.build_no_hard_target_action_order(
+                    actor,
+                    skill_id,
+                    slot,
+                    button,
+                    new_context,
+                    input_state,
+                ),
+            )
+            return
+
+        action_state["consumes_button_until_release"] = False
+        self.clear_no_hard_target_order_for_button(
+            actor,
+            button,
+        )
+
+    def clear_no_hard_target_order_for_button(self, actor, button):
+        order = self.game.world.action_order.get(actor)
+        if order is None:
+            return
+
+        if order.get("button") != button:
+            return
+
+        if order.get("target_lock") != "none":
+            return
+
+        clear_action_order(
+            self.game.world,
+            actor,
         )
 
 
@@ -622,6 +726,7 @@ class StateGameplay(State):
         gameplay_input_state = self.build_gameplay_input_state(input_state)
 
         self.capture_pointer_action_presses(gameplay_input_state)
+        self.update_held_pointer_action_contexts(gameplay_input_state)
         self.clear_pointer_action_releases(gameplay_input_state)
 
         control_scheme = self.game.world.control_scheme
