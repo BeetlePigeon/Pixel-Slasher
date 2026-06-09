@@ -44,6 +44,21 @@ from systems import (
 )
 
 
+KEY_TO_SKILL_SLOT = {
+    pygame.K_0: 0,
+    pygame.K_1: 1,
+    pygame.K_2: 2,
+    pygame.K_3: 3,
+    pygame.K_4: 4,
+    pygame.K_5: 5,
+    pygame.K_6: 6,
+    pygame.K_7: 7,
+    pygame.K_8: 8,
+    pygame.K_9: 9,
+    pygame.K_SPACE: 10,
+}
+
+
 class State:
     def __init__(self, game):
         self.game = game
@@ -595,6 +610,151 @@ class StateGameplay(State):
             f"Unsupported hard target kind: {target_kind!r}"
         )
 
+    def get_bound_skill_id_for_keyboard_action(self, actor, key):
+        slot = KEY_TO_SKILL_SLOT.get(key)
+        if slot is None:
+            return None
+
+        return self.game.world.skills.get((actor, slot))
+
+    def capture_keyboard_action_presses(self, input_state):
+        world = self.game.world
+        actor = world.player
+
+        if actor is None:
+            return
+
+        for key in sorted(input_state.keys_pressed):
+            if key not in KEY_TO_SKILL_SLOT:
+                continue
+
+            self.capture_keyboard_action_press(
+                input_state,
+                actor,
+                key,
+            )
+
+    def capture_keyboard_action_press(self, input_state, actor, key):
+        world = self.game.world
+
+        hovered = world.hovered_selectable
+        hovered_kind = None
+
+        if hovered is not None:
+            hovered_kind = world.selectable.get(
+                hovered,
+                {},
+            ).get("kind")
+
+        slot = KEY_TO_SKILL_SLOT[key]
+        skill_id = self.get_bound_skill_id_for_keyboard_action(
+            actor,
+            key,
+        )
+
+        action_state = {
+            "key": key,
+            "slot": slot,
+            "skill_id": skill_id,
+            "press_tick": world.tick,
+            "press_mouse_pos": input_state.mouse_pos,
+            "press_hovered_entity": hovered,
+            "press_hovered_kind": hovered_kind,
+            "hard_target": None,
+            "hard_target_kind": None,
+            "consumes_key_until_release": False,
+            "hard_target_invalidated": False,
+        }
+
+        if (
+                hovered_kind == "enemy"
+                and skill_allows_hard_target_kind(skill_id, hovered_kind)
+        ):
+            action_state["hard_target"] = hovered
+            action_state["hard_target_kind"] = hovered_kind
+            action_state["consumes_key_until_release"] = True
+
+            set_action_order(
+                world,
+                actor,
+                self.build_keyboard_hard_target_action_order(
+                    actor,
+                    hovered,
+                    hovered_kind,
+                    skill_id,
+                    slot,
+                    key,
+                ),
+            )
+
+        keyboard_actions = world.keyboard_action_state.setdefault(
+            actor,
+            {},
+        )
+        keyboard_actions[key] = action_state
+
+    def build_keyboard_hard_target_action_order(
+            self,
+            actor,
+            target,
+            target_kind,
+            skill_id,
+            slot,
+            key,
+    ):
+        world = self.game.world
+
+        if target_kind != "enemy":
+            raise ValueError(
+                f"Unsupported keyboard hard target kind: {target_kind!r}"
+            )
+
+        return {
+            "type": "use_skill_on_entity",
+            "actor": actor,
+            "target": target,
+            "target_kind": target_kind,
+            "skill_id": skill_id,
+            "slot": slot,
+            "input_kind": "keyboard",
+            "key": key,
+            "target_lock": "hard",
+            "created_tick": world.tick,
+            "fired_once": False,
+        }
+
+    def clear_keyboard_action_releases(self, input_state):
+        world = self.game.world
+        actor = world.player
+
+        if actor is None:
+            return
+
+        keyboard_actions = world.keyboard_action_state.get(actor)
+        if keyboard_actions is None:
+            return
+
+        for key in sorted(input_state.keys_released):
+            keyboard_actions.pop(key, None)
+
+        if not keyboard_actions:
+            world.keyboard_action_state.pop(actor, None)
+
+    def keyboard_key_is_consumed_until_release(self, actor, key):
+        keyboard_actions = self.game.world.keyboard_action_state.get(
+            actor,
+            {},
+        )
+        action_state = keyboard_actions.get(key)
+
+        if action_state is None:
+            return False
+
+        return action_state.get(
+            "consumes_key_until_release",
+            False,
+        )
+
 
     def append_wasd_move_intent(self, intents, input_state):
         keys = input_state.keys
@@ -629,24 +789,16 @@ class StateGameplay(State):
                 "direction": (tile_dx, tile_dy),
             })
 
-
     def append_keyboard_skill_intents(self, intents, input_state):
-        KEY_TO_SLOT = {
-            pygame.K_SPACE: 0,
-            pygame.K_1: 1,
-            pygame.K_2: 2,
-            pygame.K_3: 3,
-            pygame.K_4: 4,
-            pygame.K_5: 5,
-            pygame.K_6: 6,
-            pygame.K_7: 7,
-            pygame.K_8: 8,
-            pygame.K_9: 10,
-            pygame.K_0: 11,
-        }
+        actor = self.game.world.player
 
-        for key, slot in KEY_TO_SLOT.items():
-            if key in input_state.keys_pressed:
+        for key, slot in KEY_TO_SKILL_SLOT.items():
+            key_is_consumed = self.keyboard_key_is_consumed_until_release(
+                actor,
+                key,
+            )
+
+            if key in input_state.keys_pressed and not key_is_consumed:
                 intent = {
                     "type": "skill_pressed",
                     "slot": slot,
@@ -655,11 +807,11 @@ class StateGameplay(State):
                 intents.append(
                     self.add_skill_target_context_to_intent(
                         intent,
-                        self.game.world.player,
+                        actor,
                     )
                 )
 
-            if input_state.keys[key]:
+            if input_state.keys[key] and not key_is_consumed:
                 intent = {
                     "type": "skill_held",
                     "slot": slot,
@@ -668,22 +820,16 @@ class StateGameplay(State):
                 intents.append(
                     self.add_skill_target_context_to_intent(
                         intent,
-                        self.game.world.player,
+                        actor,
                     )
                 )
 
             if key in input_state.keys_released:
-                intent = {
+                intents.append({
                     "type": "skill_released",
                     "slot": slot,
                     "mouse_pos": input_state.mouse_pos,
-                }
-                intents.append(
-                    self.add_skill_target_context_to_intent(
-                        intent,
-                        self.game.world.player,
-                    )
-                )
+                })
 
 
     def append_mouse_skill_intents(self, intents, input_state, mouse_to_slot):
@@ -726,8 +872,12 @@ class StateGameplay(State):
         gameplay_input_state = self.build_gameplay_input_state(input_state)
 
         self.capture_pointer_action_presses(gameplay_input_state)
+        self.capture_keyboard_action_presses(gameplay_input_state)
+
         self.update_held_pointer_action_contexts(gameplay_input_state)
+
         self.clear_pointer_action_releases(gameplay_input_state)
+        self.clear_keyboard_action_releases(gameplay_input_state)
 
         control_scheme = self.game.world.control_scheme
         if control_scheme == "traditional":

@@ -56,6 +56,7 @@ class World:
         self.move_target = {}
         self.aim_state = {}
         self.pointer_action_state = {}
+        self.keyboard_action_state = {}
         self.action_order = {}
         self.intent = {}
         self.input_controlled = {}
@@ -187,6 +188,7 @@ class World:
             self.aim_state,
             self.intent,
             self.pointer_action_state,
+            self.keyboard_action_state,
             self.action_order,
             self.input_controlled,
             self.active_skill,

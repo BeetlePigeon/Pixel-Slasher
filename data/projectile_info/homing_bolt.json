@@ -20,8 +20,8 @@
   },
 
   "blocks_movement": false,
-  "movement_footprint": "plus5",
-  "contact_footprint": "plus5",
+  "movement_footprint": "single_tile",
+  "contact_footprint": "single_tile",
 
   "movement_collision": {
     "static_tiles": "block",

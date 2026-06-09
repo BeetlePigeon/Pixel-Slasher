@@ -46,5 +46,22 @@
     "spawn_distance": 1024
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "targeting_policy": {
+    "hard_targets": {
+      "enemy": true,
+      "interactable": true
+    },
+    "soft_targeting": {
+      "enabled": false
+    },
+    "input_contexts": {
+      "traditional_shift_left": {
+        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "soft_targeting": {
+          "enabled": false
+        }
+      }
+    }
+  }
 }

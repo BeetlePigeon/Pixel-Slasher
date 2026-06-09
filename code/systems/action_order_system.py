@@ -31,7 +31,7 @@ def action_order_system(world, intents):
         order = world.action_order[actor]
 
         if not action_order_target_is_valid(world, order):
-            mark_pointer_action_invalidated(world, actor, order)
+            mark_action_input_invalidated(world, actor, order)
             clear_action_order(world, actor)
             continue
 
@@ -92,7 +92,7 @@ def process_soft_skill_use_or_attack_air_order(
     actor,
     order,
 ):
-    if not order_button_is_held(world, actor, order):
+    if not order_input_is_held(world, actor, order):
         clear_action_order(world, actor)
         return
 
@@ -274,7 +274,7 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
 
 
 def process_move_with_soft_skill_use_order(world, intents, actor, order):
-    if not order_button_is_held(world, actor, order):
+    if not order_input_is_held(world, actor, order):
         clear_action_order(world, actor)
         return
 
@@ -492,7 +492,7 @@ def should_emit_order_skill_intent(world, actor, order):
 
     if trigger_mode == "held_repeat":
         return (
-            order_button_is_held(world, actor, order)
+            order_input_is_held(world, actor, order)
             or not fired_once
         )
 
@@ -533,18 +533,33 @@ def maybe_clear_completed_skill_order(world, actor, order):
     if (
         trigger_mode == "held_repeat"
         and order.get("fired_once", False)
-        and not order_button_is_held(world, actor, order)
+        and not order_input_is_held(world, actor, order)
     ):
         clear_action_order(world, actor)
 
 
-def order_button_is_held(world, actor, order):
-    button = order.get("button")
-    if button is None:
-        return False
+def order_input_is_held(world, actor, order):
+    input_kind = order.get("input_kind", "mouse")
 
-    pointer_actions = world.pointer_action_state.get(actor, {})
-    return button in pointer_actions
+    if input_kind == "mouse":
+        button = order.get("button")
+        if button is None:
+            return False
+
+        pointer_actions = world.pointer_action_state.get(actor, {})
+        return button in pointer_actions
+
+    if input_kind == "keyboard":
+        key = order.get("key")
+        if key is None:
+            return False
+
+        keyboard_actions = world.keyboard_action_state.get(actor, {})
+        return key in keyboard_actions
+
+    raise NotImplementedError(
+        f"Action order input kind not implemented: {input_kind!r}"
+    )
 
 
 def append_approach_entity_intent(
@@ -659,18 +674,43 @@ def get_approach_path_policy(world, actor):
     return "actor_move"
 
 
-def mark_pointer_action_invalidated(world, actor, order):
-    button = order.get("button")
-    if button is None:
+def mark_action_input_invalidated(world, actor, order):
+    input_kind = order.get("input_kind", "mouse")
+
+    if input_kind == "mouse":
+        button = order.get("button")
+        if button is None:
+            return
+
+        pointer_actions = world.pointer_action_state.get(actor, {})
+        action_state = pointer_actions.get(button)
+
+        if action_state is None:
+            return
+
+        if not action_state.get("consumes_button_until_release", False):
+            return
+
+        action_state["hard_target_invalidated"] = True
         return
 
-    pointer_actions = world.pointer_action_state.get(actor, {})
-    action_state = pointer_actions.get(button)
+    if input_kind == "keyboard":
+        key = order.get("key")
+        if key is None:
+            return
 
-    if action_state is None:
+        keyboard_actions = world.keyboard_action_state.get(actor, {})
+        action_state = keyboard_actions.get(key)
+
+        if action_state is None:
+            return
+
+        if not action_state.get("consumes_key_until_release", False):
+            return
+
+        action_state["hard_target_invalidated"] = True
         return
 
-    if not action_state.get("consumes_button_until_release", False):
-        return
-
-    action_state["hard_target_invalidated"] = True
+    raise NotImplementedError(
+        f"Action order input kind not implemented: {input_kind!r}"
+    )

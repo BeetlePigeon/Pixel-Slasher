@@ -60,6 +60,26 @@ class Debug:
                 self.game.world,
                 player,
             )
+        keyboard_action_summary = "None"
+
+        if player is not None:
+            keyboard_actions = self.game.world.keyboard_action_state.get(
+                player,
+                {},
+            )
+
+            if keyboard_actions:
+                keyboard_action_summary = ", ".join(
+                    (
+                        f"key={key} "
+                        f"hard={state.get('hard_target')} "
+                        f"kind={state.get('hard_target_kind')} "
+                        f"skill={state.get('skill_id')} "
+                        f"consumed={state.get('consumes_key_until_release')} "
+                        f"invalidated={state.get('hard_target_invalidated')}"
+                    )
+                    for key, state in sorted(keyboard_actions.items())
+                )
 
         lines = [
             f"FPS: {self.game.fps:.1f}",
@@ -100,6 +120,7 @@ class Debug:
             ),
             f"Pointer action: {pointer_action_summary}",
             f"Action order: {action_order_summary}",
+            f"Keyboard action: {keyboard_action_summary}",
         ]
 
         y = 4
