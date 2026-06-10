@@ -58,6 +58,7 @@ class World:
         self.pointer_action_state = {}
         self.keyboard_action_state = {}
         self.action_order = {}
+        self.next_action_order_id = 1
         self.intent = {}
         self.input_controlled = {}
         self.skills = {}

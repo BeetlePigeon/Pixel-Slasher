@@ -37,11 +37,18 @@ left_click.shift:
 
 skill_button.normal:
   interactable ->
-    interact / move_then_interact
+    depends on skill policy
+
+    melee-style:
+      interact / move_then_interact
+
+    ranged-style:
+      ignore interactable
+      attack_in_place / cast toward cursor
 
   enemy ->
     hard target
-    approach if skill policy/range requires it
+    approach if policy/range says to
     otherwise use skill
 
   empty ground ->
@@ -56,7 +63,7 @@ skill_button.normal:
 
 skill_button.shift:
   interactable ->
-    ignore hovered interactable
+    ignore interactable
     attack_in_place
 
   enemy ->

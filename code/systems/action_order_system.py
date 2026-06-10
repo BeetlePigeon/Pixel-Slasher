@@ -41,6 +41,15 @@ def action_order_system(world, intents):
 def process_action_order(world, intents, actor, order):
     order_type = order["type"]
 
+    if order_type == "move_to_position":
+        process_move_to_position_order(
+            world,
+            intents,
+            actor,
+            order,
+        )
+        return
+
     if order_type == "interact_with_entity":
         process_interact_with_entity_order(
             world,
@@ -83,6 +92,57 @@ def process_action_order(world, intents, actor, order):
 
     raise NotImplementedError(
         f"Action order type not implemented: {order_type!r}"
+    )
+
+
+def process_move_to_position_order(world, intents, actor, order):
+    if order.get("track_mouse_while_held", False):
+        if order_input_is_held(world, actor, order):
+            target_cpos = get_order_mouse_target_cpos(
+                world,
+                actor,
+                order,
+            )
+            if target_cpos is not None:
+                order["target_cpos"] = target_cpos
+                order["target_tile"] = tile_from_cpos(target_cpos)
+
+    target_tile = order.get("target_tile")
+    target_cpos = order.get("target_cpos")
+
+    if target_tile is None or target_cpos is None:
+        clear_action_order(world, actor)
+        return
+
+    actor_tile = tile_from_cpos(
+        world.transform[actor].cpos,
+    )
+
+    is_tracking_held_mouse = (
+            order.get("track_mouse_while_held", False)
+            and order_input_is_held(world, actor, order)
+    )
+
+    if actor_tile == target_tile:
+        if is_tracking_held_mouse:
+            intents.setdefault(actor, []).append(
+                {
+                    "type": "stop_moving",
+                }
+            )
+            return
+
+        clear_action_order(world, actor)
+        return
+
+    intents.setdefault(actor, []).append(
+        {
+            "type": "move_to_tile",
+            "target_tile": target_tile,
+            "target_cpos": target_cpos,
+            "path_policy": order.get("path_policy", get_approach_path_policy(world, actor)),
+            "owner_order_id": order["order_id"],
+        }
     )
 
 
@@ -215,6 +275,7 @@ def process_interact_with_entity_order(world, intents, actor, order):
             actor,
             target,
             interact_range_tiles,
+            order["order_id"],
         )
         return
 
@@ -254,6 +315,7 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
                 actor,
                 target,
                 use_range_tiles,
+                order["order_id"],
             )
             return
 
@@ -568,7 +630,9 @@ def append_approach_entity_intent(
     actor,
     target,
     desired_range_tiles,
+    owner_order_id,
 ):
+
     approach_tile = find_entity_approach_tile(
         world,
         actor,
@@ -594,6 +658,7 @@ def append_approach_entity_intent(
             "target_tile": approach_tile,
             "target_cpos": target_cpos,
             "path_policy": get_approach_path_policy(world, actor),
+            "owner_order_id": owner_order_id,
         }
     )
 

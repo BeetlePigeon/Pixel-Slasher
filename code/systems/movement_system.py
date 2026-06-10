@@ -273,6 +273,11 @@ def movement_arbiter_system(world):
 
     for entity in sorted(entities):
         motion_state = world.motion_state[entity]
+        
+        if clear_stale_order_owned_move_target(world, entity):
+            mark_dynamic_occupancy_dirty(world)
+            rebuild_dynamic_occupancy(world)
+            continue
 
         if not entity_can_start_voluntary_movement(world, entity):
             cancel_voluntary_movement(world, entity)
@@ -1682,37 +1687,31 @@ def set_move_target(
     target_tile: Vec2i,
     target_cpos=None,
     path_policy="actor_move",
+    owner_order_id=None,
 ):
     if target_cpos is None:
         target_cpos = tile_center(target_tile)
 
     existing_target = world.move_target.get(entity)
-
-    if existing_target is None:
+    owner_changed = (
+            existing_target is not None
+            and existing_target.get("owner_order_id") != owner_order_id
+    )
+    if existing_target is None or owner_changed:
         created_tick = world.tick
         repath_attempts = 0
         next_repath_tick = world.tick
     else:
-        created_tick = existing_target.get(
-            "created_tick",
-            world.tick,
-        )
-
-        repath_attempts = existing_target.get(
-            "repath_attempts",
-            0,
-        )
-
-        next_repath_tick = existing_target.get(
-            "next_repath_tick",
-            world.tick,
-        )
+        created_tick = existing_target.get("created_tick", world.tick)
+        repath_attempts = existing_target.get("repath_attempts", 0)
+        next_repath_tick = existing_target.get("next_repath_tick", world.tick)
 
     world.move_target[entity] = {
         "type": "target_tile",
         "target_tile": target_tile,
         "target_cpos": target_cpos,
         "path_policy": path_policy,
+        "owner_order_id": owner_order_id,
         "created_tick": created_tick,
         "repath_attempts": repath_attempts,
         "next_repath_tick": next_repath_tick,
@@ -1727,6 +1726,45 @@ def clear_move_target(world, entity):
 def cancel_move_target_for_directional_input(world, entity):
     clear_move_target(world, entity)
     clear_failed_path_queries_for_entity(world, entity)
+
+
+def move_target_owner_is_current(world, entity):
+    target = world.move_target.get(entity)
+    if target is None:
+        return True
+
+    owner_order_id = target.get("owner_order_id")
+
+    # Legacy/direct movement target with no owner is allowed for now.
+    # After migration, these should disappear.
+    if owner_order_id is None:
+        return True
+
+    order = world.action_order.get(entity)
+    if order is None:
+        return False
+
+    return order.get("order_id") == owner_order_id
+
+
+def clear_stale_order_owned_move_target(world, entity):
+    if move_target_owner_is_current(world, entity):
+        return False
+
+    clear_move_target(world, entity)
+
+    motion_state = world.motion_state.get(entity)
+    if motion_state is not None:
+        controller = motion_state.get("controller")
+        if (
+            isinstance(controller, PathFollowController)
+            and motion_state.get("controller_source") == "move_target"
+        ):
+            clear_motion_controller(motion_state)
+            request_settle_when_allowed(world, entity)
+            start_requested_settle_if_allowed(world, entity)
+
+    return True
 
 
 def mark_settle_after_influence_if_needed(

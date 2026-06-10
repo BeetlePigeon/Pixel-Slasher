@@ -13,7 +13,13 @@ def clear_action_order(world, actor):
 
 
 def set_action_order(world, actor, order):
-    world.action_order[actor] = dict(order)
+    order = dict(order)
+
+    if "order_id" not in order:
+        order["order_id"] = world.next_action_order_id
+        world.next_action_order_id += 1
+
+    world.action_order[actor] = order
 
 
 def action_order_actor_is_valid(world, actor):

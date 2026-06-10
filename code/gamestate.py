@@ -183,6 +183,45 @@ class StateGameplay(State):
         )
 
 
+    def build_move_to_position_action_order(
+            self,
+            actor,
+            button,
+            input_context,
+            input_state,
+    ):
+        world = self.game.world
+        target_cpos = internal_screen_to_world_cpos(
+            world,
+            input_state.mouse_pos,
+        )
+        target_tile = tile_from_cpos(target_cpos)
+
+        return {
+            "type": "move_to_position",
+            "actor": actor,
+            "button": button,
+            "input_context": input_context,
+            "target_lock": "none",
+            "target_tile": target_tile,
+            "target_cpos": target_cpos,
+            "path_policy": "player_click_move",
+            "track_mouse_while_held": True,
+            "created_tick": world.tick,
+            "press_mouse_pos": input_state.mouse_pos,
+        }
+
+    def should_create_pointer_move_order(
+            self,
+            button,
+            input_context,
+    ):
+        return (
+                button == 1
+                and input_context == "traditional_left"
+        )
+
+
     def is_mouse_button_held(self, input_state, button):
         index = button - 1
 
@@ -350,6 +389,13 @@ class StateGameplay(State):
                     input_context,
                     input_state,
                 ),
+            )
+
+        elif self.should_create_pointer_move_order(button, input_context):
+            set_action_order(
+                world,
+                actor,
+                self.build_move_to_position_action_order(actor, button, input_context, input_state)
             )
 
         else:
@@ -523,6 +569,24 @@ class StateGameplay(State):
                     actor,
                     skill_id,
                     slot,
+                    button,
+                    new_context,
+                    input_state,
+                ),
+            )
+            return
+
+        if self.should_create_pointer_move_order(
+                button,
+                new_context,
+        ):
+            action_state["consumes_button_until_release"] = False
+
+            set_action_order(
+                self.game.world,
+                actor,
+                self.build_move_to_position_action_order(
+                    actor,
                     button,
                     new_context,
                     input_state,
@@ -1068,28 +1132,6 @@ class StateGameplay(State):
 
     def build_traditional_player_intents(self, input_state):
         intents = []
-
-        if 1 in input_state.mouse_pressed or self.is_mouse_button_held(input_state, 1):
-            if (
-                    not self.shift_modifier_is_held(input_state)
-                    and not self.pointer_button_is_consumed_until_release(
-                self.game.world.player,
-                1,
-            )
-            ):
-                target_cpos = internal_screen_to_world_cpos(
-                    self.game.world,
-                    input_state.mouse_pos,
-                )
-                target_tile = tile_from_cpos(target_cpos)
-                intents.append({
-                    "type": "move_to_tile",
-                    "target_tile": target_tile,
-                    "target_cpos": target_cpos,
-                    "mouse_pos": input_state.mouse_pos,
-                    "path_policy": "player_click_move",
-                })
-
         self.append_keyboard_skill_intents(intents, input_state)
 
         # In traditional mode, LMB is reserved for movement/context action.
