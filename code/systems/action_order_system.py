@@ -577,6 +577,13 @@ def append_approach_entity_intent(
     )
 
     if approach_tile is None:
+        approach_tile = find_entity_best_effort_approach_tile(
+            world,
+            actor,
+            target,
+        )
+
+    if approach_tile is None:
         return
 
     target_cpos = tile_center(approach_tile)
@@ -651,6 +658,185 @@ def find_entity_approach_tile(
 
     candidates.sort()
     return candidates[0][-1]
+
+
+def find_entity_best_effort_approach_tile(
+    world,
+    actor,
+    target,
+):
+    actor_tile = tile_from_cpos(
+        world.transform[actor].cpos,
+    )
+    target_tile = tile_from_cpos(
+        world.transform[target].cpos,
+    )
+
+    direct_tile = find_direct_progress_tile_toward_target(
+        world,
+        actor,
+        actor_tile,
+        target_tile,
+    )
+    if direct_tile is not None:
+        return direct_tile
+
+    return find_neighbor_progress_tile_toward_target(
+        world,
+        actor,
+        actor_tile,
+        target_tile,
+    )
+
+
+def find_direct_progress_tile_toward_target(
+    world,
+    actor,
+    actor_tile,
+    target_tile,
+):
+    step = Vec2i(
+        sign_int(target_tile.x - actor_tile.x),
+        sign_int(target_tile.y - actor_tile.y),
+    )
+
+    if step.x == 0 and step.y == 0:
+        return None
+
+    current_tile = actor_tile
+    best_tile = None
+    visited = set()
+
+    while True:
+        next_tile = current_tile + step
+        key = (next_tile.x, next_tile.y)
+
+        if key in visited:
+            break
+
+        visited.add(key)
+
+        if next_tile == target_tile:
+            break
+
+        if not is_tile_valid_for_entity_placement(
+            world,
+            next_tile,
+            entity=actor,
+            include_dynamic=True,
+        ):
+            break
+
+        best_tile = next_tile
+        current_tile = next_tile
+
+    return best_tile
+
+
+def find_neighbor_progress_tile_toward_target(
+    world,
+    actor,
+    actor_tile,
+    target_tile,
+):
+    current_distance = chebyshev_tile_distance(
+        actor_tile,
+        target_tile,
+    )
+
+    candidates = []
+
+    for direction in iter_best_effort_directions_toward_target(
+        actor,
+        actor_tile,
+        target_tile,
+    ):
+        candidate_tile = actor_tile + direction
+
+        if not is_tile_valid_for_entity_placement(
+            world,
+            candidate_tile,
+            entity=actor,
+            include_dynamic=True,
+        ):
+            continue
+
+        candidate_distance = chebyshev_tile_distance(
+            candidate_tile,
+            target_tile,
+        )
+
+        if candidate_distance >= current_distance:
+            continue
+
+        candidates.append(
+            (
+                candidate_distance,
+                candidate_tile.y,
+                candidate_tile.x,
+                candidate_tile,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def iter_best_effort_directions_toward_target(
+    actor,
+    actor_tile,
+    target_tile,
+):
+    dx = sign_int(target_tile.x - actor_tile.x)
+    dy = sign_int(target_tile.y - actor_tile.y)
+
+    primary = Vec2i(dx, dy)
+
+    directions = []
+    seen = set()
+
+    def add_direction(direction):
+        if direction.x == 0 and direction.y == 0:
+            return
+
+        key = (direction.x, direction.y)
+        if key in seen:
+            return
+
+        seen.add(key)
+        directions.append(direction)
+
+    add_direction(primary)
+
+    if dx != 0:
+        add_direction(Vec2i(dx, 0))
+
+    if dy != 0:
+        add_direction(Vec2i(0, dy))
+
+    # Try deterministic side-ish alternatives after direct progress.
+    if dx != 0 and dy != 0:
+        if actor % 2 == 0:
+            add_direction(Vec2i(dx, -dy))
+            add_direction(Vec2i(-dx, dy))
+        else:
+            add_direction(Vec2i(-dx, dy))
+            add_direction(Vec2i(dx, -dy))
+
+    return directions
+
+
+def sign_int(value):
+    if value < 0:
+        return -1
+
+    if value > 0:
+        return 1
+
+    return 0
 
 
 def iter_tiles_within_range(center_tile, range_tiles):

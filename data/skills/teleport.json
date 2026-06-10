@@ -3,7 +3,7 @@
   "name": "Teleport",
   "cooldown_ticks": 0,
   "trigger_mode": "held_repeat",
-
+  "cancels_action_order": true,
   "blocked_by_motion_tags": ["dash"],
   "blocked_by_action_tags": [
     "cast",

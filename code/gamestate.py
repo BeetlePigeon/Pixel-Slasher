@@ -740,6 +740,9 @@ class StateGameplay(State):
         )
         input_context = self.get_keyboard_input_context(key)
 
+        if skill_id is not None:
+            clear_action_order(world, actor)
+
         action_state = {
             "key": key,
             "slot": slot,
