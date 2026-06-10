@@ -47,34 +47,5 @@
   },
 
   "handler": "execute_cast_skill",
-  "player_input_policy": {
-    "left_click": {
-      "normal": {
-        "interactable": "interact_or_approach",
-        "enemy": "hard_target_approach",
-        "no_target": "move_to_position",
-        "soft_targeting": "disabled"
-      },
-      "shift": {
-        "interactable": "ignore_as_no_target",
-        "enemy": "hard_target_if_in_range_else_no_target",
-        "no_target": "attack_in_place",
-        "soft_targeting": "disabled"
-      }
-    },
-    "skill_button": {
-      "normal": {
-        "interactable": "ignore_as_no_target",
-        "enemy": "hard_target_approach",
-        "no_target": "attack_in_place",
-        "soft_targeting": "disabled"
-      },
-      "shift": {
-        "interactable": "ignore_as_no_target",
-        "enemy": "hard_target_if_in_range_else_no_target",
-        "no_target": "attack_in_place",
-        "soft_targeting": "disabled"
-      }
-    }
-  }
+  "player_input_policy": "ranged"
 }

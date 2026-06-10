@@ -46,5 +46,6 @@
     "slide_min_tangent_ratio": [1, 3]
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
 }

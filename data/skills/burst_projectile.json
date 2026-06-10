@@ -68,5 +68,6 @@
     "aim_offset_far_percent": 10
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
 }

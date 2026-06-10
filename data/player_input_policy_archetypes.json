@@ -1,4 +1,97 @@
 {
+  "player_input_policy": {
+    "melee": {
+      "left_click": {
+        "normal": {
+          "interactable": "interact_or_approach",
+          "enemy": "hard_target_approach",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "melee_forward"
+        }
+      },
+      "skill_button": {
+        "normal": {
+          "interactable": "interact_or_approach",
+          "enemy": "hard_target_approach",
+          "no_target": "move_with_soft_skill_use",
+          "soft_targeting": "melee_all_around"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "melee_forward"
+        }
+      }
+    },
+    "ranged": {
+      "left_click": {
+        "normal": {
+          "interactable": "interact_or_approach",
+          "enemy": "hard_target_approach",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "hard_target_if_in_range_else_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        }
+      },
+      "skill_button": {
+        "normal": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "hard_target_approach",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "hard_target_if_in_range_else_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        }
+      }
+    },
+    "direct_skill": {
+      "left_click": {
+        "normal": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        }
+      },
+      "skill_button": {
+        "normal": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "ignore_as_no_target",
+          "enemy": "ignore_as_no_target",
+          "no_target": "attack_in_place",
+          "soft_targeting": "disabled"
+        }
+      }
+    }
+  },
+
   "interactable": {
     "ignore_as_no_target": {
       "mode": "ignore_as_no_target"
@@ -7,6 +100,7 @@
       "mode": "interact_or_approach"
     }
   },
+
   "enemy": {
     "ignore_as_no_target": {
       "mode": "ignore_as_no_target"
@@ -21,6 +115,7 @@
       "mode": "hard_target_if_in_range_else_no_target"
     }
   },
+
   "no_target": {
     "none": {
       "order": "none"
@@ -35,9 +130,11 @@
       "order": "move_with_soft_skill_use"
     }
   },
+
   "soft_targeting": {
     "disabled": {
       "enabled": false,
+      "origin": "actor",
       "relationship": "none",
       "requires": [],
       "range_tiles": 0,
@@ -46,6 +143,7 @@
     },
     "melee_all_around": {
       "enabled": true,
+      "origin": "actor",
       "relationship": "enemies",
       "requires": ["hittable", "health"],
       "range_tiles": 1,
@@ -54,11 +152,21 @@
     },
     "melee_forward": {
       "enabled": true,
+      "origin": "actor",
       "relationship": "enemies",
       "requires": ["hittable", "health"],
       "range_tiles": 1,
       "fov_degrees": 180,
       "reference_direction": "facing"
+    },
+    "cursor_radius": {
+      "enabled": true,
+      "origin": "cursor",
+      "relationship": "enemies",
+      "requires": ["hittable", "health"],
+      "range_tiles": 6,
+      "fov_degrees": 360,
+      "reference_direction": "none"
     }
   }
 }

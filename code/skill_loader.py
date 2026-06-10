@@ -12,6 +12,8 @@ PLAYER_INPUT_ROLES = (
     "skill_button",
 )
 
+PLAYER_INPUT_POLICY_ARCHETYPE_GROUP = "player_input_policy"
+
 PLAYER_INPUT_MODIFIERS = (
     "normal",
     "shift",
@@ -30,6 +32,7 @@ PLAYER_INPUT_FIELD_REQUIRED_KEYS = {
     "no_target": {"order"},
     "soft_targeting": {
         "enabled",
+        "origin",
         "relationship",
         "requires",
         "range_tiles",
@@ -129,6 +132,12 @@ def normalize_skill_def(skill_def, path):
             skill_def["channel"],
             path,
             "channel",
+        )
+
+    if "player_input_policy" in skill_def:
+        skill_def["player_input_policy"] = normalize_player_input_policy(
+            skill_def["player_input_policy"],
+            path,
         )
 
     return skill_def
@@ -266,7 +275,12 @@ def load_player_input_policy_archetypes():
     ) as file:
         archetypes = json.load(file)
 
-    for field_name in PLAYER_INPUT_CONTEXT_FIELDS:
+    required_groups = (
+        PLAYER_INPUT_POLICY_ARCHETYPE_GROUP,
+        *PLAYER_INPUT_CONTEXT_FIELDS,
+    )
+
+    for field_name in required_groups:
         if field_name not in archetypes:
             raise ValueError(
                 f"Missing player input policy archetype group {field_name!r}"
@@ -276,12 +290,27 @@ def load_player_input_policy_archetypes():
 
 
 def normalize_player_input_policy(policy, path):
-    if not isinstance(policy, dict):
-        raise ValueError(
-            f"Skill file {path} player_input_policy must be a dict"
-        )
-
     archetypes = load_player_input_policy_archetypes()
+
+    if isinstance(policy, str):
+        policy_archetypes = archetypes[PLAYER_INPUT_POLICY_ARCHETYPE_GROUP]
+
+        if policy not in policy_archetypes:
+            raise ValueError(
+                f"Skill file {path} player_input_policy uses unknown "
+                f"archetype {policy!r}"
+            )
+
+        policy = deepcopy(policy_archetypes[policy])
+
+    elif isinstance(policy, dict):
+        policy = dict(policy)
+
+    else:
+        raise ValueError(
+            f"Skill file {path} player_input_policy must be an archetype "
+            f"name or dict"
+        )
 
     normalized = {}
 

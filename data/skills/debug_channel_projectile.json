@@ -69,5 +69,6 @@
     "projectile_lifetime": 300
   },
 
-  "handler": "execute_channel_skill"
+  "handler": "execute_channel_skill",
+  "player_input_policy": "ranged"
 }

@@ -54,5 +54,6 @@
     "ray_fallback_min_progress_tiles": 1
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
 }

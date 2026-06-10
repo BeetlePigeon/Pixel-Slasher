@@ -47,13 +47,5 @@
   },
 
   "handler": "execute_cast_skill",
-  "targeting_policy": {
-    "hard_targets": {
-      "enemy": true,
-      "interactable": true
-    },
-    "soft_targeting": {
-      "enabled": false
-    }
-  }
+  "player_input_policy": "ranged"
 }

@@ -14,7 +14,7 @@ DEFAULT_PLAYER_STATE = {
         6: "homing_bolt",
         7: "pierce_projectile",
         8: "guard_counter",
-        9: "debug_slash",     # R click
+        9: "pierce_projectile",     # R click
         10: "dash",     # spacebar
         11: "debug_channel_projectile",
     },

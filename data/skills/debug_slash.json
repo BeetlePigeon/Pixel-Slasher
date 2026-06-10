@@ -101,34 +101,5 @@
   },
 
   "handler": "execute_cast_skill",
-  "player_input_policy": {
-    "left_click": {
-      "normal": {
-        "interactable": "interact_or_approach",
-        "enemy": "hard_target_approach",
-        "no_target": "move_to_position",
-        "soft_targeting": "disabled"
-      },
-      "shift": {
-        "interactable": "ignore_as_no_target",
-        "enemy": "ignore_as_no_target",
-        "no_target": "attack_in_place",
-        "soft_targeting": "melee_forward"
-      }
-    },
-    "skill_button": {
-      "normal": {
-        "interactable": "interact_or_approach",
-        "enemy": "hard_target_approach",
-        "no_target": "move_with_soft_skill_use",
-        "soft_targeting": "melee_all_around"
-      },
-      "shift": {
-        "interactable": "ignore_as_no_target",
-        "enemy": "ignore_as_no_target",
-        "no_target": "attack_in_place",
-        "soft_targeting": "melee_forward"
-      }
-    }
-  }
+  "player_input_policy": "melee"
 }

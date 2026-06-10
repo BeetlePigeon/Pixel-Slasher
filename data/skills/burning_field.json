@@ -102,5 +102,6 @@
     "debug_highlight_ticks": 180,
     "debug_highlight_color": "red"
   },
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
 }

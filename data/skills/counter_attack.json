@@ -90,5 +90,6 @@
     "debug_highlight_color": "orange"
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "melee"
 }

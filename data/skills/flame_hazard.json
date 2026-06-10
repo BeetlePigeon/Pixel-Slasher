@@ -45,5 +45,6 @@
     "placement_bias_mode": "toward"
   },
 
-  "handler": "execute_cast_skill"
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
 }

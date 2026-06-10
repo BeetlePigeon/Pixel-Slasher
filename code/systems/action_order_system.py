@@ -383,7 +383,14 @@ def process_move_with_soft_skill_use_order(world, intents, actor, order):
 
 def resolve_order_soft_target(world, actor, order, soft_policy):
     current_target = order.get("soft_target")
+
     reference_direction = get_soft_target_reference_direction(
+        world,
+        actor,
+        order,
+        soft_policy,
+    )
+    origin_cpos = get_soft_target_origin_cpos(
         world,
         actor,
         order,
@@ -396,6 +403,7 @@ def resolve_order_soft_target(world, actor, order, soft_policy):
         current_target,
         soft_policy,
         reference_direction=reference_direction,
+        origin_cpos=origin_cpos,
     ):
         return current_target
 
@@ -404,12 +412,36 @@ def resolve_order_soft_target(world, actor, order, soft_policy):
         actor,
         soft_policy,
         reference_direction=reference_direction,
+        origin_cpos=origin_cpos,
     )
 
     if target is not None:
         order["soft_target"] = target
 
     return target
+
+
+def get_soft_target_origin_cpos(
+    world,
+    actor,
+    order,
+    soft_policy,
+):
+    origin = soft_policy["origin"]
+
+    if origin == "actor":
+        return None
+
+    if origin == "cursor":
+        return get_order_mouse_target_cpos(
+            world,
+            actor,
+            order,
+        )
+
+    raise NotImplementedError(
+        f"Soft target origin not implemented: {origin!r}"
+    )
 
 
 def get_soft_target_reference_direction(
