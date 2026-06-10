@@ -47,34 +47,33 @@
   },
 
   "handler": "execute_cast_skill",
-  "targeting_policy": {
-    "hard_targets": {
-      "enemy": true,
-      "interactable": true
-    },
-    "soft_targeting": {
-      "enabled": false
-    },
-    "input_contexts": {
-      "traditional_right": {
-        "hard_target_modes": {
-          "interactable": "ignore",
-          "enemy": "hard_target"
-        },
-        "no_hard_target_order": "attack_in_place",
-        "soft_targeting": {
-          "enabled": false
-        }
+  "player_input_policy": {
+    "left_click": {
+      "normal": {
+        "interactable": "interact_or_approach",
+        "enemy": "hard_target_approach",
+        "no_target": "move_to_position",
+        "soft_targeting": "disabled"
       },
-      "traditional_shift_left": {
-        "hard_target_modes": {
-          "interactable": "ignore",
-          "enemy": "hard_target_if_in_range_else_no_target"
-        },
-        "no_hard_target_order": "attack_in_place",
-        "soft_targeting": {
-          "enabled": false
-        }
+      "shift": {
+        "interactable": "ignore_as_no_target",
+        "enemy": "hard_target_if_in_range_else_no_target",
+        "no_target": "attack_in_place",
+        "soft_targeting": "disabled"
+      }
+    },
+    "skill_button": {
+      "normal": {
+        "interactable": "ignore_as_no_target",
+        "enemy": "hard_target_approach",
+        "no_target": "attack_in_place",
+        "soft_targeting": "disabled"
+      },
+      "shift": {
+        "interactable": "ignore_as_no_target",
+        "enemy": "hard_target_if_in_range_else_no_target",
+        "no_target": "attack_in_place",
+        "soft_targeting": "disabled"
       }
     }
   }

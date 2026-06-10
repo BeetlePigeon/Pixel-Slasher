@@ -1,9 +1,42 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = PROJECT_ROOT / "data" / "skills"
+PLAYER_INPUT_POLICY_ARCHETYPES_PATH = PROJECT_ROOT / "data" / "player_input_policy_archetypes.json"
+
+PLAYER_INPUT_ROLES = (
+    "left_click",
+    "skill_button",
+)
+
+PLAYER_INPUT_MODIFIERS = (
+    "normal",
+    "shift",
+)
+
+PLAYER_INPUT_CONTEXT_FIELDS = (
+    "interactable",
+    "enemy",
+    "no_target",
+    "soft_targeting",
+)
+
+PLAYER_INPUT_FIELD_REQUIRED_KEYS = {
+    "interactable": {"mode"},
+    "enemy": {"mode"},
+    "no_target": {"order"},
+    "soft_targeting": {
+        "enabled",
+        "relationship",
+        "requires",
+        "range_tiles",
+        "fov_degrees",
+        "reference_direction",
+    },
+}
 
 
 TOP_LEVEL_SET_FIELDS = {
@@ -224,3 +257,152 @@ def normalize_params(params, path, field_name):
             params[param_name] = tuple(value)
 
     return params
+
+
+def load_player_input_policy_archetypes():
+    with PLAYER_INPUT_POLICY_ARCHETYPES_PATH.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        archetypes = json.load(file)
+
+    for field_name in PLAYER_INPUT_CONTEXT_FIELDS:
+        if field_name not in archetypes:
+            raise ValueError(
+                f"Missing player input policy archetype group {field_name!r}"
+            )
+
+    return archetypes
+
+
+def normalize_player_input_policy(policy, path):
+    if not isinstance(policy, dict):
+        raise ValueError(
+            f"Skill file {path} player_input_policy must be a dict"
+        )
+
+    archetypes = load_player_input_policy_archetypes()
+
+    normalized = {}
+
+    for role in PLAYER_INPUT_ROLES:
+        if role not in policy:
+            raise ValueError(
+                f"Skill file {path} player_input_policy missing role {role!r}"
+            )
+
+        role_policy = policy[role]
+        if not isinstance(role_policy, dict):
+            raise ValueError(
+                f"Skill file {path} player_input_policy[{role!r}] must be a dict"
+            )
+
+        normalized[role] = {}
+
+        for modifier in PLAYER_INPUT_MODIFIERS:
+            if modifier not in role_policy:
+                raise ValueError(
+                    f"Skill file {path} player_input_policy[{role!r}] "
+                    f"missing modifier {modifier!r}"
+                )
+
+            normalized[role][modifier] = normalize_player_input_context_policy(
+                role_policy[modifier],
+                archetypes,
+                path,
+                f"player_input_policy.{role}.{modifier}",
+            )
+
+    return normalized
+
+
+def normalize_player_input_context_policy(
+    context_policy,
+    archetypes,
+    path,
+    field_name,
+):
+    if not isinstance(context_policy, dict):
+        raise ValueError(
+            f"Skill file {path} field {field_name} must be a dict"
+        )
+
+    normalized = {}
+
+    for context_field in PLAYER_INPUT_CONTEXT_FIELDS:
+        if context_field not in context_policy:
+            raise ValueError(
+                f"Skill file {path} field {field_name} "
+                f"missing {context_field!r}"
+            )
+
+        normalized[context_field] = expand_player_input_policy_field(
+            context_policy[context_field],
+            archetypes,
+            context_field,
+            path,
+            f"{field_name}.{context_field}",
+        )
+
+    return normalized
+
+
+def expand_player_input_policy_field(
+    value,
+    archetypes,
+    archetype_group,
+    path,
+    field_name,
+):
+    if isinstance(value, str):
+        group = archetypes[archetype_group]
+
+        if value not in group:
+            raise ValueError(
+                f"Skill file {path} field {field_name} uses unknown "
+                f"{archetype_group} archetype {value!r}"
+            )
+
+        value = deepcopy(group[value])
+
+    elif isinstance(value, dict):
+        value = dict(value)
+
+    else:
+        raise ValueError(
+            f"Skill file {path} field {field_name} must be an archetype "
+            f"name or dict"
+        )
+
+    validate_player_input_policy_field(
+        value,
+        archetype_group,
+        path,
+        field_name,
+    )
+
+    return value
+
+
+def validate_player_input_policy_field(
+    value,
+    field_kind,
+    path,
+    field_name,
+):
+    required_keys = PLAYER_INPUT_FIELD_REQUIRED_KEYS[field_kind]
+    actual_keys = set(value)
+
+    missing_keys = required_keys - actual_keys
+    if missing_keys:
+        raise ValueError(
+            f"Skill file {path} field {field_name} missing keys: "
+            f"{sorted(missing_keys)!r}"
+        )
+
+    extra_keys = actual_keys - required_keys
+    if extra_keys:
+        raise ValueError(
+            f"Skill file {path} field {field_name} has unknown keys: "
+            f"{sorted(extra_keys)!r}"
+        )

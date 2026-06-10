@@ -304,11 +304,14 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
 
     if use_range_tiles is not None:
         if not entities_are_within_tile_range(
-            world,
-            actor,
-            target,
-            use_range_tiles,
+                world,
+                actor,
+                target,
+                use_range_tiles,
         ):
+            if not order.get("allow_approach", True):
+                return
+
             append_approach_entity_intent(
                 world,
                 intents,

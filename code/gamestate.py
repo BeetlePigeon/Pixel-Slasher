@@ -211,6 +211,7 @@ class StateGameplay(State):
             "press_mouse_pos": input_state.mouse_pos,
         }
 
+
     def should_create_pointer_move_order(
             self,
             button,
@@ -218,7 +219,7 @@ class StateGameplay(State):
     ):
         return (
                 button == 1
-                and input_context == "traditional_left"
+                and input_context == "left_click.normal"
         )
 
 
@@ -342,6 +343,7 @@ class StateGameplay(State):
                     skill_id,
                     slot,
                     button,
+                    input_context,
                 ),
             )
 
@@ -369,6 +371,7 @@ class StateGameplay(State):
                     skill_id,
                     slot,
                     button,
+                    input_context,
                 ),
             )
 
@@ -420,9 +423,9 @@ class StateGameplay(State):
         if control_scheme == "traditional":
             if button == 1:
                 if self.shift_modifier_is_held(input_state):
-                    return "traditional_shift_left"
+                    return "left_click.shift"
 
-                return "traditional_left"
+                return "left_click.normal"
 
             if button == 3:
                 return self.get_skill_button_input_context(input_state)
@@ -452,6 +455,7 @@ class StateGameplay(State):
 
         return order_type is not None
 
+
     def build_no_hard_target_action_order(
             self,
             actor,
@@ -467,6 +471,14 @@ class StateGameplay(State):
             skill_id,
             input_context,
         )
+
+        if order_type == "move_to_position":
+            return self.build_move_to_position_action_order(
+                actor,
+                button,
+                input_context,
+                input_state,
+            )
 
         if order_type == "move_with_soft_skill_use":
             return {
@@ -503,9 +515,9 @@ class StateGameplay(State):
 
     def get_skill_button_input_context(self, input_state):
         if self.shift_modifier_is_held(input_state):
-            return "traditional_shift_left"
+            return "skill_button.shift"
 
-        return "traditional_right"
+        return "skill_button.normal"
 
 
     def update_held_pointer_action_contexts(self, input_state):
@@ -722,6 +734,7 @@ class StateGameplay(State):
 
         action_state["hard_target_invalidated"] = True
 
+
     def hard_target_is_allowed_now(
             self,
             actor,
@@ -736,10 +749,18 @@ class StateGameplay(State):
             target_kind,
         )
 
-        if mode == "ignore":
+        if mode in {
+            "ignore",
+            "ignore_as_no_target",
+        }:
             return False
 
-        if mode == "hard_target":
+        if mode in {
+            "hard_target",
+            "hard_target_approach",
+            "hard_target_no_approach",
+            "interact_or_approach",
+        }:
             return True
 
         if mode == "hard_target_if_in_range_else_no_target":
@@ -760,6 +781,25 @@ class StateGameplay(State):
         )
 
 
+    def hard_target_allows_approach(
+            self,
+            skill_id,
+            input_context,
+            target_kind,
+    ):
+        mode = get_input_context_hard_target_mode(
+            skill_id,
+            input_context,
+            target_kind,
+        )
+
+        return mode in {
+            "hard_target",
+            "hard_target_approach",
+            "interact_or_approach",
+        }
+
+
     def build_hard_target_action_order(
             self,
             actor,
@@ -768,6 +808,7 @@ class StateGameplay(State):
             skill_id,
             slot,
             button,
+            input_context,
     ):
         world = self.game.world
 
@@ -797,6 +838,11 @@ class StateGameplay(State):
                 "target_lock": "hard",
                 "created_tick": world.tick,
                 "fired_once": False,
+                "allow_approach": self.hard_target_allows_approach(
+                    skill_id,
+                    input_context,
+                    target_kind,
+                ),
             }
 
         raise ValueError(
@@ -893,6 +939,7 @@ class StateGameplay(State):
                     skill_id,
                     slot,
                     key,
+                    input_context,
                 ),
             )
 
@@ -921,6 +968,7 @@ class StateGameplay(State):
         )
         keyboard_actions[key] = action_state
 
+
     def build_keyboard_hard_target_action_order(
             self,
             actor,
@@ -929,6 +977,7 @@ class StateGameplay(State):
             skill_id,
             slot,
             key,
+            input_context,
     ):
         world = self.game.world
 
@@ -945,6 +994,11 @@ class StateGameplay(State):
                 "target_lock": "hard",
                 "created_tick": world.tick,
                 "fired_once": False,
+                "allow_approach": self.hard_target_allows_approach(
+                    skill_id,
+                    input_context,
+                    target_kind,
+                ),
             }
 
         if target_kind == "enemy":

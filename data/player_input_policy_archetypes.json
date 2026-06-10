@@ -1,0 +1,64 @@
+{
+  "interactable": {
+    "ignore_as_no_target": {
+      "mode": "ignore_as_no_target"
+    },
+    "interact_or_approach": {
+      "mode": "interact_or_approach"
+    }
+  },
+  "enemy": {
+    "ignore_as_no_target": {
+      "mode": "ignore_as_no_target"
+    },
+    "hard_target_approach": {
+      "mode": "hard_target_approach"
+    },
+    "hard_target_no_approach": {
+      "mode": "hard_target_no_approach"
+    },
+    "hard_target_if_in_range_else_no_target": {
+      "mode": "hard_target_if_in_range_else_no_target"
+    }
+  },
+  "no_target": {
+    "none": {
+      "order": "none"
+    },
+    "move_to_position": {
+      "order": "move_to_position"
+    },
+    "attack_in_place": {
+      "order": "attack_in_place"
+    },
+    "move_with_soft_skill_use": {
+      "order": "move_with_soft_skill_use"
+    }
+  },
+  "soft_targeting": {
+    "disabled": {
+      "enabled": false,
+      "relationship": "none",
+      "requires": [],
+      "range_tiles": 0,
+      "fov_degrees": 360,
+      "reference_direction": "none"
+    },
+    "melee_all_around": {
+      "enabled": true,
+      "relationship": "enemies",
+      "requires": ["hittable", "health"],
+      "range_tiles": 1,
+      "fov_degrees": 360,
+      "reference_direction": "none"
+    },
+    "melee_forward": {
+      "enabled": true,
+      "relationship": "enemies",
+      "requires": ["hittable", "health"],
+      "range_tiles": 1,
+      "fov_degrees": 180,
+      "reference_direction": "facing"
+    }
+  }
+}
