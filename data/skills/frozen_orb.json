@@ -56,8 +56,18 @@
       "enabled": false
     },
     "input_contexts": {
+      "traditional_right": {
+        "no_hard_target_order": "attack_in_place",
+        "soft_targeting": {
+          "enabled": false
+        }
+      },
       "traditional_shift_left": {
-        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "hard_target_modes": {
+          "interactable": "ignore",
+          "enemy": "hard_target_if_in_range_else_no_target"
+        },
+        "no_hard_target_order": "attack_in_place",
         "soft_targeting": {
           "enabled": false
         }

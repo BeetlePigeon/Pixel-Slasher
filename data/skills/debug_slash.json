@@ -128,7 +128,11 @@
       },
       "traditional_shift_left": {
         "attack_in_place": true,
-        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "hard_target_modes": {
+          "interactable": "ignore",
+          "enemy": "ignore"
+        },
+        "no_hard_target_order": "attack_in_place",
         "soft_targeting": {
           "enabled": true,
           "relationship": "enemies",
@@ -140,7 +144,7 @@
       },
       "keyboard_skill": {
         "attack_in_place": true,
-        "no_hard_target_order": "soft_skill_use_or_attack_air",
+        "no_hard_target_order": "attack_in_place",
         "soft_targeting": {
           "enabled": true,
           "relationship": "enemies",

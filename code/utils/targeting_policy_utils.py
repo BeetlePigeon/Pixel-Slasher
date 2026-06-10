@@ -91,3 +91,38 @@ def input_context_uses_attack_in_place(skill_id, context_id):
         "attack_in_place",
         False,
     )
+
+
+def get_input_context_hard_target_mode(
+    skill_id,
+    context_id,
+    target_kind,
+):
+    context_policy = get_skill_input_context_policy(
+        skill_id,
+        context_id,
+    )
+
+    hard_target_modes = context_policy.get(
+        "hard_target_modes",
+        {},
+    )
+
+    if target_kind in hard_target_modes:
+        return hard_target_modes[target_kind]
+
+    # Legacy bridge behavior:
+    # old attack_in_place contexts were meant to suppress enemy hard target.
+    if (
+        target_kind == "enemy"
+        and context_policy.get("attack_in_place", False)
+    ):
+        return "ignore"
+
+    if skill_allows_hard_target_kind(
+        skill_id,
+        target_kind,
+    ):
+        return "hard_target"
+
+    return "ignore"

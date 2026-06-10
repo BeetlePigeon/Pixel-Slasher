@@ -68,8 +68,8 @@ def process_action_order(world, intents, actor, order):
         )
         return
 
-    if order_type == "soft_skill_use_or_attack_air":
-        process_soft_skill_use_or_attack_air_order(
+    if order_type == "attack_in_place":
+        process_attack_in_place_order(
             world,
             intents,
             actor,
@@ -86,7 +86,7 @@ def process_action_order(world, intents, actor, order):
     )
 
 
-def process_soft_skill_use_or_attack_air_order(
+def process_attack_in_place_order(
     world,
     intents,
     actor,

@@ -1,62 +1,78 @@
-1. Fix Shift behavior before refactor
-   Shift+LMB on interactable -> attack_in_place
-   Shift+RMB on interactable -> attack_in_place
-   Shift+keyboard skill on interactable -> attack_in_place
+left_click.normal:
+  interactable ->
+    interact / move_then_interact
 
-2. Rename soft_skill_use_or_attack_air -> attack_in_place
-   The order means:
-     use skill without locomotion
-     soft_targeting decides whether to acquire a soft target first
+  enemy ->
+    hard target
+    approach if skill policy/range requires it
+    otherwise use skill
 
-3. Make keyboard number skills use the same path as RMB
-   Keyboard skill press should map through skill_button.normal or skill_button.shift.
-   It should create/replace action orders just like RMB.
+  empty ground ->
+    move
 
-4. Discuss policy archetypes per top-level field
-   Define exact behavior/options for:
-     interactable
-     enemy
-     no_target
-     soft_targeting
 
-5. Introduce player_input_policy and archetype expansion
-   Rename:
-     targeting_policy -> player_input_policy
+left_click.shift:
+  interactable ->
+    ignore hovered interactable
+    attack_in_place
 
-   New conceptual shape:
-     left_click.normal
-     left_click.shift
-     skill_button.normal
-     skill_button.shift
+  enemy ->
+    depends on skill policy
 
-6. Migrate one melee skill and one ranged skill first
-   Suggested:
-     debug_slash
-     frozen_orb
+    melee-style:
+      ignore hovered enemy
+      attack_in_place
+        soft acquire if possible
+        otherwise attack toward cursor
 
-   Test all combinations:
-     left_click normal
-     left_click shift
-     skill_button normal via RMB
-     skill_button shift via Shift+RMB
-     skill_button normal via keyboard
-     skill_button shift via Shift+keyboard
+    ranged-style:
+      hard target enemy
+      no approach
+      use skill on enemy while held
+      if enemy dies, stop until release
 
-   Test hover states:
-     interactable
-     enemy in range
-     enemy out of range
-     empty ground
+  empty ground ->
+    attack_in_place
 
-7. Migrate remaining skills
 
-8. Remove fallback/default policy getters
-   Missing policy/context/field should fail loudly.
-   Unknown archetype should fail loudly.
-   Unknown mode/order should fail loudly.
+skill_button.normal:
+  interactable ->
+    interact / move_then_interact
 
-9. Character movement speed refactor
+  enemy ->
+    hard target
+    approach if skill policy/range requires it
+    otherwise use skill
 
-10. Homing turn-rate resolution
+  empty ground ->
+    depends on skill policy
 
-11. Homing target-only contact filtering
+    melee-style:
+      move_with_soft_skill_use
+
+    ranged-style:
+      attack_in_place / cast toward cursor
+
+
+skill_button.shift:
+  interactable ->
+    ignore hovered interactable
+    attack_in_place
+
+  enemy ->
+    depends on skill policy
+
+    melee-style:
+      ignore hovered enemy
+      attack_in_place
+        soft acquire if possible
+        otherwise attack toward cursor
+
+    ranged-style:
+      hard target enemy
+      no approach
+      use skill on enemy while held
+      if enemy dies, stop until release
+
+  empty ground ->
+    attack_in_place

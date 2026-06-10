@@ -10,6 +10,7 @@ from utils.targeting_policy_utils import (
     get_no_hard_target_action_order_type,
     input_context_uses_attack_in_place,
     skill_allows_hard_target_kind,
+    get_input_context_hard_target_mode,
 )
 from utils.action_order_utils import (
     clear_action_order,
@@ -110,11 +111,14 @@ class StateGameplay(State):
         )
 
 
-    def get_keyboard_input_context(self, key):
-        if key in KEY_TO_SKILL_SLOT:
-            return "keyboard_skill"
+    def get_keyboard_input_context(self, key, input_state):
+        if key not in KEY_TO_SKILL_SLOT:
+            return None
 
-        return None
+        if self.shift_modifier_is_held(input_state):
+            return "traditional_shift_left"
+
+        return "traditional_right"
 
 
     def should_create_no_hard_target_keyboard_order(
@@ -149,9 +153,9 @@ class StateGameplay(State):
             input_context,
         )
 
-        if order_type == "soft_skill_use_or_attack_air":
+        if order_type == "attack_in_place":
             return {
-                "type": "soft_skill_use_or_attack_air",
+                "type": "attack_in_place",
                 "actor": actor,
                 "skill_id": skill_id,
                 "slot": slot,
@@ -163,6 +167,22 @@ class StateGameplay(State):
                 "press_mouse_pos": input_state.mouse_pos,
                 "fired_once": False,
             }
+
+        if order_type == "move_with_soft_skill_use":
+            return {
+                "type": "move_with_soft_skill_use",
+                "actor": actor,
+                "skill_id": skill_id,
+                "slot": slot,
+                "input_kind": "keyboard",
+                "key": key,
+                "input_context": input_context,
+                "target_lock": "none",
+                "created_tick": world.tick,
+                "press_mouse_pos": input_state.mouse_pos,
+                "fired_once": False,
+            }
+
 
         raise NotImplementedError(
             f"Keyboard no-hard-target order type not implemented: {order_type!r}"
@@ -291,14 +311,15 @@ class StateGameplay(State):
             "hard_target_invalidated": False,
         }
 
-        attack_in_place = input_context_uses_attack_in_place(
-            skill_id,
-            input_context,
-        )
-
         if (
                 hovered_kind == "interactable"
-                and skill_allows_hard_target_kind(skill_id, hovered_kind)
+                and self.hard_target_is_allowed_now(
+            actor,
+            hovered,
+            skill_id,
+            input_context,
+            hovered_kind,
+        )
         ):
             action_state["hard_target"] = hovered
             action_state["hard_target_kind"] = hovered_kind
@@ -319,8 +340,13 @@ class StateGameplay(State):
 
         elif (
                 hovered_kind == "enemy"
-                and not attack_in_place
-                and skill_allows_hard_target_kind(skill_id, hovered_kind)
+                and self.hard_target_is_allowed_now(
+            actor,
+            hovered,
+            skill_id,
+            input_context,
+            hovered_kind,
+        )
         ):
             action_state["hard_target"] = hovered
             action_state["hard_target_kind"] = hovered_kind
@@ -374,7 +400,6 @@ class StateGameplay(State):
                 or input_state.keys[pygame.K_RSHIFT]
         )
 
-
     def get_pointer_input_context(self, button, input_state):
         control_scheme = self.game.world.control_scheme
 
@@ -382,14 +407,19 @@ class StateGameplay(State):
             if button == 1:
                 if self.shift_modifier_is_held(input_state):
                     return "traditional_shift_left"
+
                 return "traditional_left"
 
             if button == 3:
+                if self.shift_modifier_is_held(input_state):
+                    return "traditional_shift_left"
+
                 return "traditional_right"
 
         if control_scheme == "modern":
             if button == 1:
                 return "modern_left"
+
             if button == 3:
                 return "modern_right"
 
@@ -441,9 +471,9 @@ class StateGameplay(State):
                 "fired_once": False,
             }
 
-        if order_type == "soft_skill_use_or_attack_air":
+        if order_type == "attack_in_place":
             return {
-                "type": "soft_skill_use_or_attack_air",
+                "type": "attack_in_place",
                 "actor": actor,
                 "skill_id": skill_id,
                 "slot": slot,
@@ -653,6 +683,43 @@ class StateGameplay(State):
 
         action_state["hard_target_invalidated"] = True
 
+    def hard_target_is_allowed_now(
+            self,
+            actor,
+            target,
+            skill_id,
+            input_context,
+            target_kind,
+    ):
+        mode = get_input_context_hard_target_mode(
+            skill_id,
+            input_context,
+            target_kind,
+        )
+
+        if mode == "ignore":
+            return False
+
+        if mode == "hard_target":
+            return True
+
+        if mode == "hard_target_if_in_range_else_no_target":
+            use_range_tiles = get_skill_use_range_tiles(skill_id)
+
+            if use_range_tiles is None:
+                return True
+
+            return entities_are_within_tile_range(
+                self.game.world,
+                actor,
+                target,
+                use_range_tiles,
+            )
+
+        raise NotImplementedError(
+            f"Hard target mode not implemented: {mode!r}"
+        )
+
 
     def build_hard_target_action_order(
             self,
@@ -697,12 +764,14 @@ class StateGameplay(State):
             f"Unsupported hard target kind: {target_kind!r}"
         )
 
+
     def get_bound_skill_id_for_keyboard_action(self, actor, key):
         slot = KEY_TO_SKILL_SLOT.get(key)
         if slot is None:
             return None
 
         return self.game.world.skills.get((actor, slot))
+
 
     def capture_keyboard_action_presses(self, input_state):
         world = self.game.world
@@ -738,7 +807,10 @@ class StateGameplay(State):
             actor,
             key,
         )
-        input_context = self.get_keyboard_input_context(key)
+        input_context = self.get_keyboard_input_context(
+            key,
+            input_state,
+        )
 
         if skill_id is not None:
             clear_action_order(world, actor)
@@ -759,13 +831,13 @@ class StateGameplay(State):
         }
 
         if (
-                hovered_kind == "enemy"
-                and skill_allows_hard_target_kind(skill_id, hovered_kind)
-                and self.keyboard_hard_target_is_allowed_now(
+                hovered_kind in {"enemy", "interactable"}
+                and self.hard_target_is_allowed_now(
             actor,
             hovered,
             skill_id,
             input_context,
+            hovered_kind,
         )
         ):
             action_state["hard_target"] = hovered
@@ -810,7 +882,6 @@ class StateGameplay(State):
         )
         keyboard_actions[key] = action_state
 
-
     def build_keyboard_hard_target_action_order(
             self,
             actor,
@@ -822,24 +893,39 @@ class StateGameplay(State):
     ):
         world = self.game.world
 
-        if target_kind != "enemy":
-            raise ValueError(
-                f"Unsupported keyboard hard target kind: {target_kind!r}"
-            )
+        if target_kind == "interactable":
+            return {
+                "type": "interact_with_entity",
+                "actor": actor,
+                "target": target,
+                "target_kind": target_kind,
+                "skill_id": skill_id,
+                "slot": slot,
+                "input_kind": "keyboard",
+                "key": key,
+                "target_lock": "hard",
+                "created_tick": world.tick,
+                "fired_once": False,
+            }
 
-        return {
-            "type": "use_skill_on_entity",
-            "actor": actor,
-            "target": target,
-            "target_kind": target_kind,
-            "skill_id": skill_id,
-            "slot": slot,
-            "input_kind": "keyboard",
-            "key": key,
-            "target_lock": "hard",
-            "created_tick": world.tick,
-            "fired_once": False,
-        }
+        if target_kind == "enemy":
+            return {
+                "type": "use_skill_on_entity",
+                "actor": actor,
+                "target": target,
+                "target_kind": target_kind,
+                "skill_id": skill_id,
+                "slot": slot,
+                "input_kind": "keyboard",
+                "key": key,
+                "target_lock": "hard",
+                "created_tick": world.tick,
+                "fired_once": False,
+            }
+
+        raise ValueError(
+            f"Unsupported keyboard hard target kind: {target_kind!r}"
+        )
 
 
     def clear_keyboard_action_releases(self, input_state):
