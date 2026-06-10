@@ -8,8 +8,6 @@ from utils.tile_vec_utils import tile_from_cpos, tile_center
 from utils.selectable_utils import resolve_hovered_selectable
 from utils.targeting_policy_utils import (
     get_no_hard_target_action_order_type,
-    input_context_uses_attack_in_place,
-    skill_allows_hard_target_kind,
     get_input_context_hard_target_mode,
 )
 from utils.action_order_utils import (
@@ -110,15 +108,11 @@ class StateGameplay(State):
             input_state,
         )
 
-
     def get_keyboard_input_context(self, key, input_state):
         if key not in KEY_TO_SKILL_SLOT:
             return None
 
-        if self.shift_modifier_is_held(input_state):
-            return "traditional_shift_left"
-
-        return "traditional_right"
+        return self.get_skill_button_input_context(input_state)
 
 
     def should_create_no_hard_target_keyboard_order(
@@ -186,32 +180,6 @@ class StateGameplay(State):
 
         raise NotImplementedError(
             f"Keyboard no-hard-target order type not implemented: {order_type!r}"
-        )
-
-
-    def keyboard_hard_target_is_allowed_now(
-            self,
-            actor,
-            target,
-            skill_id,
-            input_context,
-    ):
-        if not input_context_uses_attack_in_place(
-                skill_id,
-                input_context,
-        ):
-            return True
-
-        use_range_tiles = get_skill_use_range_tiles(skill_id)
-
-        if use_range_tiles is None:
-            return True
-
-        return entities_are_within_tile_range(
-            self.game.world,
-            actor,
-            target,
-            use_range_tiles,
         )
 
 
@@ -411,10 +379,7 @@ class StateGameplay(State):
                 return "traditional_left"
 
             if button == 3:
-                if self.shift_modifier_is_held(input_state):
-                    return "traditional_shift_left"
-
-                return "traditional_right"
+                return self.get_skill_button_input_context(input_state)
 
         if control_scheme == "modern":
             if button == 1:
@@ -488,6 +453,14 @@ class StateGameplay(State):
         raise NotImplementedError(
             f"No-hard-target order type not implemented: {order_type!r}"
         )
+
+
+    def get_skill_button_input_context(self, input_state):
+        if self.shift_modifier_is_held(input_state):
+            return "traditional_shift_left"
+
+        return "traditional_right"
+
 
     def update_held_pointer_action_contexts(self, input_state):
         world = self.game.world
@@ -563,6 +536,7 @@ class StateGameplay(State):
             button,
         )
 
+
     def clear_no_hard_target_order_for_button(self, actor, button):
         order = self.game.world.action_order.get(actor)
         if order is None:
@@ -605,6 +579,7 @@ class StateGameplay(State):
             return None
 
         return hovered
+
 
     def add_skill_target_context_to_intent(self, intent, actor):
         slot = intent.get("slot")

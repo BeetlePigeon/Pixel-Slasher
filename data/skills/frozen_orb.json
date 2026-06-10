@@ -57,6 +57,10 @@
     },
     "input_contexts": {
       "traditional_right": {
+        "hard_target_modes": {
+          "interactable": "ignore",
+          "enemy": "hard_target"
+        },
         "no_hard_target_order": "attack_in_place",
         "soft_targeting": {
           "enabled": false
