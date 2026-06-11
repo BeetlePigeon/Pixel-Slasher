@@ -2,6 +2,7 @@ from utils.tile_vec_utils import tile_center
 from ai.ai_queries import (
     entity_is_in_attack_range_of_target,
     entity_is_valid_target,
+    get_entity_attack_range_tiles,
     find_closest_valid_attack_position,
     get_player_if_detectable,
     tile_distance_between_entities,
@@ -31,6 +32,25 @@ def set_debug_engagement_sprite(world, entity, in_range):
 
     sprite["image"] = image
 
+
+def build_flow_field_chase_intent(
+    world,
+    entity,
+    target,
+    path_policy,
+    max_radius_tiles,
+):
+    return {
+        "type": "move_to_entity_flow_field",
+        "target_entity": target,
+        "desired_range_tiles": get_entity_attack_range_tiles(
+            world,
+            entity,
+        ),
+        "max_radius_tiles": max_radius_tiles,
+        "path_policy": path_policy,
+        "lookahead_nodes": 6,
+    }
 
 
 def think(context):
@@ -105,6 +125,19 @@ def think(context):
     else:
         set_debug_engagement_sprite(world, entity, False)
 
+    agent["state"] = "pursuing"
+
+    if params.get("movement_mode") == "flow_field":
+        return [
+            build_flow_field_chase_intent(
+                world,
+                entity,
+                target,
+                path_policy,
+                max_radius_tiles=lose_radius_tiles,
+            )
+        ]
+
     attack_position_tile = find_closest_valid_attack_position(
         world,
         entity,
@@ -113,14 +146,11 @@ def think(context):
 
     if attack_position_tile is None:
         agent["state"] = "no_valid_attack_position"
-
         return [
             {
                 "type": "stop_moving",
             }
         ]
-
-    agent["state"] = "pursuing"
 
     return [
         {

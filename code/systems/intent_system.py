@@ -1,5 +1,11 @@
 from support import Vec2i
-from systems.movement_system import set_move_target, clear_move_target, buffer_move_intent, cancel_voluntary_movement
+from systems.movement_system import (
+    set_move_target,
+    set_flow_field_move_target,
+    clear_move_target,
+    buffer_move_intent,
+    cancel_voluntary_movement,
+)
 
 
 def intent_system(world, intents):
@@ -32,6 +38,19 @@ def intent_system(world, intents):
                 clear_move_target(
                     world,
                     entity,
+                )
+                continue
+
+            if intent["type"] == "move_to_entity_flow_field":
+                set_flow_field_move_target(
+                    world,
+                    entity,
+                    intent["target_entity"],
+                    intent["desired_range_tiles"],
+                    max_radius_tiles=intent.get("max_radius_tiles"),
+                    path_policy=intent.get("path_policy", "actor_move"),
+                    owner_order_id=intent.get("owner_order_id"),
+                    lookahead_nodes=intent.get("lookahead_nodes", 6),
                 )
                 continue
 

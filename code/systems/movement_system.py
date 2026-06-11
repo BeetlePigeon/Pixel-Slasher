@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled, record_counter_for_world
+from utils.flow_field_utils import (
+    get_or_build_flow_field,
+    get_flow_field_step_candidates,
+    get_flow_field_step_candidates_from_tile,
+)
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
     refresh_entity_dynamic_occupancy,
@@ -1848,6 +1853,57 @@ def set_move_target(
     }
 
 
+def set_flow_field_move_target(
+    world,
+    entity,
+    target_entity,
+    desired_range_tiles,
+    max_radius_tiles=None,
+    path_policy="actor_move",
+    owner_order_id=None,
+    lookahead_nodes=6,
+):
+    existing_target = world.move_target.get(entity)
+
+    owner_changed = (
+        existing_target is not None
+        and existing_target.get("owner_order_id") != owner_order_id
+    )
+
+    target_changed = (
+        existing_target is None
+        or existing_target.get("type") != "flow_field_to_entity"
+        or existing_target.get("target_entity") != target_entity
+        or existing_target.get("desired_range_tiles") != desired_range_tiles
+        or existing_target.get("max_radius_tiles") != max_radius_tiles
+        or existing_target.get("path_policy") != path_policy
+        or existing_target.get("lookahead_nodes") != lookahead_nodes
+    )
+
+    if existing_target is None or owner_changed or target_changed:
+        created_tick = world.tick
+        repath_attempts = 0
+        next_repath_tick = world.tick
+
+    else:
+        created_tick = existing_target.get("created_tick", world.tick)
+        repath_attempts = existing_target.get("repath_attempts", 0)
+        next_repath_tick = existing_target.get("next_repath_tick", world.tick)
+
+    world.move_target[entity] = {
+        "type": "flow_field_to_entity",
+        "target_entity": target_entity,
+        "desired_range_tiles": desired_range_tiles,
+        "max_radius_tiles": max_radius_tiles,
+        "path_policy": path_policy,
+        "owner_order_id": owner_order_id,
+        "created_tick": created_tick,
+        "repath_attempts": repath_attempts,
+        "next_repath_tick": next_repath_tick,
+        "lookahead_nodes": lookahead_nodes,
+    }
+
+
 def clear_move_target(world, entity):
     world.move_target.pop(entity, None)
     clear_path_build_state(world, entity)
@@ -2629,7 +2685,230 @@ def install_path_follow_controller(world, entity, target, nodes):
     return True
 
 
+def build_flow_field_lookahead_nodes(
+    world,
+    entity,
+    flow_field,
+    start_tile,
+    first_direction,
+    max_nodes,
+):
+    max_nodes = max(
+        1,
+        max_nodes,
+    )
+
+    nodes = []
+    current_tile = start_tile
+    direction = first_direction
+    final_tile = start_tile
+
+    for _ in range(max_nodes):
+        next_tile = current_tile + direction
+
+        if next_tile not in flow_field["distances"]:
+            break
+
+        nodes.append(
+            tile_center(next_tile),
+        )
+
+        final_tile = next_tile
+        current_tile = next_tile
+
+        candidate_directions = get_flow_field_step_candidates_from_tile(
+            world,
+            entity,
+            flow_field,
+            current_tile,
+            include_sideways=False,
+        )
+
+        if not candidate_directions:
+            break
+
+        direction = candidate_directions[0]
+
+    return nodes, final_tile
+
+
+def start_flow_field_controller(world, entity, target):
+    target_entity = target.get("target_entity")
+
+    if target_entity not in world.transform:
+        clear_move_target(world, entity)
+        return False
+
+    locomotion = world.locomotion[entity]
+    current_tile = get_navigation_start_tile(
+        world,
+        entity,
+    )
+
+    flow_field = get_or_build_flow_field(
+        world,
+        mover_entity=entity,
+        target_entity=target_entity,
+        desired_range_tiles=target["desired_range_tiles"],
+        max_radius_tiles=target.get("max_radius_tiles"),
+        can_move_8way=locomotion.get("can_move_8way", True),
+    )
+
+    if flow_field is None:
+        record_counter_for_world(
+            world,
+            "flow_field.start.no_field",
+        )
+        return False
+
+    candidate_directions = get_flow_field_step_candidates(
+        world,
+        entity,
+        flow_field,
+        include_sideways=False,
+    )
+
+    if not candidate_directions:
+        candidate_directions = get_flow_field_step_candidates(
+            world,
+            entity,
+            flow_field,
+            include_sideways=True,
+        )
+
+        if candidate_directions:
+            record_counter_for_world(
+                world,
+                "flow_field.start.sideways_fallback",
+            )
+
+    if not candidate_directions:
+        record_counter_for_world(
+            world,
+            "flow_field.start.no_direction",
+        )
+        return False
+
+    current_distance = flow_field["distances"].get(current_tile)
+
+    for desired_direction in candidate_directions:
+        resolved_direction = resolve_grid_move_direction_from_tile(
+            world,
+            entity,
+            current_tile,
+            desired_direction,
+            slide_vector=desired_direction,
+            slide_context="grid",
+        )
+
+        if resolved_direction is None:
+            record_counter_for_world(
+                world,
+                "flow_field.start.candidate_blocked",
+            )
+            continue
+
+        next_tile = current_tile + resolved_direction
+        next_distance = flow_field["distances"].get(next_tile)
+
+        if next_distance is None:
+            record_counter_for_world(
+                world,
+                "flow_field.start.candidate_off_field",
+            )
+            continue
+
+        if current_distance is not None:
+            if next_distance > current_distance:
+                record_counter_for_world(
+                    world,
+                    "flow_field.start.candidate_uphill",
+                )
+                continue
+
+            if next_distance == current_distance:
+                record_counter_for_world(
+                    world,
+                    "flow_field.start.sideways_step",
+                )
+
+        lookahead_nodes = target.get(
+            "lookahead_nodes",
+            6,
+        )
+
+        nodes, final_tile = build_flow_field_lookahead_nodes(
+            world,
+            entity,
+            flow_field,
+            current_tile,
+            resolved_direction,
+            lookahead_nodes,
+        )
+
+        if not nodes:
+            record_counter_for_world(
+                world,
+                "flow_field.start.no_lookahead_nodes",
+            )
+            continue
+
+        motion_state = world.motion_state[entity]
+
+        motion_state["controller"] = PathFollowController(
+            nodes=nodes,
+            current_index=0,
+            speed=get_locomotion_speed_cpos_per_tick(locomotion),
+            created_tick=world.tick,
+            target_tile=final_tile,
+            block_response=BLOCK_RESPONSE_ABORT,
+        )
+        motion_state["controller_source"] = "move_target"
+
+        if entity in world.facing:
+            world.facing[entity] = resolved_direction
+
+        initialize_path_follow_progress(
+            world,
+            entity,
+            motion_state["controller"],
+        )
+
+        refresh_moved_entity_occupancy(
+            world,
+            entity,
+        )
+
+        if resolved_direction == desired_direction:
+            record_counter_for_world(
+                world,
+                "flow_field.start.success",
+            )
+
+        else:
+            record_counter_for_world(
+                world,
+                "flow_field.start.slide_success",
+            )
+
+        return True
+
+    record_counter_for_world(
+        world,
+        "flow_field.start.blocked",
+    )
+
+    return False
+
+
 def start_path_follow_controller(world, entity, target):
+    if target["type"] == "flow_field_to_entity":
+        return start_flow_field_controller(
+            world,
+            entity,
+            target,
+        )
+
     path_policy = get_path_policy(world, target)
     nodes = build_path_follow_nodes(
         world,

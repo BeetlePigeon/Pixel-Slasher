@@ -23,6 +23,7 @@ class World:
         self.path_build_state = {}
         self.path_build_budget_state = {}
         self.static_placement_cache = {}
+        self.flow_field_cache = {}
         self.hovered_selectable = None
 
         control_settings = self.game.settings["controls"]
@@ -311,6 +312,7 @@ class World:
             self.current_area.static_collision_tiles
         )
         self.static_placement_cache = {}
+        self.flow_field_cache = {}
 
         spawn_def = self.current_area.spawn_points[spawn_id]
         self.player = self.spawn_player(spawn_def)
@@ -595,6 +597,7 @@ class World:
                 "lose_radius_tiles": 26,
                 "desired_range_tiles": 1,
                 "path_policy": "actor_move",
+                "movement_mode": "flow_field",
             },
 
             # Runtime memory for behavior-specific state.
