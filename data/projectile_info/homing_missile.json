@@ -1,77 +1,79 @@
 {
-  "id": "homing_bolt",
-
+  "id": "homing_missile",
   "spawn": {
     "static_tiles": "reject"
   },
-
   "motion": {
     "type": "linear",
-    "speed": 334,
+    "speed": 234,
     "influence_mode": "normal"
   },
-
   "lifetime_ticks": 600,
-
   "sprite": {
     "image": "ice_shard",
     "anchor": "center",
     "z": 0
   },
-
   "blocks_movement": false,
   "movement_footprint": "single_tile",
   "contact_footprint": "single_tile",
-
   "movement_collision": {
     "static_tiles": "block",
     "dynamic_blockers": "allow"
   },
-
   "impact_responses": {
     "projectile_static_impact": "destroy_self",
     "projectile_dynamic_actor_contact": "destroy_self"
   },
-
   "collides_with_relationship": "enemies",
-
-"behaviors": [
-  {
-    "type": "homing",
+  "actor_contact_filter": {
+    "mode": "by_initial_homing_context",
+    "homing_behavior_index": 0,
     "contexts": {
       "explicit_seeded": {
-        "initial_target": {
-          "mode": "explicit_target_else_none",
-          "relationship": "enemies",
-          "explicit_target_max_range_tiles": 50,
-          "requires": ["hittable", "health"]
-        },
-        "retarget": {
-          "mode": "nearest_when_no_target",
-          "relationship": "enemies",
-          "radius_tiles": 4,
-          "requires": ["hittable", "health"]
-        }
+        "mode": "explicit_target_only",
+        "homing_behavior_index": 0,
+        "target_source": "homing_runtime",
+        "on_explicit_target_lost": "preserve_filter"
       },
       "unseeded": {
-        "initial_target": {
-          "mode": "none"
-        },
-        "retarget": {
-          "mode": "nearest_when_no_target",
-          "relationship": "enemies",
-          "radius_tiles": 4,
-          "requires": ["hittable", "health"]
-        }
+        "mode": "normal"
       }
-    },
-    "turn_rate": {
-      "steps_per_turn": 32,
-      "ticks_per_turn": 30
     }
-  }
-],
-
+  },
+  "behaviors": [
+    {
+      "type": "homing",
+      "contexts": {
+        "explicit_seeded": {
+          "initial_target": {
+            "mode": "explicit_target_else_none",
+            "relationship": "enemies",
+            "explicit_target_max_range_tiles": 50,
+            "requires": ["hittable", "health"]
+          },
+          "retarget": {
+            "mode": "none"
+          }
+        },
+        "unseeded": {
+          "initial_target": {
+            "mode": "none"
+          },
+          "retarget": {
+            "mode": "nearest_when_no_target",
+            "relationship": "enemies",
+            "radius_tiles": 4,
+            "requires": ["hittable", "health"]
+          }
+        }
+      },
+      "turn_rate": {
+        "steps_per_turn": 1,
+        "ticks_per_turn": 5
+      }
+    }
+  ],
   "effect_triggers": [
     {
       "event": "projectile_dynamic_actor_contact",
@@ -90,7 +92,7 @@
             {
               "type": "damage",
               "params": {
-                "amount": 1,
+                "amount": 2,
                 "damage_type": "cold"
               }
             }
@@ -102,7 +104,6 @@
       }
     }
   ],
-
   "influence_receiver": {
     "accepts": ["wind", "magnet"],
     "scales": {

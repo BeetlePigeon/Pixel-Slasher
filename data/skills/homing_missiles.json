@@ -1,0 +1,68 @@
+{
+  "id": "homing_missiles",
+  "name": "Homing Missiles",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+  "blocked_by_motion_tags": ["dash"],
+  "blocked_by_action_tags": [
+    "cast",
+    "channel",
+    "recovery",
+    "stun",
+    "skill_locked"
+  ],
+  "cancels_action_tags": [],
+  "required_components": ["transform"],
+  "required_params": [
+    "projectile_id",
+    "spawn_distance"
+  ],
+  "allowed_param_values": {},
+  "aim": {
+    "traditional_source": "mouse_tile",
+    "modern_source": "mouse_tile",
+    "resolution": "tile_center"
+  },
+  "cast": {
+    "duration": 20,
+    "tags": ["cast", "movement_locked", "skill_locked"],
+    "events": [
+      {
+        "tick": 10,
+        "handler": "execute_projectile",
+        "params": {
+          "aim_offset_steps": 0
+        }
+      },
+      {
+        "tick": 10,
+        "handler": "execute_projectile",
+        "params": {
+          "aim_offset_steps": 6
+        }
+      },
+      {
+        "tick": 11,
+        "handler": "execute_projectile",
+        "params": {
+          "aim_offset_steps": -3
+        }
+      },
+      {
+        "tick": 13,
+        "handler": "execute_projectile",
+        "params": {
+          "aim_offset_steps": -9
+        }
+      }
+    ]
+  },
+  "channel": null,
+  "params": {
+    "projectile_id": "homing_missile",
+    "spawn_distance": 1024,
+    "aim_offset_resolution": 64
+  },
+  "handler": "execute_cast_skill",
+  "player_input_policy": "ranged"
+}

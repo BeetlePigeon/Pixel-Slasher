@@ -186,6 +186,11 @@ def build_projectile_component(
             projectile_info["contact_cadence"],
         )
 
+    if "actor_contact_filter" in projectile_info:
+        projectile["actor_contact_filter"] = copy.deepcopy(
+            projectile_info["actor_contact_filter"],
+        )
+
     if "behaviors" in projectile_info:
         projectile["behaviors"] = copy.deepcopy(
             projectile_info["behaviors"],

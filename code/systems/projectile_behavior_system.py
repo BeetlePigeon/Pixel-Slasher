@@ -115,6 +115,18 @@ def resolve_homing_target(
     behavior,
     runtime,
 ):
+    context_name = ensure_homing_initial_context(
+        world,
+        projectile,
+        projectile_data,
+        behavior,
+        runtime,
+    )
+    context_def = get_homing_context_def(
+        behavior,
+        context_name,
+    )
+
     current_target = runtime.get("target")
 
     if homing_existing_target_is_valid(
@@ -123,6 +135,7 @@ def resolve_homing_target(
         projectile_data,
         behavior,
         runtime,
+        context_def,
         current_target,
     ):
         return current_target
@@ -136,6 +149,7 @@ def resolve_homing_target(
         projectile_data,
         behavior,
         runtime,
+        context_def,
     )
 
     if target is None:
@@ -144,6 +158,7 @@ def resolve_homing_target(
             projectile,
             projectile_data,
             behavior,
+            context_def,
         )
 
     if target is not None:
@@ -153,20 +168,103 @@ def resolve_homing_target(
     return target
 
 
-def acquire_initial_homing_target(
+def ensure_homing_initial_context(
     world,
     projectile,
     projectile_data,
     behavior,
     runtime,
 ):
+    if "initial_homing_context" in runtime:
+        return runtime["initial_homing_context"]
+
+    explicit_context = behavior["contexts"].get("explicit_seeded")
+
+    if explicit_context is not None:
+        explicit_target = projectile_data.get("explicit_target")
+        initial_target = explicit_context.get("initial_target", {})
+
+        if explicit_homing_seed_is_valid(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+            explicit_target,
+            initial_target,
+        ):
+            runtime["initial_homing_context"] = "explicit_seeded"
+            runtime["explicit_target"] = explicit_target
+            runtime["target"] = explicit_target
+            runtime["target_acquisition_kind"] = "explicit"
+            runtime["initial_acquisition_attempted"] = True
+            return "explicit_seeded"
+
+    if "unseeded" not in behavior["contexts"]:
+        raise KeyError(
+            "Homing behavior has no unseeded context"
+        )
+
+    runtime["initial_homing_context"] = "unseeded"
+    return "unseeded"
+
+
+def get_homing_context_def(behavior, context_name):
+    try:
+        return behavior["contexts"][context_name]
+
+    except KeyError as error:
+        raise KeyError(
+            f"Homing behavior missing context {context_name!r}"
+        ) from error
+
+
+def explicit_homing_seed_is_valid(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+    explicit_target,
+    initial_target,
+):
+    mode = initial_target.get("mode", "none")
+
+    if mode == "none":
+        return False
+
+    if mode == "explicit_target_else_none":
+        return homing_target_is_valid(
+            world,
+            projectile,
+            projectile_data,
+            behavior,
+            explicit_target,
+            filter_def=initial_target,
+            radius_origin="source",
+        )
+
+    raise NotImplementedError(
+        f"Homing explicit seed mode not implemented: {mode!r}"
+    )
+
+
+def acquire_initial_homing_target(
+    world,
+    projectile,
+    projectile_data,
+    behavior,
+    runtime,
+    context_def,
+):
     if runtime.get("initial_acquisition_attempted", False):
         return None, None
 
     runtime["initial_acquisition_attempted"] = True
 
-    targeting = behavior.get("targeting", {})
-    mode = targeting.get("mode", "nearest")
+    initial_target = context_def.get("initial_target", {})
+    mode = initial_target.get("mode", "none")
+
+    if mode == "none":
+        return None, None
 
     if mode == "explicit_target_else_none":
         explicit_target = projectile_data.get("explicit_target")
@@ -177,36 +275,13 @@ def acquire_initial_homing_target(
             projectile_data,
             behavior,
             explicit_target,
-            filter_def=targeting,
+            filter_def=initial_target,
             radius_origin="source",
         ):
+            runtime["explicit_target"] = explicit_target
             return explicit_target, "explicit"
 
         return None, None
-
-    if mode == "explicit_target_else_nearest":
-        explicit_target = projectile_data.get("explicit_target")
-
-        if homing_target_is_valid(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-            explicit_target,
-            filter_def=targeting,
-            radius_origin="source",
-        ):
-            return explicit_target, "explicit"
-
-        target = acquire_nearest_homing_target(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-            filter_def=targeting,
-            radius_origin="projectile",
-        )
-        return target, "retarget"
 
     if mode == "nearest":
         target = acquire_nearest_homing_target(
@@ -214,13 +289,13 @@ def acquire_initial_homing_target(
             projectile,
             projectile_data,
             behavior,
-            filter_def=targeting,
+            filter_def=initial_target,
             radius_origin="projectile",
         )
         return target, "retarget"
 
     raise NotImplementedError(
-        f"Homing targeting mode not implemented: {mode!r}"
+        f"Homing initial target mode not implemented: {mode!r}"
     )
 
 
@@ -229,25 +304,15 @@ def acquire_retarget_homing_target(
     projectile,
     projectile_data,
     behavior,
+    context_def,
 ):
-    retarget = behavior.get("retarget", {})
-    mode = retarget.get("mode", "when_invalid")
+    retarget = context_def.get("retarget", {})
+    mode = retarget.get("mode", "none")
 
     if mode == "none":
         return None, None
 
     if mode == "nearest_when_no_target":
-        target = acquire_nearest_homing_target(
-            world,
-            projectile,
-            projectile_data,
-            behavior,
-            filter_def=retarget,
-            radius_origin="projectile",
-        )
-        return target, "retarget"
-
-    if mode == "when_invalid":
         target = acquire_nearest_homing_target(
             world,
             projectile,
@@ -269,14 +334,17 @@ def homing_existing_target_is_valid(
     projectile_data,
     behavior,
     runtime,
+    context_def,
     target,
 ):
     acquisition_kind = runtime.get("target_acquisition_kind")
 
     if acquisition_kind == "explicit":
-        filter_def = behavior.get("targeting", {})
+        filter_def = context_def.get("initial_target", {})
+    elif acquisition_kind == "retarget":
+        filter_def = context_def.get("retarget", {})
     else:
-        filter_def = behavior.get("retarget", {})
+        return False
 
     return homing_target_is_valid(
         world,
@@ -335,11 +403,13 @@ def homing_target_is_valid(
     projectile_data,
     behavior,
     target,
-    filter_def=None,
+    filter_def,
     radius_origin="projectile",
 ):
     if filter_def is None:
-        filter_def = behavior.get("targeting", {})
+        raise ValueError(
+            "homing_target_is_valid requires an explicit filter_def"
+        )
 
     if target is None:
         return False

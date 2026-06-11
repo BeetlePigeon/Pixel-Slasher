@@ -236,6 +236,18 @@ def apply_projectile_impact_response(
         return False
 
     if impact_response == "destroy_self":
+        if projectile_data.get("id") == "homing_bolt":
+            print(
+                "[homing_bolt_destroy]",
+                "tick=", world.tick,
+                "impact_type=", impact_event["type"],
+                "source_event_type=", impact_event.get("source_event_type"),
+                "cpos=", impact_event.get("cpos"),
+                "tile=", impact_event.get("tile"),
+                "blocked_tile=", impact_event.get("blocked_tile"),
+                "blocker_collision_type=", impact_event.get("blocker_collision_type"),
+                "blocker_entity=", impact_event.get("blocker_entity"),
+            )
         world.entities.destroy(projectile)
         return True
 
@@ -263,10 +275,14 @@ def find_projectile_dynamic_actor_contacts(
         world,
         projectile,
     )
+    candidates = filter_targets_by_projectile_actor_contact_filter(
+        world,
+        projectile_data,
+        candidates,
+    )
 
     return tuple(
-        target
-        for target in candidates
+        target for target in candidates
         if projectile_contacts_dynamic_actor(
             world,
             projectile,
@@ -274,6 +290,181 @@ def find_projectile_dynamic_actor_contacts(
             target,
         )
     )
+
+
+def filter_targets_by_projectile_actor_contact_filter(
+    world,
+    projectile_data,
+    targets,
+):
+    actor_contact_filter = projectile_data.get("actor_contact_filter")
+
+    if actor_contact_filter is None:
+        return targets
+
+    mode = actor_contact_filter["mode"]
+
+    if mode == "normal":
+        return targets
+
+    if mode == "by_initial_homing_context":
+        context_filter = get_actor_contact_context_filter(
+            projectile_data,
+            actor_contact_filter,
+        )
+        return filter_targets_by_actor_contact_context_filter(
+            world,
+            projectile_data,
+            context_filter,
+            targets,
+        )
+
+    raise NotImplementedError(
+        f"Projectile actor contact filter mode not implemented: {mode!r}"
+    )
+
+
+def get_actor_contact_context_filter(
+    projectile_data,
+    actor_contact_filter,
+):
+    context_name = get_projectile_initial_homing_context_for_contact_filter(
+        projectile_data,
+        actor_contact_filter,
+    )
+    context_filters = actor_contact_filter["contexts"]
+
+    if context_name in context_filters:
+        return context_filters[context_name]
+
+    if "default" in context_filters:
+        return context_filters["default"]
+
+    raise KeyError(
+        f"Projectile actor contact filter has no context {context_name!r}"
+    )
+
+
+def get_projectile_initial_homing_context_for_contact_filter(
+    projectile_data,
+    actor_contact_filter,
+):
+    homing_behavior_index = actor_contact_filter.get(
+        "homing_behavior_index",
+        0,
+    )
+    behavior_runtime = projectile_data.get("behavior_runtime", {})
+    homing_runtime = behavior_runtime.get(homing_behavior_index, {})
+
+    return homing_runtime.get(
+        "initial_homing_context",
+        "unseeded",
+    )
+
+
+def filter_targets_by_actor_contact_context_filter(
+    world,
+    projectile_data,
+    context_filter,
+    targets,
+):
+    mode = context_filter["mode"]
+
+    if mode == "normal":
+        return targets
+
+    if mode == "explicit_target_only":
+        return filter_targets_by_explicit_target_only_actor_contact(
+            world,
+            projectile_data,
+            context_filter,
+            targets,
+        )
+
+    raise NotImplementedError(
+        f"Projectile actor contact context filter mode not implemented: "
+        f"{mode!r}"
+    )
+
+
+def filter_targets_by_explicit_target_only_actor_contact(
+    world,
+    projectile_data,
+    context_filter,
+    targets,
+):
+    explicit_target = get_projectile_contact_filter_explicit_target(
+        projectile_data,
+        context_filter,
+    )
+
+    if explicit_target_is_valid_actor_contact_target(
+        world,
+        explicit_target,
+    ):
+        return tuple(
+            target for target in targets
+            if target == explicit_target
+        )
+
+    on_lost = context_filter.get(
+        "on_explicit_target_lost",
+        "return_to_normal",
+    )
+
+    if on_lost == "return_to_normal":
+        return targets
+
+    if on_lost == "preserve_filter":
+        return tuple()
+
+    raise NotImplementedError(
+        f"Explicit target lost behavior not implemented: {on_lost!r}"
+    )
+
+
+def get_projectile_contact_filter_explicit_target(
+    projectile_data,
+    context_filter,
+):
+    source = context_filter.get("target_source", "homing_runtime")
+
+    if source == "homing_runtime":
+        homing_behavior_index = context_filter.get(
+            "homing_behavior_index",
+            0,
+        )
+        behavior_runtime = projectile_data.get("behavior_runtime", {})
+        homing_runtime = behavior_runtime.get(homing_behavior_index, {})
+        return homing_runtime.get(
+            "explicit_target",
+            projectile_data.get("explicit_target"),
+        )
+
+    if source == "projectile_explicit_target":
+        return projectile_data.get("explicit_target")
+
+    raise NotImplementedError(
+        f"Explicit actor contact target source not implemented: {source!r}"
+    )
+
+
+def explicit_target_is_valid_actor_contact_target(world, target):
+    if target is None:
+        return False
+
+    if target not in world.transform:
+        return False
+
+    if target not in world.combat_body:
+        return False
+
+    health = world.health.get(target)
+
+    if health is not None and health.get("current", 1) <= 0:
+        return False
+
+    return True
 
 
 def get_projectile_contact_candidates(world, projectile):
