@@ -488,7 +488,7 @@ class World:
         }
 
         self.locomotion[eid] = {
-            "step_duration": 10,
+            "speed_cpos_per_tick": 410,
             "can_move_8way": True,
         }
 
@@ -560,7 +560,7 @@ class World:
             "influence_mode": "normal",
         }
         self.locomotion[eid] = {
-            "step_duration": 10,
+            "speed_cpos_per_tick": 410,
             "can_move_8way": True,
         }
         self.influence_receiver[eid] = {

@@ -134,11 +134,21 @@ def normalize_skill_def(skill_def, path):
             "channel",
         )
 
-    if "player_input_policy" in skill_def:
-        skill_def["player_input_policy"] = normalize_player_input_policy(
-            skill_def["player_input_policy"],
-            path,
+    if "targeting_policy" in skill_def:
+        raise ValueError(
+            f"Skill file {path} still uses legacy targeting_policy. "
+            "Use player_input_policy instead."
         )
+
+    if "player_input_policy" not in skill_def:
+        raise ValueError(
+            f"Skill file {path} is missing player_input_policy"
+        )
+
+    skill_def["player_input_policy"] = normalize_player_input_policy(
+        skill_def["player_input_policy"],
+        path,
+    )
 
     return skill_def
 

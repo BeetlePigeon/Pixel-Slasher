@@ -50,7 +50,10 @@
         "radius_tiles": 4,
         "requires": ["hittable", "health"]
       },
-      "turn_rate_steps_per_tick": 1
+      "turn_rate": {
+        "steps_per_turn": 2,
+        "ticks_per_turn": 30
+      }
     }
   ],
 

@@ -95,6 +95,7 @@ def process_homing_behavior(
         behavior,
         runtime,
     )
+
     if target is None:
         return
 
@@ -103,6 +104,7 @@ def process_homing_behavior(
         projectile,
         target,
         behavior,
+        runtime,
     )
 
 
@@ -509,12 +511,15 @@ def steer_projectile_toward_target(
     projectile,
     target,
     behavior,
+    runtime,
 ):
     motion_state = world.motion_state.get(projectile)
+
     if motion_state is None:
         return
 
     controller = motion_state.get("controller")
+
     if not isinstance(controller, LinearProjectileController):
         return
 
@@ -522,14 +527,63 @@ def steer_projectile_toward_target(
         world.transform[target].cpos
         - world.transform[projectile].cpos
     )
+
     if to_target.x == 0 and to_target.y == 0:
+        return
+
+    turn_steps = get_homing_turn_steps_this_tick(
+        behavior,
+        runtime,
+    )
+
+    if turn_steps <= 0:
         return
 
     controller.aim_vector = turn_direction_toward_vector(
         controller.aim_vector,
         to_target,
-        behavior["turn_rate_steps_per_tick"],
+        turn_steps,
     )
+
+
+def get_homing_turn_steps_this_tick(
+    behavior,
+    runtime,
+):
+    turn_rate = behavior["turn_rate"]
+
+    steps_per_turn = turn_rate["steps_per_turn"]
+    ticks_per_turn = turn_rate["ticks_per_turn"]
+
+    if steps_per_turn < 0:
+        raise ValueError(
+            f"steps_per_turn must be non-negative, got {steps_per_turn!r}"
+        )
+
+    if ticks_per_turn <= 0:
+        raise ValueError(
+            f"ticks_per_turn must be positive, got {ticks_per_turn!r}"
+        )
+
+    if steps_per_turn == 0:
+        return 0
+
+    accumulator = runtime.get(
+        "turn_rate_tick_accumulator",
+        0,
+    )
+    accumulator += 1
+
+    if accumulator < ticks_per_turn:
+        runtime["turn_rate_tick_accumulator"] = accumulator
+        return 0
+
+    turn_count = accumulator // ticks_per_turn
+    runtime["turn_rate_tick_accumulator"] = (
+        accumulator % ticks_per_turn
+    )
+
+    return steps_per_turn * turn_count
 
 
 def process_emit_projectiles_behavior(

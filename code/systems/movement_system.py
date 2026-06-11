@@ -273,7 +273,7 @@ def movement_arbiter_system(world):
 
     for entity in sorted(entities):
         motion_state = world.motion_state[entity]
-        
+
         if clear_stale_order_owned_move_target(world, entity):
             mark_dynamic_occupancy_dirty(world)
             rebuild_dynamic_occupancy(world)
@@ -2041,9 +2041,24 @@ def handle_movement_tile_collision(world, entity, next_tile):
     return MOVEMENT_COLLISION_ALLOW
 
 
-def get_path_follow_speed(locomotion):
-    step_duration = max(1, locomotion["step_duration"])
-    return TILE_UNITS // step_duration
+def get_locomotion_speed_cpos_per_tick(locomotion):
+    speed = locomotion["speed_cpos_per_tick"]
+
+    if speed <= 0:
+        raise ValueError(
+            f"speed_cpos_per_tick must be positive, got {speed!r}"
+        )
+
+    return speed
+
+
+def get_grid_move_duration_from_speed(locomotion):
+    speed = get_locomotion_speed_cpos_per_tick(locomotion)
+
+    return max(
+        1,
+        (TILE_UNITS + speed - 1) // speed,
+    )
 
 
 def get_greedy_fallback_direction(current_tile, target_tile):
@@ -2247,7 +2262,7 @@ def start_directional_node_follow_controller(
     motion_state["controller"] = PathFollowController(
         nodes=[target_cpos],
         current_index=0,
-        speed=get_path_follow_speed(locomotion),
+        speed=get_locomotion_speed_cpos_per_tick(locomotion),
         created_tick=world.tick,
         target_tile=target_tile,
     )
@@ -2304,7 +2319,7 @@ def start_directional_grid_move_controller(
         start=start,
         end=end,
         progress=0,
-        duration=locomotion["step_duration"],
+        duration=get_grid_move_duration_from_speed(locomotion),
     )
 
     if using_buffered_intent:
@@ -2372,7 +2387,7 @@ def start_directional_continuous_controller(
     motion_state["controller"] = DirectionalMoveController(
         aim_vector=aim_vector,
         raw_direction=desired_direction,
-        speed=get_path_follow_speed(locomotion),
+        speed=get_locomotion_speed_cpos_per_tick(locomotion),
     )
 
     motion_state["controller_source"] = "move_intent"
@@ -2402,7 +2417,7 @@ def update_directional_continuous_controller(
 
     controller.aim_vector = aim_vector
     controller.raw_direction = desired_direction
-    controller.speed = get_path_follow_speed(locomotion)
+    controller.speed = get_locomotion_speed_cpos_per_tick(locomotion)
 
     if entity in world.facing:
         world.facing[entity] = desired_direction
@@ -2430,7 +2445,7 @@ def install_path_follow_controller(world, entity, target, nodes):
     motion_state["controller"] = PathFollowController(
         nodes=nodes,
         current_index=0,
-        speed=get_path_follow_speed(locomotion),
+        speed=get_locomotion_speed_cpos_per_tick(locomotion),
         created_tick=world.tick,
         target_tile=target["target_tile"],
         block_response=path_policy["dynamic_block_response"],

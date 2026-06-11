@@ -338,7 +338,7 @@ def tiles_crossed_by_segment(start_cpos: Vec2i, end_cpos: Vec2i):
 def turn_direction_toward_vector(
     current_direction,
     target_vector,
-    turn_rate_steps_per_tick,
+    max_turn_steps,
 ):
     current_index = find_best_circle_direction_index(
         current_direction,
@@ -353,7 +353,7 @@ def turn_direction_toward_vector(
     step = clamped_lut_turn_step(
         current_index,
         target_index,
-        turn_rate_steps_per_tick,
+        max_turn_steps,
     )
 
     return CIRCLE_DIRECTION_LUT[
@@ -387,7 +387,7 @@ def find_best_circle_direction_index(vector):
 def clamped_lut_turn_step(
     current_index,
     target_index,
-    turn_rate_steps_per_tick,
+    max_turn_steps,
 ):
     direction_count = len(CIRCLE_DIRECTION_LUT)
 
@@ -401,7 +401,7 @@ def clamped_lut_turn_step(
 
     max_step = max(
         0,
-        turn_rate_steps_per_tick,
+        max_turn_steps,
     )
 
     if delta > max_step:
