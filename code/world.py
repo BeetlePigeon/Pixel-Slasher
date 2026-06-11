@@ -112,15 +112,19 @@ class World:
         # Dynamic movement blocks center/body overlap, not wing/wing overlap.
         self.dynamic_center_occupancy = {}
         self.dynamic_body_occupancy = {}
-
         self.dynamic_reserved_centers = {}
         self.dynamic_reserved_bodies = {}
 
-        # Compatibility aliases for older debug/query code.
-        self.dynamic_occupancy = {}
-        self.dynamic_blocking_occupancy = {}
-        self.dynamic_reservations = {}
+        # Reverse indexes for cheap per-entity occupancy refresh.
+        self.dynamic_center_tiles_by_entity = {}
+        self.dynamic_body_tiles_by_entity = {}
+        self.dynamic_reserved_center_tiles_by_entity = {}
+        self.dynamic_reserved_body_tiles_by_entity = {}
 
+        # Compatibility aliases for older debug/query code.
+        self.dynamic_occupancy = self.dynamic_body_occupancy
+        self.dynamic_blocking_occupancy = self.dynamic_body_occupancy
+        self.dynamic_reservations = self.dynamic_reserved_bodies
         self.dynamic_occupancy_dirty = True
 
         self.influence_emitter = {}

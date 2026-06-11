@@ -7,10 +7,11 @@ from support import Vec2i
 from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
-from utils.perf_profiler import profiled
+from utils.perf_profiler import profiled, record_counter_for_world
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
     mark_dynamic_occupancy_dirty,
+    refresh_entity_dynamic_occupancy,
     is_tile_blocked_for_movement,
     get_dynamic_movement_blockers_for_placement,
     get_movement_body_tiles_for_origin_tile,
@@ -275,8 +276,10 @@ def movement_arbiter_system(world):
         motion_state = world.motion_state[entity]
 
         if clear_stale_order_owned_move_target(world, entity):
-            mark_dynamic_occupancy_dirty(world)
-            rebuild_dynamic_occupancy(world)
+            refresh_moved_entity_occupancy(
+                world,
+                entity,
+            )
             continue
 
         if not entity_can_start_voluntary_movement(world, entity):
@@ -301,8 +304,10 @@ def movement_arbiter_system(world):
                         entity,
                     )
                 else:
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
+                    refresh_moved_entity_occupancy(
+                        world,
+                        entity,
+                    )
 
                 continue
 
@@ -324,8 +329,10 @@ def movement_arbiter_system(world):
 
                 clear_motion_controller(motion_state)
 
-                mark_dynamic_occupancy_dirty(world)
-                rebuild_dynamic_occupancy(world)
+                refresh_moved_entity_occupancy(
+                    world,
+                    entity,
+                )
 
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
@@ -363,8 +370,10 @@ def movement_arbiter_system(world):
                     entity,
                     desired_direction,
                 )
-                mark_dynamic_occupancy_dirty(world)
-                rebuild_dynamic_occupancy(world)
+                refresh_moved_entity_occupancy(
+                    world,
+                    entity,
+                )
                 continue
 
             started = start_directional_movement_controller(
@@ -422,21 +431,59 @@ def clear_motion_controller(motion_state):
     motion_state.pop("path_follow_progress", None)
 
 
+def refresh_moved_entity_occupancy(world, entity):
+    refresh_entity_dynamic_occupancy(
+        world,
+        entity,
+    )
+
+
 def make_path_query_key(
     entity,
     start_tile,
     target_tile,
     path_policy_name,
     dynamic_blocker_key,
+    path_policy,
 ):
+    key_scope = path_policy.get(
+        "failed_query_key_scope",
+        "exact",
+    )
+
+    if key_scope == "exact":
+        return (
+            entity,
+            "exact",
+            start_tile.x,
+            start_tile.y,
+            target_tile.x,
+            target_tile.y,
+            path_policy_name,
+            dynamic_blocker_key,
+        )
+
+    if key_scope == "target_only":
+        return (
+            entity,
+            "target_only",
+            target_tile.x,
+            target_tile.y,
+            path_policy_name,
+        )
+
+    raise ValueError(
+        f"Unknown failed_query_key_scope: {key_scope!r}"
+    )
+
+
+def path_query_key_needs_dynamic_blocker_context(path_policy):
     return (
-        entity,
-        start_tile.x,
-        start_tile.y,
-        target_tile.x,
-        target_tile.y,
-        path_policy_name,
-        dynamic_blocker_key,
+        path_policy.get(
+            "failed_query_key_scope",
+            "exact",
+        )
+        == "exact"
     )
 
 
@@ -460,17 +507,33 @@ def path_query_failed_recently(world, query_key):
     retry_tick = world.failed_path_queries.get(query_key)
 
     if retry_tick is None:
+        record_counter_for_world(
+            world,
+            "path.failed_cache.miss",
+        )
         return False
 
     if world.tick < retry_tick:
+        record_counter_for_world(
+            world,
+            "path.failed_cache.hit",
+        )
         return True
 
     world.failed_path_queries.pop(query_key, None)
+    record_counter_for_world(
+        world,
+        "path.failed_cache.expired",
+    )
     return False
 
 
 def remember_failed_path_query(world, query_key, retry_ticks):
     world.failed_path_queries[query_key] = world.tick + retry_ticks
+    record_counter_for_world(
+        world,
+        "path.failed_cache.remember",
+    )
 
 
 def clear_failed_path_query(world, query_key):
@@ -2157,16 +2220,19 @@ def build_path_follow_nodes(world, entity, target):
     path_policy_name = get_path_policy_name(target)
     path_policy = get_path_policy(world, target)
 
-    dynamic_blocker_context = build_path_dynamic_blocker_context(
-        world,
-        entity,
-        current_tile,
-        path_policy,
-    )
+    dynamic_blocker_context = None
+    dynamic_blocker_key = None
 
-    dynamic_blocker_key = get_path_dynamic_blocker_key(
-        dynamic_blocker_context,
-    )
+    if path_query_key_needs_dynamic_blocker_context(path_policy):
+        dynamic_blocker_context = build_path_dynamic_blocker_context(
+            world,
+            entity,
+            current_tile,
+            path_policy,
+        )
+        dynamic_blocker_key = get_path_dynamic_blocker_key(
+            dynamic_blocker_context,
+        )
 
     query_key = make_path_query_key(
         entity,
@@ -2174,13 +2240,26 @@ def build_path_follow_nodes(world, entity, target):
         target_tile,
         path_policy_name,
         dynamic_blocker_key,
+        path_policy,
     )
 
     if path_query_failed_recently(world, query_key):
+        record_counter_for_world(
+            world,
+            "path.build.skipped_failed_cache",
+        )
         return build_direct_fallback_nodes(
             world,
             entity,
             target,
+            path_policy,
+        )
+
+    if not path_query_key_needs_dynamic_blocker_context(path_policy):
+        dynamic_blocker_context = build_path_dynamic_blocker_context(
+            world,
+            entity,
+            current_tile,
             path_policy,
         )
 
@@ -2194,6 +2273,7 @@ def build_path_follow_nodes(world, entity, target):
         max_path_length=path_policy["max_path_length"],
         target_snap_radius=path_policy["target_snap_radius"],
         dynamic_blocker_context=dynamic_blocker_context,
+        max_candidate_goals=path_policy["target_snap_candidate_limit"],
     )
 
     if path_tiles is None:
@@ -2202,7 +2282,6 @@ def build_path_follow_nodes(world, entity, target):
             query_key,
             path_policy["failed_retry_ticks"],
         )
-
         return build_direct_fallback_nodes(
             world,
             entity,
@@ -2216,6 +2295,7 @@ def build_path_follow_nodes(world, entity, target):
 
     if smooth_max is not None and len(path_tiles) > smooth_max:
         smoothed_tiles = path_tiles
+
     else:
         smoothed_tiles = smooth_static_tile_path(
             world,
@@ -2430,8 +2510,10 @@ def stop_directional_continuous_controller(world, entity):
 
     clear_motion_controller(motion_state)
 
-    mark_dynamic_occupancy_dirty(world)
-    rebuild_dynamic_occupancy(world)
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
 
     request_settle_when_allowed(world, entity)
     start_requested_settle_if_allowed(world, entity)
@@ -3260,8 +3342,10 @@ def movement_system(world):
                 )
 
                 if controller is None:
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
+                    refresh_moved_entity_occupancy(
+                        world,
+                        entity,
+                    )
                     continue
 
                 if controller_ages_on_block(controller):
@@ -3272,13 +3356,17 @@ def movement_system(world):
                             entity,
                             controller,
                     ):
-                        mark_dynamic_occupancy_dirty(world)
-                        rebuild_dynamic_occupancy(world)
+                        refresh_moved_entity_occupancy(
+                            world,
+                            entity,
+                        )
 
                         continue
 
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
+                    refresh_moved_entity_occupancy(
+                        world,
+                        entity,
+                    )
 
                     continue
 
@@ -3294,13 +3382,17 @@ def movement_system(world):
                         request_settle_when_allowed(world, entity)
                         start_requested_settle_if_allowed(world, entity)
 
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
+                    refresh_moved_entity_occupancy(
+                        world,
+                        entity,
+                    )
                     continue
 
                 if controller_retries_on_block(controller):
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
+                    refresh_moved_entity_occupancy(
+                        world,
+                        entity,
+                    )
 
                     continue
 
@@ -3337,8 +3429,10 @@ def movement_system(world):
             ):
                 discard_pending_controller_advance(controller)
 
-                mark_dynamic_occupancy_dirty(world)
-                rebuild_dynamic_occupancy(world)
+                refresh_moved_entity_occupancy(
+                    world,
+                    entity,
+                )
 
                 continue
 
@@ -3384,8 +3478,10 @@ def movement_system(world):
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
 
-        mark_dynamic_occupancy_dirty(world)
-        rebuild_dynamic_occupancy(world)
+        refresh_moved_entity_occupancy(
+            world,
+            entity,
+        )
 
 
 def cancel_motion_by_tags_for_status(world, entity, motion_tags):
