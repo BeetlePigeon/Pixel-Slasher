@@ -33,7 +33,11 @@
 import sys
 import pygame
 import time
-from utils.perf_profiler import PerfProfiler
+from utils.perf_profiler import (
+    PerfProfiler,
+    profile_scope,
+    record_counter_for_world,
+)
 from constants import SIM_DT, MAX_FRAME_DT
 from data.tables_player_defs import DEFAULT_PLAYER_STATE
 from display import Display
@@ -203,29 +207,73 @@ class Game:
 
 
     def draw(self, render_alpha):
-        self.display.render_surface.fill('black')
-        self.state.draw(self.display.render_surface, render_alpha)
+        with profile_scope(self.world, "render.total"):
+            with profile_scope(self.world, "render.clear"):
+                self.display.render_surface.fill("black")
 
-        if self.debug_mode:
-            self.debug.draw_debug_overlay()
-            self.debug.draw_debug_frame_graph()
-            self.debug.draw_debug_perf_overlay()
-            self.debug.draw_debug_pause_overlay()
+            with profile_scope(self.world, "render.state_draw"):
+                self.state.draw(
+                    self.display.render_surface,
+                    render_alpha,
+                )
 
-        scaled_width = self.display.internal_size[0] * self.display.scale
-        scaled_height = self.display.internal_size[1] * self.display.scale
-        x_offset = (self.display.window_size[0] - scaled_width) // 2
-        y_offset = (self.display.window_size[1] - scaled_height) // 2
-        present_surface = self.display.apply_visual_calibration(self.display.render_surface)
-#        present_surface = self.display.render_surface
-        scaled_surface = pygame.transform.scale_by(present_surface, self.display.scale)
-        self.display.window.blit(scaled_surface, (x_offset, y_offset))
-        pygame.display.flip()
+            if self.debug_mode:
+                with profile_scope(self.world, "render.debug.overlay"):
+                    self.debug.draw_debug_overlay()
+
+                with profile_scope(self.world, "render.debug.frame_graph"):
+                    self.debug.draw_debug_frame_graph()
+
+                with profile_scope(self.world, "render.debug.perf_overlay"):
+                    self.debug.draw_debug_perf_overlay()
+
+                with profile_scope(self.world, "render.debug.pause_overlay"):
+                    self.debug.draw_debug_pause_overlay()
+
+            with profile_scope(self.world, "render.present.geometry"):
+                scaled_width = (
+                    self.display.internal_size[0]
+                    * self.display.scale
+                )
+                scaled_height = (
+                    self.display.internal_size[1]
+                    * self.display.scale
+                )
+                x_offset = (
+                    self.display.window_size[0]
+                    - scaled_width
+                ) // 2
+                y_offset = (
+                    self.display.window_size[1]
+                    - scaled_height
+                ) // 2
+
+            with profile_scope(self.world, "render.present.calibration"):
+                present_surface = self.display.apply_visual_calibration(
+                    self.display.render_surface,
+                )
+
+            with profile_scope(self.world, "render.present.scale"):
+                scaled_surface = pygame.transform.scale_by(
+                    present_surface,
+                    self.display.scale,
+                )
+
+            with profile_scope(self.world, "render.present.blit"):
+                self.display.window.blit(
+                    scaled_surface,
+                    (x_offset, y_offset),
+                )
+
+            with profile_scope(self.world, "render.present.flip"):
+                pygame.display.flip()
 
 
     def run(self):
         while not self.done:
-            raw_frame_dt = self.clock.tick(self.display.fps_cap) / 1000.0
+            raw_frame_dt = self.clock.tick(
+                self.display.fps_cap,
+            ) / 1000.0
             self.fps = self.clock.get_fps()
 
             frame_dt = raw_frame_dt
@@ -250,52 +298,94 @@ class Game:
             if pygame.K_BACKQUOTE in input_state.keys_pressed:
                 self.debug_mode = not self.debug_mode
 
-            # Debug/window hotkeys can still act immediately on raw input when in debug mode.
+            # Debug/window hotkeys can still act immediately on raw input
+            # when in debug mode.
             if self.debug_mode:
                 self.debug.process_top_level_debug_input(input_state)
 
             self.perf_profiler.enabled = self.debug_mode
+            self.perf_profiler.begin_frame()
 
-            used_edges_this_frame = False
-            sim_ticks_this_frame = 0
+            try:
+                used_edges_this_frame = False
+                sim_ticks_this_frame = 0
 
-            should_run_single_step = self.simulation_paused and self.single_step_requested
+                should_run_single_step = (
+                    self.simulation_paused
+                    and self.single_step_requested
+                )
 
-            if self.simulation_paused:
-                self.sim_accumulator = 0.0
-            else:
-                self.sim_accumulator += frame_dt
+                if self.simulation_paused:
+                    self.sim_accumulator = 0.0
 
-            should_run_ticks = not self.simulation_paused or should_run_single_step
-
-            if should_run_ticks:
-                if should_run_single_step:
-                    ticks_to_run = 1
                 else:
-                    ticks_to_run = 0
-                    while self.sim_accumulator >= SIM_DT:
-                        ticks_to_run += 1
-                        self.sim_accumulator -= SIM_DT
+                    self.sim_accumulator += frame_dt
 
-                for _ in range(ticks_to_run):
-                    self.perf_profiler.begin_frame()
-                    sim_input_state = self.input_buffer.build_sim_input_state(input_state, include_edges=not used_edges_this_frame)
-                    self.update_state(SIM_DT, sim_input_state)
-                    self.perf_profiler.end_frame()
-                    sim_ticks_this_frame += 1
-                    if not used_edges_this_frame:
-                        self.input_buffer.clear_edges()
-                        used_edges_this_frame = True
+                should_run_ticks = (
+                    not self.simulation_paused
+                    or should_run_single_step
+                )
 
-            self.single_step_requested = False
+                if should_run_ticks:
+                    if should_run_single_step:
+                        ticks_to_run = 1
 
-            if self.debug_mode:
-                self.debug.record_debug_frame_sample(raw_frame_dt, sim_ticks_this_frame)
+                    else:
+                        ticks_to_run = 0
 
-            render_alpha = self.sim_accumulator / SIM_DT
-            render_alpha = max(0.0, min(1.0, render_alpha))
+                        while self.sim_accumulator >= SIM_DT:
+                            ticks_to_run += 1
+                            self.sim_accumulator -= SIM_DT
 
-            self.draw(render_alpha)
+                    for _ in range(ticks_to_run):
+                        with profile_scope(self.world, "sim.tick"):
+                            sim_input_state = (
+                                self.input_buffer.build_sim_input_state(
+                                    input_state,
+                                    include_edges=not used_edges_this_frame,
+                                )
+                            )
+
+                            self.update_state(
+                                SIM_DT,
+                                sim_input_state,
+                            )
+
+                        sim_ticks_this_frame += 1
+
+                        if not used_edges_this_frame:
+                            self.input_buffer.clear_edges()
+                            used_edges_this_frame = True
+
+                    self.single_step_requested = False
+
+                record_counter_for_world(
+                    self.world,
+                    "frame.sim_ticks",
+                    sim_ticks_this_frame,
+                )
+                record_counter_for_world(
+                    self.world,
+                    "frame.raw_ms",
+                    raw_frame_dt * 1000.0,
+                )
+
+                if self.debug_mode:
+                    self.debug.record_debug_frame_sample(
+                        raw_frame_dt,
+                        sim_ticks_this_frame,
+                    )
+
+                render_alpha = self.sim_accumulator / SIM_DT
+                render_alpha = max(
+                    0.0,
+                    min(1.0, render_alpha),
+                )
+
+                self.draw(render_alpha)
+
+            finally:
+                self.perf_profiler.end_frame()
 
 
 if __name__ == '__main__':

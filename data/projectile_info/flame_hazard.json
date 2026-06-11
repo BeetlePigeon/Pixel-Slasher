@@ -9,7 +9,7 @@
     "type": "static"
   },
 
-  "lifetime_ticks": 480,
+  "lifetime_ticks": 2480,
 
   "sprite": {
     "image": "flame_hazard",

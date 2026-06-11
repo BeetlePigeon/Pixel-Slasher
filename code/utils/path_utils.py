@@ -217,6 +217,40 @@ def record_nav_cache_entries(world, name, nav_cache):
     )
 
 
+def get_path_request_entity_role(world, entity):
+    if entity == getattr(world, "player", None):
+        return "player"
+
+    team = getattr(world, "team", {}).get(entity)
+
+    if team == "enemy":
+        return "enemy"
+
+    if team == "ally":
+        return "ally"
+
+    if team == "player":
+        return "player"
+
+    return "other"
+
+
+def record_path_request_source(world, entity):
+    role = get_path_request_entity_role(
+        world,
+        entity,
+    )
+
+    record_counter_for_world(
+        world,
+        "path.request",
+    )
+    record_counter_for_world(
+        world,
+        f"path.request.{role}",
+    )
+
+
 def get_corner_cutting_policy(world, entity):
     policy = world.movement_collision.get(entity, {})
     return policy.get("corner_cutting", "strict")
@@ -688,6 +722,11 @@ def find_static_tile_path_to_target(
     target_snap_radius: int,
     dynamic_blocker_context=None,
 ):
+    record_path_request_source(
+        world,
+        entity,
+    )
+
     search_budget = PathSearchBudget(max_expansions)
     nav_cache = PathNavCache(
         world,
