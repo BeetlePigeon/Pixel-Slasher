@@ -49,6 +49,57 @@ def tile_is_inside_map(world, tile):
     return True
 
 
+def sign_int(value):
+    if value < 0:
+        return -1
+
+    if value > 0:
+        return 1
+
+    return 0
+
+
+def get_direction_alignment_score(
+    direction,
+    from_tile,
+    target_tile,
+):
+    if target_tile is None:
+        return 0
+
+    target_dx = sign_int(
+        target_tile.x - from_tile.x,
+    )
+    target_dy = sign_int(
+        target_tile.y - from_tile.y,
+    )
+
+    return (
+        direction.x * target_dx
+        + direction.y * target_dy
+    )
+
+
+def get_direction_facing_penalty(
+    world,
+    entity,
+    direction,
+):
+    facing = getattr(
+        world,
+        "facing",
+        {},
+    ).get(entity)
+
+    if facing is None:
+        return 0
+
+    if facing == direction:
+        return 0
+
+    return 1
+
+
 def get_flow_field_cache(world):
     cache = getattr(
         world,
@@ -211,6 +262,11 @@ def build_flow_field(
 
     directions = get_flow_directions(can_move_8way)
 
+    target_tile = get_entity_tile(
+        world,
+        target_entity,
+    )
+
     distances = {}
     queue = deque()
 
@@ -269,6 +325,7 @@ def build_flow_field(
 
     return {
         "distances": distances,
+        "target_tile": target_tile,
         "desired_range_tiles": desired_range_tiles,
         "max_radius_tiles": max_radius_tiles,
         "can_move_8way": can_move_8way,
@@ -379,10 +436,36 @@ def get_flow_field_step_candidates_from_tile(
         ):
             move_class = 1
 
+        target_tile = flow_field.get("target_tile")
+
+        if target_tile is None:
+            target_distance = 0
+            alignment_score = 0
+
+        else:
+            target_distance = chebyshev_tile_distance(
+                candidate_tile,
+                target_tile,
+            )
+            alignment_score = get_direction_alignment_score(
+                direction,
+                current_tile,
+                target_tile,
+            )
+
+        facing_penalty = get_direction_facing_penalty(
+            world,
+            entity,
+            direction,
+        )
+
         candidates.append(
             (
                 candidate_distance,
                 move_class,
+                target_distance,
+                -alignment_score,
+                facing_penalty,
                 order_index,
                 direction,
             )
