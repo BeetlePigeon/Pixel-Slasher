@@ -3,6 +3,7 @@ from utils.perf_profiler import record_counter_for_world
 from policies import STATIC_WING_COLLISION_POLICY
 from utils.occupancy_utils import (
     get_dynamic_movement_blockers_for_placement,
+    get_entity_movement_footprint_name,
     get_movement_body_tiles_for_origin_tile,
     get_movement_wing_tiles_for_origin_tile,
     is_tile_blocked_for_movement,
@@ -64,6 +65,99 @@ def static_wing_collision_blocks():
     )
 
 
+def get_static_placement_cache(world):
+    cache = getattr(
+        world,
+        "static_placement_cache",
+        None,
+    )
+
+    if cache is None:
+        cache = {}
+        world.static_placement_cache = cache
+
+    return cache
+
+
+def get_static_placement_cache_area_id(world):
+    current_area = getattr(
+        world,
+        "current_area",
+        None,
+    )
+
+    if current_area is None:
+        return None
+
+    return current_area.area_id
+
+
+def get_static_placement_cache_footprint_name(world, entity):
+    if entity is None:
+        return "single_tile"
+
+    return get_entity_movement_footprint_name(
+        world,
+        entity,
+    )
+
+
+def make_static_placement_cache_key(world, entity):
+    return (
+        get_static_placement_cache_area_id(world),
+        get_static_placement_cache_footprint_name(
+            world,
+            entity,
+        ),
+        STATIC_WING_COLLISION_POLICY,
+    )
+
+
+def is_tile_statically_valid_for_entity_placement_cached(
+    world,
+    tile: Vec2i,
+    entity=None,
+):
+    record_counter_for_world(
+        world,
+        "placement.static_cache.requests",
+    )
+
+    cache = get_static_placement_cache(world)
+    cache_key = make_static_placement_cache_key(
+        world,
+        entity,
+    )
+    tile_cache = cache.setdefault(
+        cache_key,
+        {},
+    )
+
+    if tile in tile_cache:
+        record_counter_for_world(
+            world,
+            "placement.static_cache.hit",
+        )
+        return tile_cache[tile]
+
+    record_counter_for_world(
+        world,
+        "placement.static_cache.miss",
+    )
+
+    result = is_tile_valid_for_entity_placement(
+        world,
+        tile,
+        entity=entity,
+        include_dynamic=False,
+        counter_source="static_cache_miss",
+    )
+
+    tile_cache[tile] = result
+
+    return result
+
+
 def is_static_movement_placement_blocked(world, entity, tile: Vec2i):
     center_tile = get_entity_placement_center_tile(tile)
 
@@ -120,11 +214,18 @@ def is_tile_valid_for_entity_placement(
     tile: Vec2i,
     entity=None,
     include_dynamic=True,
+    counter_source=None,
 ):
     record_counter_for_world(
         world,
         "placement.checks",
     )
+
+    if counter_source is not None:
+        record_counter_for_world(
+            world,
+            f"placement.checks.{counter_source}",
+        )
 
     body_tiles = get_entity_placement_body_tiles(
         world,
@@ -137,6 +238,13 @@ def is_tile_valid_for_entity_placement(
         "placement.foot_tiles",
         len(body_tiles),
     )
+
+    if counter_source is not None:
+        record_counter_for_world(
+            world,
+            f"placement.foot_tiles.{counter_source}",
+            len(body_tiles),
+        )
 
     if is_static_movement_placement_blocked(
         world,

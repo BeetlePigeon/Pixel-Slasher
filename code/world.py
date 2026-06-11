@@ -22,6 +22,7 @@ class World:
         self.failed_path_queries = {}
         self.path_build_state = {}
         self.path_build_budget_state = {}
+        self.static_placement_cache = {}
         self.hovered_selectable = None
 
         control_settings = self.game.settings["controls"]
@@ -309,6 +310,7 @@ class World:
         self.static_collision_tiles = set(
             self.current_area.static_collision_tiles
         )
+        self.static_placement_cache = {}
 
         spawn_def = self.current_area.spawn_points[spawn_id]
         self.player = self.spawn_player(spawn_def)
@@ -338,6 +340,7 @@ class World:
         self.tile_images = {}
         self.tilemap = []
         self.static_collision_tiles = set()
+        self.static_placement_cache = {}
         mark_dynamic_occupancy_dirty(self)
 
 

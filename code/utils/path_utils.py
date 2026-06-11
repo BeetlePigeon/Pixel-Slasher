@@ -2,7 +2,7 @@ import heapq
 from utils.perf_profiler import profiled, record_counter_for_world
 from utils.placement_utils import (
     get_entity_placement_body_tiles,
-    is_tile_valid_for_entity_placement,
+    is_tile_statically_valid_for_entity_placement_cached,
 )
 from utils.occupancy_utils import (
     get_entity_movement_body_tiles,
@@ -184,11 +184,10 @@ class PathNavCache:
             "path.nav_checks",
         )
 
-        result = is_tile_valid_for_entity_placement(
+        result = is_tile_statically_valid_for_entity_placement_cached(
             self.world,
             tile,
             entity=self.entity,
-            include_dynamic=False,
         )
 
         if result and self.dynamic_blocker_context is not None:
@@ -279,11 +278,10 @@ def tile_is_navigable_for_entity(
         "path.nav_checks",
     )
 
-    result = is_tile_valid_for_entity_placement(
+    result = is_tile_statically_valid_for_entity_placement_cached(
         world,
         tile,
         entity=entity,
-        include_dynamic=False,
     )
 
     if not result:
