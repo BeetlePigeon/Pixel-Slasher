@@ -220,8 +220,6 @@ def make_flow_field_cache_key(
     return (
         get_flow_field_area_id(world),
         target_entity,
-        target_tile.x,
-        target_tile.y,
         get_entity_movement_footprint_name(
             world,
             mover_entity,
@@ -230,6 +228,48 @@ def make_flow_field_cache_key(
         max_radius_tiles,
         can_move_8way,
     )
+
+
+def get_flow_field_anchor_tile(flow_field):
+    return flow_field["anchor_target_tile"]
+
+
+def flow_field_should_rebuild(
+    world,
+    flow_field,
+    current_target_tile,
+    rebuild_interval_ticks,
+    rebuild_distance_tiles,
+):
+    anchor_tile = get_flow_field_anchor_tile(flow_field)
+
+    target_distance = chebyshev_tile_distance(
+        anchor_tile,
+        current_target_tile,
+    )
+
+    if target_distance <= rebuild_distance_tiles:
+        record_counter_for_world(
+            world,
+            "flow_field.cache.fresh_distance",
+        )
+        return False
+
+    age_ticks = world.tick - flow_field["built_tick"]
+
+    if age_ticks < rebuild_interval_ticks:
+        record_counter_for_world(
+            world,
+            "flow_field.cache.rebuild_deferred_age",
+        )
+        return False
+
+    record_counter_for_world(
+        world,
+        "flow_field.cache.stale_distance",
+    )
+
+    return True
 
 
 @profiled("flow_field.build")
@@ -312,6 +352,8 @@ def build_flow_field(
     return {
         "distances": distances,
         "target_tile": target_tile,
+        "anchor_target_tile": target_tile,
+        "built_tick": world.tick,
         "desired_range_tiles": desired_range_tiles,
         "max_radius_tiles": max_radius_tiles,
         "can_move_8way": can_move_8way,
@@ -324,8 +366,18 @@ def get_or_build_flow_field(
     target_entity,
     desired_range_tiles,
     max_radius_tiles,
-    can_move_8way=True,
+    can_move_8way,
+    rebuild_interval_ticks,
+    rebuild_distance_tiles,
 ):
+    current_target_tile = get_entity_tile(
+        world,
+        target_entity,
+    )
+
+    if current_target_tile is None:
+        return None
+
     cache_key = make_flow_field_cache_key(
         world,
         mover_entity,
@@ -340,17 +392,32 @@ def get_or_build_flow_field(
 
     cache = get_flow_field_cache(world)
 
-    if cache_key in cache:
+    cached_field = cache.get(cache_key)
+
+    if cached_field is not None:
+        if not flow_field_should_rebuild(
+            world,
+            cached_field,
+            current_target_tile,
+            rebuild_interval_ticks,
+            rebuild_distance_tiles,
+        ):
+            record_counter_for_world(
+                world,
+                "flow_field.cache.hit",
+            )
+            return cached_field
+
         record_counter_for_world(
             world,
-            "flow_field.cache.hit",
+            "flow_field.cache.rebuild",
         )
-        return cache[cache_key]
 
-    record_counter_for_world(
-        world,
-        "flow_field.cache.miss",
-    )
+    else:
+        record_counter_for_world(
+            world,
+            "flow_field.cache.miss",
+        )
 
     flow_field = build_flow_field(
         world,

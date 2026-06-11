@@ -39,6 +39,8 @@ def build_flow_field_chase_intent(
     target,
     path_policy,
     max_radius_tiles,
+    flow_policy,
+    lookahead_nodes,
 ):
     return {
         "type": "move_to_entity_flow_field",
@@ -49,7 +51,8 @@ def build_flow_field_chase_intent(
         ),
         "max_radius_tiles": max_radius_tiles,
         "path_policy": path_policy,
-        "lookahead_nodes": 6,
+        "flow_policy": flow_policy,
+        "lookahead_nodes": lookahead_nodes,
     }
 
 
@@ -57,12 +60,13 @@ def think(context):
     world = context.world
     entity = context.entity
     agent = context.agent
-    params = agent.get("params", {})
+    params = agent["params"]
 
-    detect_radius_tiles = params.get("detect_radius_tiles")
-    lose_radius_tiles = params.get("lose_radius_tiles")
-    desired_range_tiles = params.get("desired_range_tiles")
-    path_policy = params.get("path_policy")
+    detect_radius_tiles = params["detect_radius_tiles"]
+    lose_radius_tiles = params["lose_radius_tiles"]
+    desired_range_tiles = params["desired_range_tiles"]
+    path_policy = params["path_policy"]
+    movement_mode = params["movement_mode"]
 
     target = agent.get("target_entity")
 
@@ -127,7 +131,7 @@ def think(context):
 
     agent["state"] = "pursuing"
 
-    if params.get("movement_mode") == "flow_field":
+    if movement_mode == "flow_field":
         return [
             build_flow_field_chase_intent(
                 world,
@@ -135,6 +139,8 @@ def think(context):
                 target,
                 path_policy,
                 max_radius_tiles=lose_radius_tiles,
+                flow_policy=params["flow_policy"],
+                lookahead_nodes=params["lookahead_nodes"],
             )
         ]
 

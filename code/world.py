@@ -598,6 +598,11 @@ class World:
                 "desired_range_tiles": 1,
                 "path_policy": "actor_move",
                 "movement_mode": "flow_field",
+                "lookahead_nodes": 6,
+                "flow_policy": {
+                    "rebuild_interval_ticks": 8,
+                    "rebuild_distance_tiles": 2,
+                },
             },
 
             # Runtime memory for behavior-specific state.

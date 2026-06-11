@@ -47,10 +47,11 @@ def intent_system(world, intents):
                     entity,
                     intent["target_entity"],
                     intent["desired_range_tiles"],
-                    max_radius_tiles=intent.get("max_radius_tiles"),
-                    path_policy=intent.get("path_policy", "actor_move"),
+                    intent["max_radius_tiles"],
+                    intent["path_policy"],
+                    intent["flow_policy"],
+                    intent["lookahead_nodes"],
                     owner_order_id=intent.get("owner_order_id"),
-                    lookahead_nodes=intent.get("lookahead_nodes", 6),
                 )
                 continue
 

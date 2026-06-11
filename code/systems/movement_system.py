@@ -1858,10 +1858,11 @@ def set_flow_field_move_target(
     entity,
     target_entity,
     desired_range_tiles,
-    max_radius_tiles=None,
-    path_policy="actor_move",
+    max_radius_tiles,
+    path_policy,
+    flow_policy,
+    lookahead_nodes,
     owner_order_id=None,
-    lookahead_nodes=6,
 ):
     existing_target = world.move_target.get(entity)
 
@@ -1870,15 +1871,21 @@ def set_flow_field_move_target(
         and existing_target.get("owner_order_id") != owner_order_id
     )
 
-    target_changed = (
-        existing_target is None
-        or existing_target.get("type") != "flow_field_to_entity"
-        or existing_target.get("target_entity") != target_entity
-        or existing_target.get("desired_range_tiles") != desired_range_tiles
-        or existing_target.get("max_radius_tiles") != max_radius_tiles
-        or existing_target.get("path_policy") != path_policy
-        or existing_target.get("lookahead_nodes") != lookahead_nodes
-    )
+    if existing_target is None:
+        target_changed = True
+
+    elif existing_target.get("type") != "flow_field_to_entity":
+        target_changed = True
+
+    else:
+        target_changed = (
+            existing_target["target_entity"] != target_entity
+            or existing_target["desired_range_tiles"] != desired_range_tiles
+            or existing_target["max_radius_tiles"] != max_radius_tiles
+            or existing_target["path_policy"] != path_policy
+            or existing_target["flow_policy"] != flow_policy
+            or existing_target["lookahead_nodes"] != lookahead_nodes
+        )
 
     if existing_target is None or owner_changed or target_changed:
         created_tick = world.tick
@@ -1896,6 +1903,7 @@ def set_flow_field_move_target(
         "desired_range_tiles": desired_range_tiles,
         "max_radius_tiles": max_radius_tiles,
         "path_policy": path_policy,
+        "flow_policy": flow_policy,
         "owner_order_id": owner_order_id,
         "created_tick": created_tick,
         "repath_attempts": repath_attempts,
@@ -2733,7 +2741,7 @@ def build_flow_field_lookahead_nodes(
 
 
 def start_flow_field_controller(world, entity, target):
-    target_entity = target.get("target_entity")
+    target_entity = target["target_entity"]
 
     if target_entity not in world.transform:
         clear_move_target(world, entity)
@@ -2745,13 +2753,16 @@ def start_flow_field_controller(world, entity, target):
         entity,
     )
 
+    flow_policy = target["flow_policy"]
     flow_field = get_or_build_flow_field(
         world,
         mover_entity=entity,
         target_entity=target_entity,
         desired_range_tiles=target["desired_range_tiles"],
-        max_radius_tiles=target.get("max_radius_tiles"),
-        can_move_8way=locomotion.get("can_move_8way", True),
+        max_radius_tiles=target["max_radius_tiles"],
+        can_move_8way=locomotion["can_move_8way"],
+        rebuild_interval_ticks=flow_policy["rebuild_interval_ticks"],
+        rebuild_distance_tiles=flow_policy["rebuild_distance_tiles"],
     )
 
     if flow_field is None:
@@ -2832,10 +2843,7 @@ def start_flow_field_controller(world, entity, target):
                     "flow_field.start.sideways_step",
                 )
 
-        lookahead_nodes = target.get(
-            "lookahead_nodes",
-            6,
-        )
+        lookahead_nodes = target["lookahead_nodes"]
 
         nodes, final_tile = build_flow_field_lookahead_nodes(
             world,
