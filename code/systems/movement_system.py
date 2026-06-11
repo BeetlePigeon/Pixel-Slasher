@@ -10,7 +10,6 @@ from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled, record_counter_for_world
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
-    mark_dynamic_occupancy_dirty,
     refresh_entity_dynamic_occupancy,
     is_tile_blocked_for_movement,
     get_dynamic_movement_blockers_for_placement,
@@ -2355,8 +2354,10 @@ def start_directional_node_follow_controller(
     if entity in world.facing:
         world.facing[entity] = resolved_direction
 
-    rebuild_dynamic_occupancy(world)
-
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
     return True
 
 
@@ -2410,8 +2411,10 @@ def start_directional_grid_move_controller(
     if entity in world.facing:
         world.facing[entity] = resolved_direction
 
-    rebuild_dynamic_occupancy(world)
-
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
     return True
 
 
@@ -2541,8 +2544,10 @@ def install_path_follow_controller(world, entity, target, nodes):
         motion_state["controller"],
     )
 
-    rebuild_dynamic_occupancy(world)
-
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
     return True
 
 
