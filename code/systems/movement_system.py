@@ -42,6 +42,7 @@ CORNER_CROSSING_TOLERANCE_CPOS = 32
 PATH_FOLLOW_STALL_LOCAL = "local_stalled"
 PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT = "path_progress_timed_out"
 PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
+PATH_BUILD_DEFERRED = object()
 
 
 @dataclass(frozen=True)
@@ -551,6 +552,73 @@ def get_path_policy_name(target):
 
 def get_path_policy(world, target):
     return PATH_POLICIES[get_path_policy_name(target)]
+
+
+def get_path_build_budget_key(path_policy_name, path_policy):
+    return path_policy.get(
+        "path_build_budget_key",
+        path_policy_name,
+    )
+
+
+def get_path_build_budget_state(world, budget_key):
+    state = world.path_build_budget_state.setdefault(
+        budget_key,
+        {
+            "tick": world.tick,
+            "used": 0,
+        },
+    )
+
+    if state["tick"] != world.tick:
+        state["tick"] = world.tick
+        state["used"] = 0
+
+    return state
+
+
+def path_build_budget_allows(
+    world,
+    path_policy_name,
+    path_policy,
+):
+    max_builds = path_policy.get("max_path_builds_per_tick")
+
+    if max_builds is None:
+        return True
+
+    budget_key = get_path_build_budget_key(
+        path_policy_name,
+        path_policy,
+    )
+    state = get_path_build_budget_state(
+        world,
+        budget_key,
+    )
+
+    if state["used"] >= max_builds:
+        record_counter_for_world(
+            world,
+            "path.build_budget.exhausted",
+        )
+        record_counter_for_world(
+            world,
+            f"path.build_budget.exhausted.{budget_key}",
+        )
+        return False
+
+    state["used"] += 1
+
+    record_counter_for_world(
+        world,
+        "path.build_budget.consumed",
+    )
+    record_counter_for_world(
+        world,
+        f"path.build_budget.consumed.{budget_key}",
+    )
+
+    return True
 
 
 def build_path_dynamic_blocker_context(
@@ -2207,7 +2275,6 @@ def build_direct_fallback_nodes(world, entity, target, path_policy):
 
 @profiled("path.build")
 def build_path_follow_nodes(world, entity, target):
-    transform = world.transform[entity]
     locomotion = world.locomotion[entity]
 
     current_tile = get_navigation_start_tile(world, entity)
@@ -2253,6 +2320,17 @@ def build_path_follow_nodes(world, entity, target):
             target,
             path_policy,
         )
+
+    if not path_build_budget_allows(
+        world,
+        path_policy_name,
+        path_policy,
+    ):
+        record_counter_for_world(
+            world,
+            "path.build.deferred_budget",
+        )
+        return PATH_BUILD_DEFERRED
 
     if not path_query_key_needs_dynamic_blocker_context(path_policy):
         dynamic_blocker_context = build_path_dynamic_blocker_context(
@@ -2553,12 +2631,14 @@ def install_path_follow_controller(world, entity, target, nodes):
 
 def start_path_follow_controller(world, entity, target):
     path_policy = get_path_policy(world, target)
-
     nodes = build_path_follow_nodes(
         world,
         entity,
         target,
     )
+
+    if nodes is PATH_BUILD_DEFERRED:
+        return False
 
     if nodes is None:
         if path_policy["clear_target_on_path_fail"]:
@@ -2640,10 +2720,11 @@ def refresh_path_follow_controller_if_needed(world, entity, controller):
         target,
     )
 
-    # Refresh is non-destructive. If the current world state cannot
+    # Refresh is non-destructive.
+    # If the current world state cannot
     # produce a usable replacement path, keep following the existing
     # controller and let the normal movement pipeline continue.
-    if nodes is None:
+    if nodes is PATH_BUILD_DEFERRED:
         return False
 
     if not nodes:

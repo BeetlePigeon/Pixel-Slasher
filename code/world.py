@@ -21,6 +21,7 @@ class World:
         self.tick = 0
         self.failed_path_queries = {}
         self.path_build_state = {}
+        self.path_build_budget_state = {}
         self.hovered_selectable = None
 
         control_settings = self.game.settings["controls"]
