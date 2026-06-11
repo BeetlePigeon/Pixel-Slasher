@@ -49,17 +49,7 @@ def tile_is_inside_map(world, tile):
     return True
 
 
-def sign_int(value):
-    if value < 0:
-        return -1
-
-    if value > 0:
-        return 1
-
-    return 0
-
-
-def get_direction_alignment_score(
+def get_direction_line_error(
     direction,
     from_tile,
     target_tile,
@@ -67,16 +57,12 @@ def get_direction_alignment_score(
     if target_tile is None:
         return 0
 
-    target_dx = sign_int(
-        target_tile.x - from_tile.x,
-    )
-    target_dy = sign_int(
-        target_tile.y - from_tile.y,
-    )
+    target_dx = target_tile.x - from_tile.x
+    target_dy = target_tile.y - from_tile.y
 
-    return (
-        direction.x * target_dx
-        + direction.y * target_dy
+    return abs(
+        target_dx * direction.y
+        - target_dy * direction.x
     )
 
 
@@ -439,17 +425,17 @@ def get_flow_field_step_candidates_from_tile(
         target_tile = flow_field.get("target_tile")
 
         if target_tile is None:
+            line_error = 0
             target_distance = 0
-            alignment_score = 0
 
         else:
-            target_distance = chebyshev_tile_distance(
-                candidate_tile,
-                target_tile,
-            )
-            alignment_score = get_direction_alignment_score(
+            line_error = get_direction_line_error(
                 direction,
                 current_tile,
+                target_tile,
+            )
+            target_distance = chebyshev_tile_distance(
+                candidate_tile,
                 target_tile,
             )
 
@@ -463,8 +449,8 @@ def get_flow_field_step_candidates_from_tile(
             (
                 candidate_distance,
                 move_class,
+                line_error,
                 target_distance,
-                -alignment_score,
                 facing_penalty,
                 order_index,
                 direction,
