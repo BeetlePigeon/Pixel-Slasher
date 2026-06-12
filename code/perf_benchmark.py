@@ -426,6 +426,44 @@ def setup_path_stress_02(game, enemy_count):
     return setup_info, route_state
 
 
+def setup_path_stress_03_open_chase(game, enemy_count):
+    world = game.world
+
+    # Broad open arena: isolates dynamic enemy crowding from static terrain.
+    world.load_area(
+        "destacker_arena",
+        "default",
+    )
+
+    remove_existing_enemies(world)
+
+    # Center-ish tile for the current 38-wide open arena. This keeps the
+    # existing deterministic spawn offsets in-bounds for 40 enemies.
+    player_tile = Vec2i(19, 15)
+
+    set_entity_tile(
+        world,
+        world.player,
+        player_tile,
+    )
+
+    enemies = spawn_benchmark_enemies(
+        world,
+        enemy_count,
+    )
+
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+    world.focus_camera_on_player()
+
+    return {
+        "scenario": "path_stress_03_open_chase",
+        "area": world.current_area.area_id,
+        "player_tile": player_tile,
+        "enemy_count": len(enemies),
+    }
+
+
 def run_path_stress_01(args):
     pygame.init()
     pygame.mixer.init()
@@ -549,6 +587,61 @@ def run_path_stress_02(args):
     pygame.quit()
 
 
+def run_path_stress_03_open_chase(args):
+    pygame.init()
+    pygame.mixer.init()
+    os.chdir(CODE_DIR)
+
+    game = Game()
+    game.debug_mode = False
+    game.perf_profiler.enabled = True
+
+    setup_info = setup_path_stress_03_open_chase(
+        game,
+        args.enemies,
+    )
+
+    input_state = make_empty_input_state(
+        mouse_pos=(0, 0),
+    )
+
+    run_fixed_ticks(
+        game,
+        args.warmup_ticks,
+        input_state,
+    )
+    clear_profiler_history(game.perf_profiler)
+
+    run_fixed_ticks(
+        game,
+        args.measure_ticks,
+        input_state,
+    )
+
+    print("")
+    print("=" * 88)
+    print("[benchmark]")
+    print(f"scenario={setup_info['scenario']}")
+    print(f"area={setup_info['area']}")
+    print(f"player_tile={setup_info['player_tile']}")
+    print(f"enemy_count={setup_info['enemy_count']}")
+    print(f"warmup_ticks={args.warmup_ticks}")
+    print(f"measure_ticks={args.measure_ticks}")
+    print(f"world_tick={game.world.tick}")
+    print("=" * 88)
+
+    print_benchmark_timing_rows(
+        game.perf_profiler,
+        args.limit,
+    )
+    print_benchmark_counter_rows(
+        game.perf_profiler,
+        args.limit,
+    )
+
+    pygame.quit()
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         description="Run deterministic Pixel Slasher performance benchmarks.",
@@ -608,6 +701,31 @@ def parse_args(argv):
         default=64,
     )
 
+    path_stress_03 = subparsers.add_parser(
+        "path_stress_03_open_chase",
+        help="Deterministic open-map fixed-player enemy crowd benchmark.",
+    )
+    path_stress_03.add_argument(
+        "--enemies",
+        type=int,
+        default=25,
+    )
+    path_stress_03.add_argument(
+        "--warmup-ticks",
+        type=int,
+        default=60,
+    )
+    path_stress_03.add_argument(
+        "--measure-ticks",
+        type=int,
+        default=600,
+    )
+    path_stress_03.add_argument(
+        "--limit",
+        type=int,
+        default=64,
+    )
+
     return parser.parse_args(argv)
 
 
@@ -620,6 +738,10 @@ def main(argv):
 
     if args.scenario == "path_stress_02":
         run_path_stress_02(args)
+        return 0
+
+    if args.scenario == "path_stress_03_open_chase":
+        run_path_stress_03_open_chase(args)
         return 0
 
     raise ValueError(

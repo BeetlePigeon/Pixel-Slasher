@@ -560,6 +560,65 @@ def get_dynamic_movement_blockers_for_placement(
     )
 
 
+def get_dynamic_movement_blocker_sources_for_placement(
+    world,
+    mover_entity,
+    proposed_center_tile,
+    proposed_body_tiles,
+    include_reservations=True,
+):
+    ensure_dynamic_occupancy_current(world)
+
+    source_candidates = {
+        "current_body_on_center": set(
+            world.dynamic_body_occupancy.get(
+                proposed_center_tile,
+                (),
+            )
+        ),
+        "current_center_on_body": set(),
+    }
+
+    if include_reservations:
+        source_candidates["reserved_body_on_center"] = set(
+            world.dynamic_reserved_bodies.get(
+                proposed_center_tile,
+                (),
+            )
+        )
+        source_candidates["reserved_center_on_body"] = set()
+
+    for body_tile in proposed_body_tiles:
+        source_candidates["current_center_on_body"].update(
+            world.dynamic_center_occupancy.get(
+                body_tile,
+                (),
+            )
+        )
+
+        if include_reservations:
+            source_candidates["reserved_center_on_body"].update(
+                world.dynamic_reserved_centers.get(
+                    body_tile,
+                    (),
+                )
+            )
+
+    source_blockers = {}
+
+    for source_name, candidates in source_candidates.items():
+        blockers = get_relevant_dynamic_blockers(
+            world,
+            mover_entity,
+            candidates,
+        )
+
+        if blockers:
+            source_blockers[source_name] = blockers
+
+    return source_blockers
+
+
 def is_tile_static_blocked(world, tile):
     if tile.y < 0 or tile.y >= len(world.tilemap):
         return True

@@ -19,6 +19,7 @@ from utils.occupancy_utils import (
     refresh_entity_dynamic_occupancy,
     is_tile_blocked_for_movement,
     get_dynamic_movement_blockers_for_placement,
+    get_dynamic_movement_blocker_sources_for_placement,
     get_movement_body_tiles_for_origin_tile,
 )
 from motion_controllers import (
@@ -1223,6 +1224,13 @@ def clear_move_target_after_path_finish_if_needed(world, entity):
     if target is None:
         return
 
+    if target["type"] == "flow_field_to_entity":
+        record_counter_for_world(
+            world,
+            "flow_field.finish.keep_target",
+        )
+        return
+
     path_policy = get_path_policy(world, target)
 
     if path_policy["clear_target_on_path_finish"]:
@@ -2177,6 +2185,218 @@ def handle_static_tile_collision(world, entity, next_tile):
     return MOVEMENT_COLLISION_ALLOW
 
 
+def record_dynamic_movement_block_counter(world, entity):
+    record_counter_for_world(
+        world,
+        "movement.dynamic_block",
+    )
+
+    target = world.move_target.get(entity)
+    if target is not None:
+        record_counter_for_world(
+            world,
+            f"movement.dynamic_block.target.{target['type']}",
+        )
+
+    motion_state = world.motion_state.get(entity)
+    if motion_state is None:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.none",
+        )
+        return
+
+    controller = motion_state.get("controller")
+    if controller is None:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.none",
+        )
+        return
+
+    if isinstance(controller, PathFollowController):
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.path_follow",
+        )
+        return
+
+    if isinstance(controller, DirectionalMoveController):
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.directional",
+        )
+        return
+
+    if isinstance(controller, GridMoveController):
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.grid_move",
+        )
+        return
+
+    if isinstance(controller, SettleToGridController):
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.controller.settle",
+        )
+        return
+
+    record_counter_for_world(
+        world,
+        "movement.dynamic_block.controller.other",
+    )
+
+
+def record_dynamic_movement_block_source_counters(world, blocker_sources):
+    current_body_on_center = bool(
+        blocker_sources.get("current_body_on_center")
+    )
+    current_center_on_body = bool(
+        blocker_sources.get("current_center_on_body")
+    )
+    reserved_body_on_center = bool(
+        blocker_sources.get("reserved_body_on_center")
+    )
+    reserved_center_on_body = bool(
+        blocker_sources.get("reserved_center_on_body")
+    )
+
+    has_current = current_body_on_center or current_center_on_body
+    has_reserved = reserved_body_on_center or reserved_center_on_body
+
+    if not has_current and not has_reserved:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.unknown",
+        )
+        return
+
+    if has_current:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.current",
+        )
+
+    if has_reserved:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.reserved",
+        )
+
+    if has_current and has_reserved:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.current_and_reserved",
+        )
+    elif has_current:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.current_only",
+        )
+    else:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.reserved_only",
+        )
+
+    if current_body_on_center:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.current_body_on_center",
+        )
+
+    if current_center_on_body:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.current_center_on_body",
+        )
+
+    if reserved_body_on_center:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.reserved_body_on_center",
+        )
+
+    if reserved_center_on_body:
+        record_counter_for_world(
+            world,
+            "movement.dynamic_block.source.reserved_center_on_body",
+        )
+
+
+def get_dynamic_blocker_controller_label(world, blocker_entity):
+    motion_state = world.motion_state.get(blocker_entity)
+
+    if motion_state is None:
+        return "no_motion_state"
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return "none"
+
+    if isinstance(controller, PathFollowController):
+        return "path_follow"
+
+    if isinstance(controller, DirectionalMoveController):
+        return "directional"
+
+    if isinstance(controller, GridMoveController):
+        return "grid_move"
+
+    if isinstance(controller, SettleToGridController):
+        return "settle"
+
+    return "other"
+
+
+def record_dynamic_movement_blocker_state_counters(world, blocker_sources):
+    all_blockers = set()
+
+    current_blockers = set()
+    reserved_blockers = set()
+
+    for source_name, source_blockers in blocker_sources.items():
+        all_blockers.update(source_blockers)
+
+        if source_name.startswith("current_"):
+            current_blockers.update(source_blockers)
+
+        if source_name.startswith("reserved_"):
+            reserved_blockers.update(source_blockers)
+
+    for blocker_entity in all_blockers:
+        controller_label = get_dynamic_blocker_controller_label(
+            world,
+            blocker_entity,
+        )
+        record_counter_for_world(
+            world,
+            f"movement.dynamic_block.blocker_controller.{controller_label}",
+        )
+
+    for blocker_entity in current_blockers:
+        controller_label = get_dynamic_blocker_controller_label(
+            world,
+            blocker_entity,
+        )
+        record_counter_for_world(
+            world,
+            f"movement.dynamic_block.current_blocker_controller.{controller_label}",
+        )
+
+    for blocker_entity in reserved_blockers:
+        controller_label = get_dynamic_blocker_controller_label(
+            world,
+            blocker_entity,
+        )
+        record_counter_for_world(
+            world,
+            f"movement.dynamic_block.reserved_blocker_controller.{controller_label}",
+        )
+
+
 def handle_dynamic_movement_collision(world, entity, next_tile):
     policy = world.movement_collision[entity]
     behavior = policy["dynamic_blockers"]
@@ -2184,19 +2404,42 @@ def handle_dynamic_movement_collision(world, entity, next_tile):
     if behavior == "allow":
         return MOVEMENT_COLLISION_ALLOW
 
+    proposed_body_tiles = get_movement_body_tiles_for_origin_tile(
+        world,
+        entity,
+        next_tile,
+    )
+
     blockers = get_dynamic_movement_blockers_for_placement(
         world,
         mover_entity=entity,
         proposed_center_tile=next_tile,
-        proposed_body_tiles=get_movement_body_tiles_for_origin_tile(
-            world,
-            entity,
-            next_tile,
-        ),
+        proposed_body_tiles=proposed_body_tiles,
         include_reservations=True,
     )
 
     if blockers:
+        blocker_sources = get_dynamic_movement_blocker_sources_for_placement(
+            world,
+            mover_entity=entity,
+            proposed_center_tile=next_tile,
+            proposed_body_tiles=proposed_body_tiles,
+            include_reservations=True,
+        )
+
+        record_dynamic_movement_block_counter(
+            world,
+            entity,
+        )
+        record_dynamic_movement_block_source_counters(
+            world,
+            blocker_sources,
+        )
+        record_dynamic_movement_blocker_state_counters(
+            world,
+            blocker_sources,
+        )
+
         return make_movement_collision_result(
             behavior,
             blocker_collision_type="dynamic",
@@ -2746,6 +2989,11 @@ def build_flow_field_lookahead_nodes(
 
 
 def start_flow_field_controller(world, entity, target):
+    record_counter_for_world(
+        world,
+        "flow_field.start.attempt",
+    )
+
     target_entity = target["target_entity"]
 
     if target_entity not in world.transform:
@@ -2840,6 +3088,11 @@ def start_flow_field_controller(world, entity, target):
         return False
 
     for desired_direction in candidate_directions:
+        record_counter_for_world(
+            world,
+            "flow_field.start.candidate_considered",
+        )
+
         resolved_direction = resolve_grid_move_direction_from_tile(
             world,
             entity,
@@ -2854,7 +3107,22 @@ def start_flow_field_controller(world, entity, target):
                 world,
                 "flow_field.start.candidate_blocked",
             )
+            record_counter_for_world(
+                world,
+                "flow_field.start.candidate_unresolved",
+            )
             continue
+
+        if resolved_direction == desired_direction:
+            record_counter_for_world(
+                world,
+                "flow_field.start.candidate_direct_resolved",
+            )
+        else:
+            record_counter_for_world(
+                world,
+                "flow_field.start.candidate_slide_resolved",
+            )
 
         next_tile = current_tile + resolved_direction
         next_distance = flow_field["distances"].get(next_tile)
@@ -2891,6 +3159,12 @@ def start_flow_field_controller(world, entity, target):
             lookahead_nodes,
             side_pressure_counts,
             side_pressure_weight,
+        )
+
+        record_counter_for_world(
+            world,
+            "flow_field.start.lookahead_nodes",
+            len(nodes),
         )
 
         if not nodes:
