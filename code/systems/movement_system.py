@@ -30,12 +30,14 @@ from motion_controllers import (
     SettleToGridController,
     PathFollowController,
     DirectionalMoveController,
+    FlowChaseDirectController,
 )
 from utils.tile_vec_utils import (
     sign,
     tile_center,
     tile_from_cpos,
     normalize_vector_to_dir_scale,
+    chebyshev_tile_distance,
 )
 from utils.path_utils import (
     find_static_tile_path_to_target,
@@ -263,7 +265,10 @@ def movement_arbiter_system(world):
         for entity, motion_state in world.motion_state.items()
         if isinstance(
             motion_state.get("controller"),
-            DirectionalMoveController,
+            (
+                DirectionalMoveController,
+                FlowChaseDirectController,
+            ),
         )
     }
 
@@ -295,16 +300,33 @@ def movement_arbiter_system(world):
 
         controller = motion_state["controller"]
 
+        if isinstance(controller, FlowChaseDirectController):
+            if entity in world.move_intent:
+                cancel_move_target_for_directional_input(world, entity)
+                clear_motion_controller(motion_state)
+                refresh_moved_entity_occupancy(
+                    world,
+                    entity,
+                )
+                continue
+
+            update_flow_chase_direct_controller(
+                world,
+                entity,
+                controller,
+            )
+            continue
+
         if isinstance(controller, DirectionalMoveController):
             if entity in world.move_intent:
                 cancel_move_target_for_directional_input(world, entity)
-
                 updated = update_directional_continuous_controller(
                     world,
                     entity,
                     controller,
                     world.move_intent[entity],
                 )
+
                 if not updated:
                     stop_directional_continuous_controller(
                         world,
@@ -2339,6 +2361,9 @@ def get_dynamic_blocker_controller_label(world, blocker_entity):
     if isinstance(controller, PathFollowController):
         return "path_follow"
 
+    if isinstance(controller, FlowChaseDirectController):
+        return "flow_chase_direct"
+
     if isinstance(controller, DirectionalMoveController):
         return "directional"
 
@@ -2908,6 +2933,292 @@ def stop_directional_continuous_controller(world, entity):
     start_requested_settle_if_allowed(world, entity)
 
 
+def get_flow_chase_target_entity(world, target):
+    target_entity = target["target_entity"]
+
+    if target_entity not in world.transform:
+        return None
+
+    return target_entity
+
+
+def get_flow_chase_target_cpos(world, target):
+    target_entity = get_flow_chase_target_entity(
+        world,
+        target,
+    )
+
+    if target_entity is None:
+        return None
+
+    target_tile = tile_from_cpos(
+        world.transform[target_entity].cpos,
+    )
+
+    return tile_center(
+        target_tile,
+    )
+
+
+def flow_chase_entity_in_desired_range(world, entity, target):
+    target_cpos = get_flow_chase_target_cpos(
+        world,
+        target,
+    )
+
+    if target_cpos is None:
+        return False
+
+    current_tile = tile_from_cpos(
+        world.transform[entity].cpos,
+    )
+    target_tile = tile_from_cpos(
+        target_cpos,
+    )
+
+    return (
+        chebyshev_tile_distance(
+            current_tile,
+            target_tile,
+        )
+        <= target["desired_range_tiles"]
+    )
+
+
+def get_flow_chase_raw_vector(world, entity, target):
+    target_cpos = get_flow_chase_target_cpos(
+        world,
+        target,
+    )
+
+    if target_cpos is None:
+        return None
+
+    return target_cpos - world.transform[entity].cpos
+
+
+def discard_reached_flow_chase_steering_points(world, entity, controller):
+    transform = world.transform[entity]
+
+    while (
+        controller.steering_points
+        and is_at_cpos(transform.cpos, controller.steering_points[0])
+    ):
+        controller.steering_points.pop(0)
+        record_counter_for_world(
+            world,
+            "flow_chase.steering.point_reached",
+        )
+
+
+def get_flow_chase_active_target_cpos(controller):
+    if controller.steering_points:
+        return controller.steering_points[0]
+
+    return controller.base_target_cpos
+
+
+def update_flow_chase_direct_controller_values(
+    world,
+    entity,
+    controller,
+    base_target_cpos,
+):
+    controller.base_target_cpos = base_target_cpos
+
+    discard_reached_flow_chase_steering_points(
+        world,
+        entity,
+        controller,
+    )
+
+    active_target_cpos = get_flow_chase_active_target_cpos(
+        controller,
+    )
+
+    raw_vector = active_target_cpos - world.transform[entity].cpos
+    aim_vector = normalize_vector_to_dir_scale(raw_vector)
+
+    if aim_vector is None:
+        return False
+
+    controller.aim_vector = aim_vector
+    controller.raw_vector = raw_vector
+    controller.speed = get_locomotion_speed_cpos_per_tick(
+        world,
+        entity,
+    )
+
+    if entity in world.facing:
+        world.facing[entity] = Vec2i(
+            sign(raw_vector.x),
+            sign(raw_vector.y),
+        )
+
+    return True
+
+
+def start_flow_chase_direct_controller(world, entity, target):
+    target_entity = get_flow_chase_target_entity(
+        world,
+        target,
+    )
+
+    if target_entity is None:
+        clear_move_target(world, entity)
+        return False
+
+    if flow_chase_entity_in_desired_range(
+        world,
+        entity,
+        target,
+    ):
+        record_counter_for_world(
+            world,
+            "flow_chase.direct.in_desired_range",
+        )
+        return False
+
+    if not world.locomotion[entity].get("can_move_8way", True):
+        return False
+
+    base_target_cpos = get_flow_chase_target_cpos(
+        world,
+        target,
+    )
+
+    if base_target_cpos is None:
+        clear_move_target(world, entity)
+        return False
+
+    raw_vector = base_target_cpos - world.transform[entity].cpos
+    aim_vector = normalize_vector_to_dir_scale(raw_vector)
+
+    if aim_vector is None:
+        return False
+
+    controller = FlowChaseDirectController(
+        target_entity=target_entity,
+        desired_range_tiles=target["desired_range_tiles"],
+        base_target_cpos=base_target_cpos,
+        aim_vector=aim_vector,
+        raw_vector=raw_vector,
+        speed=get_locomotion_speed_cpos_per_tick(world, entity),
+    )
+
+    motion_state = world.motion_state[entity]
+    motion_state["controller"] = controller
+    motion_state["controller_source"] = "flow_chase_direct"
+
+    if entity in world.facing:
+        world.facing[entity] = Vec2i(
+            sign(raw_vector.x),
+            sign(raw_vector.y),
+        )
+
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
+
+    record_counter_for_world(
+        world,
+        "flow_chase.direct.start",
+    )
+
+    return True
+
+
+def stop_flow_chase_direct_controller(world, entity):
+    motion_state = world.motion_state[entity]
+    clear_motion_controller(motion_state)
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
+
+    record_counter_for_world(
+        world,
+        "flow_chase.direct.stop",
+    )
+
+
+def update_flow_chase_direct_controller(world, entity, controller):
+    target = world.move_target.get(entity)
+
+    if target is None or target["type"] != "flow_field_to_entity":
+        stop_flow_chase_direct_controller(
+            world,
+            entity,
+        )
+        return
+
+    target_entity = get_flow_chase_target_entity(
+        world,
+        target,
+    )
+
+    if target_entity is None:
+        clear_move_target(world, entity)
+        stop_flow_chase_direct_controller(
+            world,
+            entity,
+        )
+        return
+
+    if flow_chase_entity_in_desired_range(
+        world,
+        entity,
+        target,
+    ):
+        stop_flow_chase_direct_controller(
+            world,
+            entity,
+        )
+        record_counter_for_world(
+            world,
+            "flow_chase.direct.stop_in_desired_range",
+        )
+        return
+
+    base_target_cpos = get_flow_chase_target_cpos(
+        world,
+        target,
+    )
+
+    if base_target_cpos is None:
+        clear_move_target(world, entity)
+        stop_flow_chase_direct_controller(
+            world,
+            entity,
+        )
+        return
+
+    updated = update_flow_chase_direct_controller_values(
+        world,
+        entity,
+        controller,
+        base_target_cpos,
+    )
+
+    if not updated:
+        stop_flow_chase_direct_controller(
+            world,
+            entity,
+        )
+        return
+
+    refresh_moved_entity_occupancy(
+        world,
+        entity,
+    )
+
+    record_counter_for_world(
+        world,
+        "flow_chase.direct.update",
+    )
+
+
 def install_path_follow_controller(world, entity, target, nodes):
     locomotion = world.locomotion[entity]
     motion_state = world.motion_state[entity]
@@ -3224,6 +3535,13 @@ def start_flow_field_controller(world, entity, target):
 
 def start_path_follow_controller(world, entity, target):
     if target["type"] == "flow_field_to_entity":
+        if start_flow_chase_direct_controller(
+            world,
+            entity,
+            target,
+        ):
+            return True
+
         return start_flow_field_controller(
             world,
             entity,
