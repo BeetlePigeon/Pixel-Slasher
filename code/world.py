@@ -602,6 +602,8 @@ class World:
                 "flow_policy": {
                     "rebuild_interval_ticks": 8,
                     "rebuild_distance_tiles": 2,
+                    "engagement_pressure_radius_tiles": 8,
+                    "engagement_side_pressure_weight": 1,
                 },
             },
 

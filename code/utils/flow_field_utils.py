@@ -122,6 +122,86 @@ def get_entity_tile(world, entity):
     return tile_from_cpos(transform.cpos)
 
 
+def sign_int(value):
+    if value < 0:
+        return -1
+
+    if value > 0:
+        return 1
+
+    return 0
+
+
+def get_tile_target_side_key(tile, target_tile):
+    return (
+        sign_int(tile.x - target_tile.x),
+        sign_int(tile.y - target_tile.y),
+    )
+
+
+def get_flow_field_side_pressure_counts(
+    world,
+    mover_entity,
+    target_entity,
+    target_tile,
+    pressure_radius_tiles,
+):
+    mover_team = world.team.get(mover_entity)
+    counts = {}
+    total_entities = 0
+
+    for other_entity in sorted(world.transform):
+        if other_entity == mover_entity:
+            continue
+
+        if other_entity == target_entity:
+            continue
+
+        if mover_team is not None and world.team.get(other_entity) != mover_team:
+            continue
+
+        occupier = world.space_occupier.get(other_entity)
+
+        if occupier is None:
+            continue
+
+        if not occupier["blocks_movement"]:
+            continue
+
+        other_tile = get_entity_tile(
+            world,
+            other_entity,
+        )
+
+        if other_tile is None:
+            continue
+
+        distance = chebyshev_tile_distance(
+            other_tile,
+            target_tile,
+        )
+
+        if distance > pressure_radius_tiles:
+            continue
+
+        side_key = get_tile_target_side_key(
+            other_tile,
+            target_tile,
+        )
+
+        counts[side_key] = counts.get(side_key, 0) + 1
+        total_entities += 1
+
+    if total_entities > 0:
+        record_counter_for_world(
+            world,
+            "flow_field.pressure.entities",
+            total_entities,
+        )
+
+    return counts
+
+
 def get_flow_directions(can_move_8way):
     if can_move_8way:
         return FLOW_DIRECTIONS_8
@@ -455,7 +535,9 @@ def get_flow_field_step_candidates_from_tile(
     entity,
     flow_field,
     current_tile,
-    include_sideways=False,
+    include_sideways,
+    side_pressure_counts,
+    side_pressure_weight,
 ):
     if current_tile is None:
         return []
@@ -489,13 +571,22 @@ def get_flow_field_step_candidates_from_tile(
         ):
             move_class = 1
 
-        target_tile = flow_field.get("target_tile")
+        target_tile = flow_field["target_tile"]
 
         if target_tile is None:
+            side_pressure_penalty = 0
             line_error = 0
             target_distance = 0
 
         else:
+            side_key = get_tile_target_side_key(
+                candidate_tile,
+                target_tile,
+            )
+            side_pressure_penalty = (
+                side_pressure_counts.get(side_key, 0)
+                * side_pressure_weight
+            )
             line_error = get_direction_line_error(
                 direction,
                 current_tile,
@@ -516,6 +607,7 @@ def get_flow_field_step_candidates_from_tile(
             (
                 candidate_distance,
                 move_class,
+                side_pressure_penalty,
                 line_error,
                 target_distance,
                 facing_penalty,
@@ -557,7 +649,9 @@ def get_flow_field_step_candidates(
     world,
     entity,
     flow_field,
-    include_sideways=False,
+    include_sideways,
+    side_pressure_counts,
+    side_pressure_weight,
 ):
     current_tile = get_entity_tile(
         world,
@@ -570,6 +664,8 @@ def get_flow_field_step_candidates(
         flow_field,
         current_tile,
         include_sideways=include_sideways,
+        side_pressure_counts=side_pressure_counts,
+        side_pressure_weight=side_pressure_weight,
     )
 
 
@@ -577,14 +673,14 @@ def get_flow_field_step_direction(
     world,
     entity,
     flow_field,
+    side_pressure_counts,
+    side_pressure_weight,
 ):
     candidates = get_flow_field_step_candidates(
         world,
         entity,
         flow_field,
+        include_sideways=False,
+        side_pressure_counts=side_pressure_counts,
+        side_pressure_weight=side_pressure_weight,
     )
-
-    if not candidates:
-        return None
-
-    return candidates[0]

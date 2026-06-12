@@ -10,6 +10,7 @@ from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled, record_counter_for_world
 from utils.flow_field_utils import (
     get_or_build_flow_field,
+    get_flow_field_side_pressure_counts,
     get_flow_field_step_candidates,
     get_flow_field_step_candidates_from_tile,
 )
@@ -2700,6 +2701,8 @@ def build_flow_field_lookahead_nodes(
     start_tile,
     first_direction,
     max_nodes,
+    side_pressure_counts,
+    side_pressure_weight,
 ):
     max_nodes = max(
         1,
@@ -2730,6 +2733,8 @@ def build_flow_field_lookahead_nodes(
             flow_field,
             current_tile,
             include_sideways=False,
+            side_pressure_counts=side_pressure_counts,
+            side_pressure_weight=side_pressure_weight,
         )
 
         if not candidate_directions:
@@ -2772,11 +2777,43 @@ def start_flow_field_controller(world, entity, target):
         )
         return False
 
+    current_distance = flow_field["distances"].get(current_tile)
+
+    target_tile = flow_field["target_tile"]
+
+    side_pressure_counts = {}
+    side_pressure_weight = 0
+
+    if target_tile is not None:
+        distance_to_target = max(
+            abs(current_tile.x - target_tile.x),
+            abs(current_tile.y - target_tile.y),
+        )
+
+        if distance_to_target <= flow_policy["engagement_pressure_radius_tiles"]:
+            side_pressure_counts = get_flow_field_side_pressure_counts(
+                world,
+                entity,
+                target_entity,
+                target_tile,
+                flow_policy["engagement_pressure_radius_tiles"],
+            )
+            side_pressure_weight = flow_policy[
+                "engagement_side_pressure_weight"
+            ]
+
+            record_counter_for_world(
+                world,
+                "flow_field.pressure.active",
+            )
+
     candidate_directions = get_flow_field_step_candidates(
         world,
         entity,
         flow_field,
         include_sideways=False,
+        side_pressure_counts=side_pressure_counts,
+        side_pressure_weight=side_pressure_weight,
     )
 
     if not candidate_directions:
@@ -2785,6 +2822,8 @@ def start_flow_field_controller(world, entity, target):
             entity,
             flow_field,
             include_sideways=True,
+            side_pressure_counts=side_pressure_counts,
+            side_pressure_weight=side_pressure_weight,
         )
 
         if candidate_directions:
@@ -2799,8 +2838,6 @@ def start_flow_field_controller(world, entity, target):
             "flow_field.start.no_direction",
         )
         return False
-
-    current_distance = flow_field["distances"].get(current_tile)
 
     for desired_direction in candidate_directions:
         resolved_direction = resolve_grid_move_direction_from_tile(
@@ -2852,6 +2889,8 @@ def start_flow_field_controller(world, entity, target):
             current_tile,
             resolved_direction,
             lookahead_nodes,
+            side_pressure_counts,
+            side_pressure_weight,
         )
 
         if not nodes:
