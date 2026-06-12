@@ -482,16 +482,13 @@ def get_or_build_flow_field(
             rebuild_interval_ticks,
             rebuild_distance_tiles,
         ):
+            cached_field["target_tile"] = current_target_tile
+
             record_counter_for_world(
                 world,
                 "flow_field.cache.hit",
             )
             return cached_field
-
-        record_counter_for_world(
-            world,
-            "flow_field.cache.rebuild",
-        )
 
     else:
         record_counter_for_world(
