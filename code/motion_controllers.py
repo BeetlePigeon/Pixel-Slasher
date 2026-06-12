@@ -102,6 +102,8 @@ class FlowChaseDirectController:
     raw_vector: Vec2i
     speed: int
     steering_points: list[Vec2i] = field(default_factory=list)
+    local_steering_side: int = 0
+    local_steering_last_tick: int = -1
 
     motion_tag = "flow_chase_direct"
     block_response = BLOCK_RESPONSE_RETRY
