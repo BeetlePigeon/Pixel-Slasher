@@ -61,6 +61,7 @@ FLOW_CHASE_LOCAL_STEERING_TINY_MOVE_DIAGNOSTIC_CPOS = TILE_UNITS // 8
 FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_NUMERATOR = 3
 FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR = 4
 FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX = 0
+FLOW_CHASE_LOCAL_STEERING_PURE_SIDE_MIN_NO_PROGRESS_TICKS = 9999
 
 # Temporary
 FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED = False
@@ -879,12 +880,22 @@ def find_best_flow_chase_local_steering_option(
         if allowed_labels is not None and label not in allowed_labels:
             continue
 
-        candidate_result, candidate_cpos = resolve_static_tile_movement(
+        previous_collision_context = push_movement_collision_debug_context(
             world,
-            entity,
-            start_cpos,
-            candidate_delta,
+            "flow_chase.local_steering_candidate",
         )
+        try:
+            candidate_result, candidate_cpos = resolve_static_tile_movement(
+                world,
+                entity,
+                start_cpos,
+                candidate_delta,
+            )
+        finally:
+            pop_movement_collision_debug_context(
+                world,
+                previous_collision_context,
+            )
 
         if not movement_collision_allows(candidate_result):
             record_counter_for_world(
@@ -965,6 +976,13 @@ def find_best_flow_chase_local_steering_option_for_side_tiers(
 
     if forward_option is not None:
         return forward_option
+
+    if not flow_chase_local_steering_pure_side_allowed(controller):
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.pure_side_suppressed_not_stuck",
+        )
+        return None
 
     record_counter_for_world(
         world,
@@ -1085,10 +1103,17 @@ def try_resolve_flow_chase_local_steering(
         )
 
     if chosen_option is None:
+        controller.local_steering_no_progress_ticks += 1
+
         record_counter_for_world(
             world,
             "flow_chase.local_steering.failed",
         )
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.progress_state.failed_no_progress_tick",
+        )
+
         return None
 
     (
@@ -1103,6 +1128,13 @@ def try_resolve_flow_chase_local_steering(
     controller.local_steering_side = side
     controller.local_steering_last_tick = world.tick
     controller.local_steering_last_delta = candidate_delta
+
+    update_flow_chase_local_steering_progress_state(
+        world,
+        controller,
+        start_cpos,
+        candidate_cpos,
+    )
 
     record_flow_chase_local_steering_motion_diagnostics(
         world,
@@ -2170,6 +2202,78 @@ def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i)
     return collision_result, resolved_cpos
 
 
+def resolve_flow_chase_direct_movement(
+    world,
+    entity,
+    controller,
+    start_cpos: Vec2i,
+    delta: Vec2i,
+):
+    collision_result, resolved_cpos = trace_static_tile_path(
+        world,
+        entity,
+        start_cpos,
+        delta,
+    )
+
+    if not (
+            movement_collision_slides(collision_result)
+            and collision_result.blocker_collision_type == "dynamic"
+    ):
+        controller.local_steering_no_progress_ticks = 0
+
+    if (
+            movement_collision_slides(collision_result)
+            and collision_result.blocker_collision_type == "dynamic"
+    ):
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.dynamic_slide_seen",
+        )
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.dynamic_retry_attempt",
+        )
+
+        local_steering_result = try_resolve_flow_chase_local_steering(
+            world,
+            entity,
+            controller,
+            start_cpos,
+            delta,
+            collision_result,
+        )
+
+        if local_steering_result is not None:
+            record_counter_for_world(
+                world,
+                "flow_chase.local_steering.dynamic_retry_resolved",
+            )
+            return local_steering_result
+
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.dynamic_retry_failed",
+        )
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.dynamic_retry_failed_no_generic_slide",
+        )
+
+        return collision_result, resolved_cpos
+
+    if movement_collision_slides(collision_result):
+        return resolve_slide_static_tile_movement(
+            world,
+            entity,
+            start_cpos,
+            delta,
+            collision_result,
+        )
+
+    return collision_result, resolved_cpos
+
+
 def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i, slide_source_result=None):
     ratio = get_movement_slide_ratio(world, entity)
 
@@ -2755,10 +2859,32 @@ def handle_static_tile_collision(world, entity, next_tile):
     return MOVEMENT_COLLISION_ALLOW
 
 
+def get_movement_collision_debug_context(world):
+    return getattr(
+        world,
+        "_movement_collision_debug_context",
+        "unknown",
+    )
+
+
+def push_movement_collision_debug_context(world, context):
+    previous_context = get_movement_collision_debug_context(world)
+    world._movement_collision_debug_context = context
+    return previous_context
+
+
+def pop_movement_collision_debug_context(world, previous_context):
+    world._movement_collision_debug_context = previous_context
+
+
 def record_dynamic_movement_block_counter(world, entity):
     record_counter_for_world(
         world,
         "movement.dynamic_block",
+    )
+    record_counter_for_world(
+        world,
+        f"movement.dynamic_block.context.{get_movement_collision_debug_context(world)}",
     )
 
     target = world.move_target.get(entity)
@@ -3665,6 +3791,56 @@ def clear_stale_flow_chase_local_steering_side(world, controller):
     controller.local_steering_side = 0
     controller.local_steering_last_tick = -1
     controller.local_steering_last_delta = Vec2i(0, 0)
+    controller.local_steering_no_progress_ticks = 0
+
+
+def flow_chase_local_steering_makes_progress(
+    controller,
+    start_cpos,
+    candidate_cpos,
+):
+    before_distance = cpos_distance(
+        start_cpos,
+        controller.base_target_cpos,
+    )
+    after_distance = cpos_distance(
+        candidate_cpos,
+        controller.base_target_cpos,
+    )
+
+    return after_distance < before_distance
+
+
+def flow_chase_local_steering_pure_side_allowed(controller):
+    return (
+        controller.local_steering_no_progress_ticks
+        >= FLOW_CHASE_LOCAL_STEERING_PURE_SIDE_MIN_NO_PROGRESS_TICKS
+    )
+
+
+def update_flow_chase_local_steering_progress_state(
+    world,
+    controller,
+    start_cpos,
+    candidate_cpos,
+):
+    if flow_chase_local_steering_makes_progress(
+        controller,
+        start_cpos,
+        candidate_cpos,
+    ):
+        controller.local_steering_no_progress_ticks = 0
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.progress_state.reset",
+        )
+        return
+
+    controller.local_steering_no_progress_ticks += 1
+    record_counter_for_world(
+        world,
+        "flow_chase.local_steering.progress_state.no_progress_tick",
+    )
 
 
 def update_flow_chase_direct_controller_values(
@@ -4059,14 +4235,24 @@ def start_flow_field_controller(world, entity, target):
             "flow_field.start.candidate_considered",
         )
 
-        resolved_direction = resolve_grid_move_direction_from_tile(
+        previous_collision_context = push_movement_collision_debug_context(
             world,
-            entity,
-            current_tile,
-            desired_direction,
-            slide_vector=desired_direction,
-            slide_context="grid",
+            "flow_field.start_candidate",
         )
+        try:
+            resolved_direction = resolve_grid_move_direction_from_tile(
+                world,
+                entity,
+                current_tile,
+                desired_direction,
+                slide_vector=desired_direction,
+                slide_context="grid",
+            )
+        finally:
+            pop_movement_collision_debug_context(
+                world,
+                previous_collision_context,
+            )
 
         if resolved_direction is None:
             record_counter_for_world(
@@ -4952,45 +5138,33 @@ def movement_system(world):
         if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
 
-            collision_result, resolved_cpos = resolve_static_tile_movement(
+            previous_collision_context = push_movement_collision_debug_context(
                 world,
-                entity,
-                start_cpos,
-                delta,
+                "movement_system.main_resolve",
             )
-
-            if False and isinstance(controller, FlowChaseDirectController):
-                record_counter_for_world(
-                    world,
-                    "flow_chase.local_steering.call_site",
-                )
-                record_counter_for_world(
-                    world,
-                    f"flow_chase.local_steering.call_site.collision.{collision_result.collision_result}",
-                )
-
-                if collision_result.blocker_collision_type is None:
-                    record_counter_for_world(
+            try:
+                if isinstance(controller, FlowChaseDirectController):
+                    collision_result, resolved_cpos = resolve_flow_chase_direct_movement(
                         world,
-                        "flow_chase.local_steering.call_site.blocker_type.none",
+                        entity,
+                        controller,
+                        start_cpos,
+                        delta,
                     )
                 else:
-                    record_counter_for_world(
+                    collision_result, resolved_cpos = resolve_static_tile_movement(
                         world,
-                        f"flow_chase.local_steering.call_site.blocker_type.{collision_result.blocker_collision_type}",
+                        entity,
+                        start_cpos,
+                        delta,
                     )
-
-                local_steering_result = try_resolve_flow_chase_local_steering(
+            finally:
+                pop_movement_collision_debug_context(
                     world,
-                    entity,
-                    controller,
-                    start_cpos,
-                    delta,
-                    collision_result,
+                    previous_collision_context,
                 )
-                if local_steering_result is not None:
-                    collision_result, resolved_cpos = local_steering_result
-            else:
+
+            if not isinstance(controller, FlowChaseDirectController):
                 local_avoidance_result = try_resolve_path_follow_local_avoidance(
                     world,
                     entity,
@@ -4999,14 +5173,12 @@ def movement_system(world):
                     delta,
                     collision_result,
                 )
-
                 if local_avoidance_result is not None:
                     collision_result, resolved_cpos = local_avoidance_result
 
             if movement_collision_destroys(collision_result):
                 collision_cpos = resolved_cpos
                 collision_tile = tile_from_cpos(collision_cpos)
-
                 emit_movement_collision_event(
                     world,
                     "entity_destroyed_by_movement_collision",
@@ -5017,7 +5189,6 @@ def movement_system(world):
                     controller,
                     influence_active,
                 )
-
                 world.entities.destroy(entity)
                 continue
 
