@@ -185,6 +185,28 @@ def spawn_benchmark_enemies(world, count):
     return enemies
 
 
+def spawn_benchmark_enemies_at_tiles(world, enemy_tiles):
+    enemies = []
+
+    for tile in enemy_tiles:
+        if not tile_is_usable_spawn_tile(world, tile):
+            raise RuntimeError(
+                f"path_stress_04 enemy spawn tile is not usable: {tile}"
+            )
+
+        enemy = world.spawn_training_dummy(tile)
+
+        # Force deterministic AI scheduling instead of entity-id modulo spread.
+        world.ai_agent[enemy]["next_think_tick"] = world.tick
+        world.ai_agent[enemy]["think_interval_ticks"] = 10
+        world.ai_agent[enemy]["blackboard"] = {}
+        world.ai_agent[enemy]["target_entity"] = None
+
+        enemies.append(enemy)
+
+    return enemies
+
+
 def clear_profiler_history(profiler):
     profiler.current_frame = {}
     profiler.current_counters = {}
@@ -464,6 +486,52 @@ def setup_path_stress_03_open_chase(game, enemy_count):
     }
 
 
+def setup_path_stress_04_two_lane_chase(game):
+    world = game.world
+
+    # Broad open arena: isolates dynamic enemy crowding from static terrain.
+    world.load_area(
+        "destacker_arena",
+        "default",
+    )
+
+    remove_existing_enemies(world)
+
+    # Put the player south of two side-by-side enemies.
+    # The enemies share the same greedy target and should expose
+    # side-by-side zigzag / lane fighting.
+    player_tile = Vec2i(19, 24)
+
+    enemy_tiles = [
+        Vec2i(18, 12),
+        Vec2i(20, 12),
+    ]
+
+    set_entity_tile(
+        world,
+        world.player,
+        player_tile,
+    )
+
+    enemies = spawn_benchmark_enemies_at_tiles(
+        world,
+        enemy_tiles,
+    )
+
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+
+    world.focus_camera_on_player()
+
+    return {
+        "scenario": "path_stress_04_two_lane_chase",
+        "area": world.current_area.area_id,
+        "player_tile": player_tile,
+        "enemy_tiles": enemy_tiles,
+        "enemy_count": len(enemies),
+    }
+
+
 def run_path_stress_01(args):
     pygame.init()
     pygame.mixer.init()
@@ -642,6 +710,61 @@ def run_path_stress_03_open_chase(args):
     pygame.quit()
 
 
+def run_path_stress_04_two_lane_chase(args):
+    pygame.init()
+    pygame.mixer.init()
+
+    os.chdir(CODE_DIR)
+
+    game = Game()
+    game.debug_mode = False
+    game.perf_profiler.enabled = True
+
+    setup_info = setup_path_stress_04_two_lane_chase(game)
+
+    input_state = make_empty_input_state(
+        mouse_pos=(0, 0),
+    )
+
+    run_fixed_ticks(
+        game,
+        args.warmup_ticks,
+        input_state,
+    )
+
+    clear_profiler_history(game.perf_profiler)
+
+    run_fixed_ticks(
+        game,
+        args.measure_ticks,
+        input_state,
+    )
+
+    print("")
+    print("=" * 88)
+    print("[benchmark]")
+    print(f"scenario={setup_info['scenario']}")
+    print(f"area={setup_info['area']}")
+    print(f"player_tile={setup_info['player_tile']}")
+    print(f"enemy_tiles={setup_info['enemy_tiles']}")
+    print(f"enemy_count={setup_info['enemy_count']}")
+    print(f"warmup_ticks={args.warmup_ticks}")
+    print(f"measure_ticks={args.measure_ticks}")
+    print(f"world_tick={game.world.tick}")
+    print("=" * 88)
+
+    print_benchmark_timing_rows(
+        game.perf_profiler,
+        args.limit,
+    )
+    print_benchmark_counter_rows(
+        game.perf_profiler,
+        args.limit,
+    )
+
+    pygame.quit()
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         description="Run deterministic Pixel Slasher performance benchmarks.",
@@ -676,6 +799,7 @@ def parse_args(argv):
         default=64,
     )
 
+
     path_stress_02 = subparsers.add_parser(
         "path_stress_02",
         help="Deterministic sim-only moving-player chase benchmark.",
@@ -700,6 +824,7 @@ def parse_args(argv):
         type=int,
         default=64,
     )
+
 
     path_stress_03 = subparsers.add_parser(
         "path_stress_03_open_chase",
@@ -726,6 +851,26 @@ def parse_args(argv):
         default=64,
     )
 
+
+    path_stress_04 = subparsers.add_parser(
+        "path_stress_04_two_lane_chase",
+        help="Deterministic two-enemy side-by-side chase benchmark.",
+    )
+    path_stress_04.add_argument(
+        "--warmup-ticks",
+        type=int,
+        default=60,
+    )
+    path_stress_04.add_argument(
+        "--measure-ticks",
+        type=int,
+        default=600,
+    )
+    path_stress_04.add_argument(
+        "--limit",
+        type=int,
+        default=64,
+    )
     return parser.parse_args(argv)
 
 
@@ -744,6 +889,10 @@ def main(argv):
         run_path_stress_03_open_chase(args)
         return 0
 
+    if args.scenario == "path_stress_04_two_lane_chase":
+        run_path_stress_04_two_lane_chase(args)
+        return 0
+    
     raise ValueError(
         f"Unknown benchmark scenario: {args.scenario!r}"
     )

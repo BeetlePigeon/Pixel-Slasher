@@ -57,6 +57,10 @@ PATH_BUILD_DEFERRED = object()
 FLOW_CHASE_LOCAL_STEERING_ENABLED = True
 FLOW_CHASE_LOCAL_STEERING_SIDE_PERSIST_TICKS = 12
 FLOW_CHASE_LOCAL_STEERING_MAX_EXTRA_DISTANCE_CPOS = TILE_UNITS * 2
+FLOW_CHASE_LOCAL_STEERING_TINY_MOVE_DIAGNOSTIC_CPOS = TILE_UNITS // 8
+FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_NUMERATOR = 3
+FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR = 4
+FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX = 0
 
 # Temporary
 FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED = False
@@ -750,6 +754,10 @@ def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
     return dx * dx + dy * dy
 
 
+def dot_vec(a: Vec2i, b: Vec2i) -> int:
+    return a.x * b.x + a.y * b.y
+
+
 def cpos_distance(a: Vec2i, b: Vec2i) -> int:
     return isqrt(cpos_distance_sq(a, b))
 
@@ -853,35 +861,24 @@ def make_local_avoidance_score(
     )
 
 
-def try_resolve_flow_chase_local_steering(
+def find_best_flow_chase_local_steering_option(
     world,
     entity,
     controller,
     start_cpos,
-    delta,
-    original_collision_result,
+    candidate_deltas,
+    allowed_side,
+    allowed_labels=None,
 ):
-    if not FLOW_CHASE_LOCAL_STEERING_ENABLED:
-        return None
-
-    if not isinstance(controller, FlowChaseDirectController):
-        return None
-
-    if controller.steering_points:
-        return None
-
-    if original_collision_result.blocker_collision_type != "dynamic":
-        return None
-
     options = []
 
-    candidate_deltas = iter_flow_chase_local_steering_candidate_deltas(
-        entity,
-        controller,
-        delta,
-    )
-
     for index, (side, label, candidate_delta) in enumerate(candidate_deltas):
+        if allowed_side is not None and side != allowed_side:
+            continue
+
+        if allowed_labels is not None and label not in allowed_labels:
+            continue
+
         candidate_result, candidate_cpos = resolve_static_tile_movement(
             world,
             entity,
@@ -893,6 +890,17 @@ def try_resolve_flow_chase_local_steering(
             record_counter_for_world(
                 world,
                 f"flow_chase.local_steering.candidate_blocked.{label}",
+            )
+            continue
+
+        if not flow_chase_local_steering_resolved_enough(
+                start_cpos,
+                candidate_cpos,
+                candidate_delta,
+        ):
+            record_counter_for_world(
+                world,
+                f"flow_chase.local_steering.candidate_rejected_partial.{label}",
             )
             continue
 
@@ -912,6 +920,7 @@ def try_resolve_flow_chase_local_steering(
             start_cpos,
             candidate_cpos,
             side,
+            candidate_delta,
             index,
         )
 
@@ -927,13 +936,160 @@ def try_resolve_flow_chase_local_steering(
         )
 
     if not options:
+        return None
+
+    options.sort(key=lambda item: item[0])
+    return options[0]
+
+
+def find_best_flow_chase_local_steering_option_for_side_tiers(
+    world,
+    entity,
+    controller,
+    start_cpos,
+    candidate_deltas,
+    allowed_side,
+):
+    forward_option = find_best_flow_chase_local_steering_option(
+        world,
+        entity,
+        controller,
+        start_cpos,
+        candidate_deltas,
+        allowed_side,
+        allowed_labels={
+            "forward_half_side",
+            "forward_full_side",
+        },
+    )
+
+    if forward_option is not None:
+        return forward_option
+
+    record_counter_for_world(
+        world,
+        "flow_chase.local_steering.pure_side_fallback_considered",
+    )
+
+    return find_best_flow_chase_local_steering_option(
+        world,
+        entity,
+        controller,
+        start_cpos,
+        candidate_deltas,
+        allowed_side,
+        allowed_labels={
+            "pure_side",
+        },
+    )
+
+
+def try_resolve_flow_chase_local_steering(
+    world,
+    entity,
+    controller,
+    start_cpos,
+    delta,
+    original_collision_result,
+):
+    record_counter_for_world(
+        world,
+        "flow_chase.local_steering.entry",
+    )
+
+    if not FLOW_CHASE_LOCAL_STEERING_ENABLED:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.skip.disabled",
+        )
+        return None
+
+    if not isinstance(controller, FlowChaseDirectController):
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.skip.not_flow_chase",
+        )
+        return None
+
+    if controller.steering_points:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.skip.has_steering_points",
+        )
+        return None
+
+    if original_collision_result.blocker_collision_type != "dynamic":
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.skip.not_dynamic",
+        )
+        record_counter_for_world(
+            world,
+            f"flow_chase.local_steering.skip.collision.{original_collision_result.collision_result}",
+        )
+
+        if original_collision_result.blocker_collision_type is None:
+            record_counter_for_world(
+                world,
+                "flow_chase.local_steering.skip.blocker_type.none",
+            )
+        else:
+            record_counter_for_world(
+                world,
+                f"flow_chase.local_steering.skip.blocker_type.{original_collision_result.blocker_collision_type}",
+            )
+
+        return None
+
+    candidate_deltas = iter_flow_chase_local_steering_candidate_deltas(
+        entity,
+        controller,
+        delta,
+    )
+
+    chosen_option = None
+
+    if controller.local_steering_side in {-1, 1}:
+        chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
+            world,
+            entity,
+            controller,
+            start_cpos,
+            candidate_deltas,
+            controller.local_steering_side,
+        )
+
+        if chosen_option is None:
+            chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
+                world,
+                entity,
+                controller,
+                start_cpos,
+                candidate_deltas,
+                -controller.local_steering_side,
+            )
+
+            if chosen_option is not None:
+                record_counter_for_world(
+                    world,
+                    "flow_chase.local_steering.side_switch",
+                )
+    else:
+        chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
+            world,
+            entity,
+            controller,
+            start_cpos,
+            candidate_deltas,
+            None,
+        )
+
+    if chosen_option is None:
         record_counter_for_world(
             world,
             "flow_chase.local_steering.failed",
         )
         return None
-
-    options.sort(key=lambda item: item[0])
 
     (
         _score,
@@ -942,10 +1098,19 @@ def try_resolve_flow_chase_local_steering(
         candidate_result,
         candidate_cpos,
         candidate_delta,
-    ) = options[0]
+    ) = chosen_option
 
     controller.local_steering_side = side
     controller.local_steering_last_tick = world.tick
+    controller.local_steering_last_delta = candidate_delta
+
+    record_flow_chase_local_steering_motion_diagnostics(
+        world,
+        controller,
+        start_cpos,
+        candidate_cpos,
+        candidate_delta,
+    )
 
     if entity in world.facing:
         world.facing[entity] = Vec2i(
@@ -1222,6 +1387,7 @@ def make_flow_chase_local_steering_score(
     start_cpos,
     resolved_cpos,
     side,
+    candidate_delta,
     candidate_index,
 ):
     before_distance = cpos_distance(
@@ -1233,19 +1399,109 @@ def make_flow_chase_local_steering_score(
         controller.base_target_cpos,
     )
 
-    preferred_side_penalty = 0
-
-    if controller.local_steering_side in {-1, 1}:
-        if side != controller.local_steering_side:
-            preferred_side_penalty = 1
-
     made_progress_penalty = 0 if after_distance < before_distance else 1
 
+    heading_penalty = 0
+
+    if vec_is_nonzero(controller.local_steering_last_delta):
+        heading_penalty = -dot_vec(
+            candidate_delta,
+            controller.local_steering_last_delta,
+        )
+
     return (
-        preferred_side_penalty,
         made_progress_penalty,
+        heading_penalty,
         after_distance,
         candidate_index,
+    )
+
+
+def record_flow_chase_local_steering_motion_diagnostics(
+    world,
+    controller,
+    start_cpos,
+    candidate_cpos,
+    candidate_delta,
+):
+    movement_distance = cpos_distance(
+        start_cpos,
+        candidate_cpos,
+    )
+
+    if movement_distance <= FLOW_CHASE_LOCAL_STEERING_TINY_MOVE_DIAGNOSTIC_CPOS:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.tiny_movement",
+        )
+
+    before_distance = cpos_distance(
+        start_cpos,
+        controller.base_target_cpos,
+    )
+    after_distance = cpos_distance(
+        candidate_cpos,
+        controller.base_target_cpos,
+    )
+
+    if after_distance < before_distance:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.progress",
+        )
+    else:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.no_progress",
+        )
+
+    if not vec_is_nonzero(controller.local_steering_last_delta):
+        return
+
+    heading_dot = dot_vec(
+        candidate_delta,
+        controller.local_steering_last_delta,
+    )
+
+    if heading_dot < 0:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.heading_flip",
+        )
+    elif heading_dot <= FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX:
+        record_counter_for_world(
+            world,
+            "flow_chase.local_steering.heading_sharp_turn",
+        )
+
+
+def vec_length_cpos(delta: Vec2i) -> int:
+    return cpos_distance(
+        Vec2i(0, 0),
+        delta,
+    )
+
+
+def flow_chase_local_steering_resolved_enough(
+    start_cpos,
+    resolved_cpos,
+    candidate_delta,
+):
+    requested_distance = vec_length_cpos(
+        candidate_delta,
+    )
+
+    if requested_distance == 0:
+        return False
+
+    resolved_distance = cpos_distance(
+        start_cpos,
+        resolved_cpos,
+    )
+
+    return (
+        resolved_distance * FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR
+        >= requested_distance * FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_NUMERATOR
     )
 
 
@@ -3408,6 +3664,7 @@ def clear_stale_flow_chase_local_steering_side(world, controller):
 
     controller.local_steering_side = 0
     controller.local_steering_last_tick = -1
+    controller.local_steering_last_delta = Vec2i(0, 0)
 
 
 def update_flow_chase_direct_controller_values(
@@ -4702,7 +4959,27 @@ def movement_system(world):
                 delta,
             )
 
-            if isinstance(controller, FlowChaseDirectController):
+            if False and isinstance(controller, FlowChaseDirectController):
+                record_counter_for_world(
+                    world,
+                    "flow_chase.local_steering.call_site",
+                )
+                record_counter_for_world(
+                    world,
+                    f"flow_chase.local_steering.call_site.collision.{collision_result.collision_result}",
+                )
+
+                if collision_result.blocker_collision_type is None:
+                    record_counter_for_world(
+                        world,
+                        "flow_chase.local_steering.call_site.blocker_type.none",
+                    )
+                else:
+                    record_counter_for_world(
+                        world,
+                        f"flow_chase.local_steering.call_site.blocker_type.{collision_result.blocker_collision_type}",
+                    )
+
                 local_steering_result = try_resolve_flow_chase_local_steering(
                     world,
                     entity,
@@ -4711,7 +4988,6 @@ def movement_system(world):
                     delta,
                     collision_result,
                 )
-
                 if local_steering_result is not None:
                     collision_result, resolved_cpos = local_steering_result
             else:
