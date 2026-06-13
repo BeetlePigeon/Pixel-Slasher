@@ -75,6 +75,18 @@ FLOW_CHASE_PROACTIVE_DIRECT_BIAS = TILE_UNITS // 8
 FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING = True
 FLOW_CHASE_PROACTIVE_ALLOW_STATIC_SLIDE = False
 
+FLOW_CHASE_PROACTIVE_TIER_1_PENALTY = 0
+FLOW_CHASE_PROACTIVE_TIER_2_PENALTY = TILE_UNITS // 2
+FLOW_CHASE_PROACTIVE_TIER_3_PENALTY = TILE_UNITS
+
+FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR = 3
+FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR = 1
+FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR = 4
+
+FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE = TILE_UNITS * TILE_UNITS // 64
+FLOW_CHASE_PROACTIVE_BACKTRACK_PENALTY = TILE_UNITS * 3
+FLOW_CHASE_PROACTIVE_CONTINUATION_BONUS = TILE_UNITS // 2
+
 # Temporary
 FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED = False
 FLOW_CHASE_MANUAL_STEERING_TEST_ENTITY = None
@@ -773,6 +785,80 @@ def dot_vec(a: Vec2i, b: Vec2i) -> int:
 
 def cpos_distance(a: Vec2i, b: Vec2i) -> int:
     return isqrt(cpos_distance_sq(a, b))
+
+
+def blend_flow_chase_recent_move_delta(
+    old_delta: Vec2i,
+    new_delta: Vec2i,
+) -> Vec2i:
+    return Vec2i(
+        (
+            old_delta.x * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR
+            + new_delta.x * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR
+        )
+        // FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR,
+        (
+            old_delta.y * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR
+            + new_delta.y * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR
+        )
+        // FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR,
+    )
+
+
+def update_flow_chase_proactive_recent_move_delta(
+    world,
+    controller,
+    actual_move_delta: Vec2i,
+):
+    if not vec_is_nonzero(actual_move_delta):
+        return
+
+    old_delta = controller.proactive_recent_move_delta
+    controller.proactive_recent_move_delta = blend_flow_chase_recent_move_delta(
+        old_delta,
+        actual_move_delta,
+    )
+
+    record_counter_for_world(
+        world,
+        "flow_chase.proactive.recent_move.updated",
+    )
+
+
+def score_flow_chase_recent_move_continuity(
+    world,
+    controller,
+    candidate_move_delta: Vec2i,
+    label,
+):
+    recent_move_delta = controller.proactive_recent_move_delta
+
+    if not vec_is_nonzero(recent_move_delta):
+        return 0
+
+    if not vec_is_nonzero(candidate_move_delta):
+        return 0
+
+    dot = flow_chase_dot_vec(
+        candidate_move_delta,
+        recent_move_delta,
+    )
+
+    if dot < -FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.backtrack.{label}",
+        )
+        return -FLOW_CHASE_PROACTIVE_BACKTRACK_PENALTY
+
+    if dot > FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.continuation.{label}",
+        )
+        return FLOW_CHASE_PROACTIVE_CONTINUATION_BONUS
+
+    return 0
 
 
 def scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
@@ -5140,6 +5226,29 @@ def flow_chase_dot_vec(a: Vec2i, b: Vec2i) -> int:
     return a.x * b.x + a.y * b.y
 
 
+def get_flow_chase_proactive_candidate_tier_penalty(label):
+    if label in {
+        "direct",
+        "forward_left_small",
+        "forward_right_small",
+        "forward_left_wide",
+        "forward_right_wide",
+    }:
+        return FLOW_CHASE_PROACTIVE_TIER_1_PENALTY
+
+    if label in {
+        "forward_left_very_wide",
+        "forward_right_very_wide",
+        "side_left_forward_tiny",
+        "side_right_forward_tiny",
+        "side_left_forward",
+        "side_right_forward",
+    }:
+        return FLOW_CHASE_PROACTIVE_TIER_2_PENALTY
+
+    return FLOW_CHASE_PROACTIVE_TIER_3_PENALTY
+
+
 def flow_chase_candidate_delta_from_raw(raw_delta: Vec2i, speed: int) -> Vec2i:
     aim_vector = normalize_vector_to_dir_scale(raw_delta)
 
@@ -5171,6 +5280,8 @@ def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
             0,
             base_delta,
         ),
+
+        # Tier 1: normal forward-biased fanning.
         (
             "forward_left_small",
             -1,
@@ -5203,6 +5314,8 @@ def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
                 speed,
             ),
         ),
+
+        # Tier 2: stronger fanning / circumvention, still forward-biased.
         (
             "forward_left_very_wide",
             -1,
@@ -5220,6 +5333,22 @@ def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
             ),
         ),
         (
+            "side_left_forward_tiny",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                left_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 8),
+                speed,
+            ),
+        ),
+        (
+            "side_right_forward_tiny",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                right_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 8),
+                speed,
+            ),
+        ),
+        (
             "side_left_forward",
             -1,
             flow_chase_candidate_delta_from_raw(
@@ -5232,6 +5361,57 @@ def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
             1,
             flow_chase_candidate_delta_from_raw(
                 right_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 4),
+                speed,
+            ),
+        ),
+
+        # Tier 3: true circumvention candidates.
+        # These are safe now because C13 rejects dirty candidates.
+        (
+            "side_left",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                left_side_delta,
+                speed,
+            ),
+        ),
+        (
+            "side_right",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                right_side_delta,
+                speed,
+            ),
+        ),
+        (
+            "side_left_back_tiny",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                left_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 8),
+                speed,
+            ),
+        ),
+        (
+            "side_right_back_tiny",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                right_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 8),
+                speed,
+            ),
+        ),
+        (
+            "side_left_back",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                left_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 4),
+                speed,
+            ),
+        ),
+        (
+            "side_right_back",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                right_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 4),
                 speed,
             ),
         ),
@@ -5409,12 +5589,23 @@ def score_flow_chase_proactive_candidate(
 
     score = progress
 
+    score -= get_flow_chase_proactive_candidate_tier_penalty(label)
+
     if label == "direct":
         score += FLOW_CHASE_PROACTIVE_DIRECT_BIAS
 
     score += score_flow_chase_neighbor_clearance(
         resolved_cpos,
         neighbor_cposes,
+    )
+
+    candidate_move_delta = resolved_cpos - start_cpos
+
+    score += score_flow_chase_recent_move_continuity(
+        world,
+        controller,
+        candidate_move_delta,
+        label,
     )
 
     previous_side = getattr(
@@ -5627,6 +5818,12 @@ def choose_flow_chase_proactive_delta(
         controller.local_steering_side = chosen["side"]
         controller.local_steering_last_tick = world.tick
         controller.local_steering_last_delta = chosen["delta"]
+
+    update_flow_chase_proactive_recent_move_delta(
+        world,
+        controller,
+        chosen["resolved_cpos"] - chosen["start_cpos"],
+    )
 
     return chosen["delta"]
 
