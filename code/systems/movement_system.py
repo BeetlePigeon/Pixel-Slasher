@@ -63,6 +63,18 @@ FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR = 4
 FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX = 0
 FLOW_CHASE_LOCAL_STEERING_PURE_SIDE_MIN_NO_PROGRESS_TICKS = 9999
 
+FLOW_CHASE_PROACTIVE_STEERING_ENABLED = True
+FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS = TILE_UNITS * 2
+FLOW_CHASE_PROACTIVE_DYNAMIC_COLLISION_PENALTY = TILE_UNITS * 19
+FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY = TILE_UNITS * 42
+FLOW_CHASE_PROACTIVE_PARTIAL_MOVE_PENALTY = TILE_UNITS * 4
+FLOW_CHASE_PROACTIVE_CLEARANCE_WEIGHT = 4
+FLOW_CHASE_PROACTIVE_SIDE_CONTINUITY_BONUS = TILE_UNITS // 3
+FLOW_CHASE_PROACTIVE_SIDE_SWITCH_PENALTY = TILE_UNITS * 3
+FLOW_CHASE_PROACTIVE_DIRECT_BIAS = TILE_UNITS // 8
+FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING = True
+FLOW_CHASE_PROACTIVE_ALLOW_STATIC_SLIDE = False
+
 # Temporary
 FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED = False
 FLOW_CHASE_MANUAL_STEERING_TEST_ENTITY = None
@@ -5107,6 +5119,518 @@ def flow_chase_movement_was_modified(
     return resolved_cpos != requested_cpos
 
 
+def flow_chase_vec_distance_sq(a: Vec2i, b: Vec2i) -> int:
+    dx = a.x - b.x
+    dy = a.y - b.y
+    return dx * dx + dy * dy
+
+
+def flow_chase_vec_distance(a: Vec2i, b: Vec2i) -> int:
+    return isqrt(flow_chase_vec_distance_sq(a, b))
+
+
+def flow_chase_scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
+    return Vec2i(
+        vec.x * numerator // denominator,
+        vec.y * numerator // denominator,
+    )
+
+
+def flow_chase_dot_vec(a: Vec2i, b: Vec2i) -> int:
+    return a.x * b.x + a.y * b.y
+
+
+def flow_chase_candidate_delta_from_raw(raw_delta: Vec2i, speed: int) -> Vec2i:
+    aim_vector = normalize_vector_to_dir_scale(raw_delta)
+
+    if aim_vector is None:
+        return Vec2i(0, 0)
+
+    return scale_normalized_dir(
+        aim_vector,
+        speed,
+    )
+
+
+def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
+    if not vec_is_nonzero(base_delta):
+        return []
+
+    left_side_delta = Vec2i(
+        -base_delta.y,
+        base_delta.x,
+    )
+    right_side_delta = Vec2i(
+        base_delta.y,
+        -base_delta.x,
+    )
+
+    return [
+        (
+            "direct",
+            0,
+            base_delta,
+        ),
+        (
+            "forward_left_small",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 1, 4),
+                speed,
+            ),
+        ),
+        (
+            "forward_right_small",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 1, 4),
+                speed,
+            ),
+        ),
+        (
+            "forward_left_wide",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 1, 2),
+                speed,
+            ),
+        ),
+        (
+            "forward_right_wide",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 1, 2),
+                speed,
+            ),
+        ),
+        (
+            "forward_left_very_wide",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 3, 4),
+                speed,
+            ),
+        ),
+        (
+            "forward_right_very_wide",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 3, 4),
+                speed,
+            ),
+        ),
+        (
+            "side_left_forward",
+            -1,
+            flow_chase_candidate_delta_from_raw(
+                left_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 4),
+                speed,
+            ),
+        ),
+        (
+            "side_right_forward",
+            1,
+            flow_chase_candidate_delta_from_raw(
+                right_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 4),
+                speed,
+            ),
+        ),
+    ]
+
+
+def get_flow_chase_same_target_neighbor_cposes(
+    world,
+    entity,
+    controller,
+):
+    current_cpos = world.transform[entity].cpos
+    radius_sq = (
+        FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS
+        * FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS
+    )
+
+    neighbors = []
+
+    for other_entity, other_transform in world.transform.items():
+        if other_entity == entity:
+            continue
+
+        other_motion_state = world.motion_state.get(other_entity)
+
+        if other_motion_state is None:
+            continue
+
+        other_controller = other_motion_state.get("controller")
+
+        if not isinstance(other_controller, FlowChaseDirectController):
+            continue
+
+        if other_controller.target_entity != controller.target_entity:
+            continue
+
+        distance_sq = flow_chase_vec_distance_sq(
+            current_cpos,
+            other_transform.cpos,
+        )
+
+        if distance_sq > radius_sq:
+            continue
+
+        neighbors.append(
+            (
+                distance_sq,
+                other_entity,
+                other_transform.cpos,
+            )
+        )
+
+    neighbors.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+
+    return [
+        neighbor_cpos
+        for _distance_sq, _other_entity, neighbor_cpos in neighbors
+    ]
+
+
+def score_flow_chase_neighbor_clearance(
+    candidate_cpos: Vec2i,
+    neighbor_cposes,
+):
+    score = 0
+
+    for neighbor_cpos in neighbor_cposes:
+        distance = flow_chase_vec_distance(
+            candidate_cpos,
+            neighbor_cpos,
+        )
+
+        if distance >= FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS:
+            continue
+
+        score -= (
+            FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS - distance
+        ) * FLOW_CHASE_PROACTIVE_CLEARANCE_WEIGHT
+
+    return score
+
+
+def is_flow_chase_proactive_candidate_clean(candidate):
+    collision_result = candidate["collision_result"]
+
+    if movement_collision_destroys(collision_result):
+        return False
+
+    if movement_collision_blocks(collision_result):
+        return False
+
+    if movement_collision_slides(collision_result):
+        if collision_result.blocker_collision_type == "dynamic":
+            return False
+
+        return FLOW_CHASE_PROACTIVE_ALLOW_STATIC_SLIDE
+
+    if not candidate["resolved_enough"]:
+        return False
+
+    if candidate["resolved_cpos"] == candidate["start_cpos"]:
+        return False
+
+    return True
+
+
+def score_flow_chase_proactive_candidate(
+    world,
+    entity,
+    controller,
+    start_cpos: Vec2i,
+    base_delta: Vec2i,
+    label,
+    side,
+    candidate_delta: Vec2i,
+    neighbor_cposes,
+):
+    if not vec_is_nonzero(candidate_delta):
+        return None
+
+    previous_collision_context = push_movement_collision_debug_context(
+        world,
+        "flow_chase.proactive_candidate",
+    )
+    try:
+        collision_result, resolved_cpos = trace_static_tile_path(
+            world,
+            entity,
+            start_cpos,
+            candidate_delta,
+        )
+    finally:
+        pop_movement_collision_debug_context(
+            world,
+            previous_collision_context,
+        )
+
+    if movement_collision_destroys(collision_result):
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.destroyed.{label}",
+        )
+        return None
+
+    before_distance = flow_chase_vec_distance(
+        start_cpos,
+        controller.base_target_cpos,
+    )
+    after_distance = flow_chase_vec_distance(
+        resolved_cpos,
+        controller.base_target_cpos,
+    )
+
+    progress = before_distance - after_distance
+
+    requested_distance = flow_chase_vec_distance(
+        start_cpos,
+        start_cpos + candidate_delta,
+    )
+    resolved_distance = flow_chase_vec_distance(
+        start_cpos,
+        resolved_cpos,
+    )
+
+    resolved_enough = flow_chase_local_steering_resolved_enough(
+        start_cpos,
+        resolved_cpos,
+        candidate_delta,
+    )
+
+    score = progress
+
+    if label == "direct":
+        score += FLOW_CHASE_PROACTIVE_DIRECT_BIAS
+
+    score += score_flow_chase_neighbor_clearance(
+        resolved_cpos,
+        neighbor_cposes,
+    )
+
+    previous_side = getattr(
+        controller,
+        "local_steering_side",
+        0,
+    )
+
+    if side != 0 and previous_side != 0:
+        if side == previous_side:
+            score += FLOW_CHASE_PROACTIVE_SIDE_CONTINUITY_BONUS
+        else:
+            score -= FLOW_CHASE_PROACTIVE_SIDE_SWITCH_PENALTY
+
+    if movement_collision_slides(collision_result):
+        if collision_result.blocker_collision_type == "dynamic":
+            score -= FLOW_CHASE_PROACTIVE_DYNAMIC_COLLISION_PENALTY
+            record_counter_for_world(
+                world,
+                f"flow_chase.proactive_candidate.dynamic_collision.{label}",
+            )
+        else:
+            score -= FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY
+            record_counter_for_world(
+                world,
+                f"flow_chase.proactive_candidate.static_collision.{label}",
+            )
+
+    if movement_collision_blocks(collision_result):
+        score -= FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.blocked.{label}",
+        )
+
+    if resolved_distance < requested_distance:
+        score -= (
+            requested_distance - resolved_distance
+        ) * FLOW_CHASE_PROACTIVE_PARTIAL_MOVE_PENALTY // max(
+            1,
+            TILE_UNITS,
+        )
+
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.partial.{label}",
+        )
+
+    if not resolved_enough:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.rejected_partial.{label}",
+        )
+
+    if after_distance < before_distance:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.progress.{label}",
+        )
+    else:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.no_progress.{label}",
+        )
+
+    return {
+        "score": score,
+        "label": label,
+        "side": side,
+        "delta": candidate_delta,
+        "collision_result": collision_result,
+        "resolved_cpos": resolved_cpos,
+        "start_cpos": start_cpos,
+        "resolved_enough": resolved_enough,
+    }
+
+
+def choose_flow_chase_proactive_delta(
+    world,
+    entity,
+    controller,
+    start_cpos: Vec2i,
+    base_delta: Vec2i,
+):
+    if not FLOW_CHASE_PROACTIVE_STEERING_ENABLED:
+        return base_delta
+
+    if not isinstance(controller, FlowChaseDirectController):
+        return base_delta
+
+    if not vec_is_nonzero(base_delta):
+        return base_delta
+
+    record_counter_for_world(
+        world,
+        "flow_chase.proactive.entry",
+    )
+
+    speed = getattr(
+        controller,
+        "speed",
+        flow_chase_vec_distance(
+            start_cpos,
+            start_cpos + base_delta,
+        ),
+    )
+
+    neighbor_cposes = get_flow_chase_same_target_neighbor_cposes(
+        world,
+        entity,
+        controller,
+    )
+
+    if neighbor_cposes:
+        record_counter_for_world(
+            world,
+            "flow_chase.proactive.neighbors",
+            len(neighbor_cposes),
+        )
+
+    candidates = build_flow_chase_proactive_candidates(
+        base_delta,
+        speed,
+    )
+
+    scored_candidates = []
+
+    for label, side, candidate_delta in candidates:
+        record_counter_for_world(
+            world,
+            f"flow_chase.proactive_candidate.considered.{label}",
+        )
+
+        scored_candidate = score_flow_chase_proactive_candidate(
+            world,
+            entity,
+            controller,
+            start_cpos,
+            base_delta,
+            label,
+            side,
+            candidate_delta,
+            neighbor_cposes,
+        )
+
+        if scored_candidate is None:
+            continue
+
+        scored_candidates.append(scored_candidate)
+
+    if not scored_candidates:
+        record_counter_for_world(
+            world,
+            "flow_chase.proactive.no_candidate",
+        )
+        return base_delta
+
+    clean_candidates = [
+        candidate
+        for candidate in scored_candidates
+        if is_flow_chase_proactive_candidate_clean(candidate)
+    ]
+
+    if clean_candidates:
+        record_counter_for_world(
+            world,
+            "flow_chase.proactive.clean_candidate",
+        )
+        candidates_to_sort = clean_candidates
+    else:
+        record_counter_for_world(
+            world,
+            "flow_chase.proactive.no_clean_candidate",
+        )
+
+        if FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING:
+            record_counter_for_world(
+                world,
+                "flow_chase.proactive.selected.hold",
+            )
+            return Vec2i(0, 0)
+
+        candidates_to_sort = scored_candidates
+
+    candidates_to_sort.sort(
+        key=lambda candidate: (
+            -candidate["score"],
+            candidate["label"],
+        )
+    )
+
+    chosen = candidates_to_sort[0]
+
+    record_counter_for_world(
+        world,
+        "flow_chase.proactive.selected",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.proactive.selected.{chosen['label']}",
+    )
+
+    if chosen["label"] != "direct":
+        record_counter_for_world(
+            world,
+            "flow_chase.proactive.selected_non_direct",
+        )
+
+    if chosen["side"] != 0:
+        controller.local_steering_side = chosen["side"]
+        controller.local_steering_last_tick = world.tick
+        controller.local_steering_last_delta = chosen["delta"]
+
+    return chosen["delta"]
+
+
 @profiled("movement_system")
 def movement_system(world):
     rebuild_dynamic_occupancy(world)
@@ -5129,11 +5653,20 @@ def movement_system(world):
                 transform.cpos,
             )
 
+        start_cpos = transform.cpos
+
+        if isinstance(controller, FlowChaseDirectController):
+            base_delta = choose_flow_chase_proactive_delta(
+                world,
+                entity,
+                controller,
+                start_cpos,
+                base_delta,
+            )
+
         influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
         influence_active = vec_is_nonzero(influence_delta)
-
         delta = base_delta + influence_delta
-        start_cpos = transform.cpos
 
         if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
