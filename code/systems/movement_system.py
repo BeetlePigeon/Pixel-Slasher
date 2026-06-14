@@ -28,6 +28,7 @@ from utils.tile_vec_utils import (
     sign,
     tile_center,
     tile_from_cpos,
+    tiles_crossed_by_segment,
     normalize_vector_to_dir_scale,
 )
 from utils.path_utils import (
@@ -69,6 +70,27 @@ class MovementCollisionResult:
 
 
 MOVEMENT_COLLISION_ALLOW = MovementCollisionResult("allow")
+
+
+@dataclass(frozen=True)
+class MovementProposal:
+    entity: int
+    controller: object
+    start_cpos: Vec2i
+    base_delta: Vec2i
+    influence_delta: Vec2i
+    final_delta: Vec2i
+    influence_active: bool
+
+
+@dataclass(frozen=True)
+class MovementApproval:
+    entity: int
+    approved: bool
+    delta: Vec2i
+    resolution_kind: str
+    collision_result: MovementCollisionResult = MOVEMENT_COLLISION_ALLOW
+    placement_path: tuple = ()
 
 
 def make_movement_collision_result(
@@ -1965,6 +1987,92 @@ def resolve_corner_crossing_collision(
     raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
 
 
+def get_first_extrapolated_tile_for_delta(start_cpos: Vec2i, delta: Vec2i):
+    if not vec_is_nonzero(delta):
+        return None
+
+    current_tile = tile_from_cpos(start_cpos)
+
+    dx = delta.x
+    dy = delta.y
+    step_x = sign(dx)
+    step_y = sign(dy)
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+
+    if step_x > 0:
+        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
+        next_cross_x = next_x_boundary - start_cpos.x
+    elif step_x < 0:
+        next_x_boundary = current_tile.x * TILE_UNITS
+        next_cross_x = start_cpos.x - next_x_boundary
+    else:
+        next_cross_x = None
+
+    if step_y > 0:
+        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
+        next_cross_y = next_y_boundary - start_cpos.y
+    elif step_y < 0:
+        next_y_boundary = current_tile.y * TILE_UNITS
+        next_cross_y = start_cpos.y - next_y_boundary
+    else:
+        next_cross_y = None
+
+    if next_cross_x is None:
+        return Vec2i(current_tile.x, current_tile.y + step_y)
+
+    if next_cross_y is None:
+        return Vec2i(current_tile.x + step_x, current_tile.y)
+
+    left = next_cross_x * abs_dy
+    right = next_cross_y * abs_dx
+
+    if near_corner_crossing(
+        next_cross_x,
+        next_cross_y,
+        abs_dx,
+        abs_dy,
+    ):
+        return Vec2i(current_tile.x + step_x, current_tile.y + step_y)
+
+    if left < right:
+        return Vec2i(current_tile.x + step_x, current_tile.y)
+
+    if right < left:
+        return Vec2i(current_tile.x, current_tile.y + step_y)
+
+    return Vec2i(current_tile.x + step_x, current_tile.y + step_y)
+
+
+def build_normal_movement_placement_path(start_cpos: Vec2i, delta: Vec2i):
+    if not vec_is_nonzero(delta):
+        return ()
+
+    current_tile = tile_from_cpos(start_cpos)
+    end_cpos = start_cpos + delta
+    target_tile = tile_from_cpos(end_cpos)
+
+    if current_tile == target_tile:
+        extrapolated_tile = get_first_extrapolated_tile_for_delta(
+            start_cpos,
+            delta,
+        )
+        if extrapolated_tile is None:
+            return ()
+        return (extrapolated_tile,)
+
+    crossed_tiles = tiles_crossed_by_segment(
+        start_cpos,
+        end_cpos,
+    )
+
+    return tuple(
+        tile
+        for tile in crossed_tiles
+        if tile != current_tile
+    )
+
+
 def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision[entity]
     behavior = policy["static_tiles"]
@@ -2577,6 +2685,32 @@ def sample_controller_delta(controller, current_cpos):
     return controller.sample_delta()
 
 
+def build_movement_proposal(world, entity):
+    motion_state = world.motion_state[entity]
+    controller = motion_state["controller"]
+    transform = world.transform[entity]
+
+    base_delta = Vec2i(0, 0)
+    if controller is not None:
+        base_delta = sample_controller_delta(
+            controller,
+            transform.cpos,
+        )
+
+    influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
+    final_delta = base_delta + influence_delta
+
+    return MovementProposal(
+        entity=entity,
+        controller=controller,
+        start_cpos=transform.cpos,
+        base_delta=base_delta,
+        influence_delta=influence_delta,
+        final_delta=final_delta,
+        influence_active=vec_is_nonzero(influence_delta),
+    )
+
+
 MOVEMENT_DIAGNOSTIC_DIRECTIONS = (
     ("N", Vec2i(0, -1)),
     ("NE", Vec2i(1, -1)),
@@ -3166,8 +3300,36 @@ def path_follow_movement_was_modified(
     return resolved_cpos != requested_cpos
 
 
-@profiled("movement_system")
-def movement_system(world):
+@profiled("movement_proposal_system")
+def movement_proposal_system(world):
+    world.clear_movement_planning_runtime()
+
+    entities = (
+        set(world.transform)
+        & set(world.motion_state)
+    )
+
+    for entity in sorted(entities):
+        proposal = build_movement_proposal(
+            world,
+            entity,
+        )
+
+        world.movement_proposal[entity] = proposal
+
+        # Temporary pass-through approval.
+        #
+        # Real admission will replace this in the next stages.
+        world.movement_approval[entity] = MovementApproval(
+            entity=entity,
+            approved=True,
+            delta=proposal.final_delta,
+            resolution_kind="legacy_passthrough",
+        )
+
+
+@profiled("movement_apply_system")
+def movement_apply_system(world):
     rebuild_dynamic_occupancy(world)
 
     entities = (

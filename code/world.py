@@ -87,6 +87,18 @@ class World:
         self.combat_attack = {}
         self.movement_collision = {}
 
+        # Per-tick movement planning runtime.
+        #
+        # movement_proposal stores the raw movement intent sampled for an entity
+        # before final admission.
+        #
+        # movement_approval stores the result that movement_apply_system will
+        # eventually consume.
+        #
+        # These are transient runtime maps, not persistent save data.
+        self.movement_proposal = {}
+        self.movement_approval = {}
+
         # Movement occupancy is passive physical presence:
         # which gameplay tile footprint an entity uses for movement,
         # terrain interaction, placement, and dynamic movement blocking.
@@ -210,6 +222,8 @@ class World:
             self.combat_body,
             self.combat_attack,
             self.movement_collision,
+            self.movement_proposal,
+            self.movement_approval,
             self.space_occupier,
             self.influence_emitter,
             self.influence_receiver,
@@ -223,6 +237,11 @@ class World:
         # per-entity maps rather than a single component map.
         return self.snapshot.values()
 
+
+    def clear_movement_planning_runtime(self):
+        self.movement_proposal.clear()
+        self.movement_approval.clear()
+        
 
     def remove_entity(self, eid):
         self.untrack_area_entity(eid)

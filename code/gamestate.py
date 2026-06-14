@@ -23,7 +23,8 @@ from systems import (
     action_order_system,
     ai_system,
     movement_arbiter_system,
-    movement_system,
+    movement_proposal_system,
+    movement_apply_system,
     destacking_system,
     event_system,
     skill_intent_resolution_system,
@@ -1334,7 +1335,8 @@ class StateGameplay(State):
         # movement system has had a chance to clear completed ones. This order
         # is intentional and prevents frame gaps when a motion controller finishes and is then reassigned.
         influence_system(self.game.world)
-        movement_system(self.game.world)
+        movement_proposal_system(self.game.world)
+        movement_apply_system(self.game.world)
         movement_arbiter_system(self.game.world)
         destacking_system(self.game.world)
         projectile_behavior_system(self.game.world)

@@ -52,6 +52,46 @@ def get_movement_body_tiles_for_origin_tile(world, eid, origin_tile):
     )
 
 
+def clear_dynamic_movement_reservations(world):
+    world.dynamic_reserved_centers = {}
+    world.dynamic_reserved_bodies = {}
+
+    # Compatibility alias for older debug/query code.
+    world.dynamic_reservations = world.dynamic_reserved_bodies
+
+
+def add_entity_movement_reservation_for_origin_tile(world, eid, origin_tile):
+    if not space_occupier_blocks_movement(world, eid):
+        return
+
+    world.dynamic_reserved_centers.setdefault(
+        origin_tile,
+        set(),
+    ).add(eid)
+
+    for body_tile in get_movement_body_tiles_for_origin_tile(
+        world,
+        eid,
+        origin_tile,
+    ):
+        world.dynamic_reserved_bodies.setdefault(
+            body_tile,
+            set(),
+        ).add(eid)
+
+    # Keep compatibility alias current.
+    world.dynamic_reservations = world.dynamic_reserved_bodies
+
+
+def add_entity_movement_reservations_for_origin_path(world, eid, origin_tiles):
+    for origin_tile in origin_tiles:
+        add_entity_movement_reservation_for_origin_tile(
+            world,
+            eid,
+            origin_tile,
+        )
+
+        
 def get_movement_wing_tiles_for_origin_tile(world, eid, origin_tile):
     center_tile = get_movement_center_tile_for_origin_tile(origin_tile)
 

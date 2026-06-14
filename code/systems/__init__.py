@@ -2,7 +2,7 @@ from systems.snapshot_system import snapshot_system
 from systems.action_state_system import action_state_system
 from systems.lifetime_system import lifetime_system
 from systems.ai_system import ai_system
-from systems.movement_system import movement_arbiter_system, movement_system
+from systems.movement_system import movement_arbiter_system, movement_proposal_system, movement_apply_system
 from systems.destacking_system import destacking_system
 from systems.event_system import event_system
 from systems.skill_system import skill_intent_resolution_system, skill_execution_system
@@ -26,7 +26,8 @@ __all__ = [
     "lifetime_system",
     "ai_system",
     "movement_arbiter_system",
-    "movement_system",
+    "movement_proposal_system",
+    "movement_apply_system",
     "destacking_system",
     "event_system",
     "skill_intent_resolution_system",
