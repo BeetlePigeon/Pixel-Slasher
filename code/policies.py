@@ -42,33 +42,10 @@ MOVEMENT_CANCELING_ACTION_TAGS = {
 }
 
 BASE_CLICK_MOVE_PATH_POLICY = {
-    # None means uncapped. Player pathing should usually stay uncapped.
-    "max_path_builds_per_tick": None,
-
-    # Shared budget bucket name. If None, the path policy name is used.
-    "path_build_budget_key": None,
-
     "max_expansions": 100,
     "max_path_length": 30,
     "smooth_max_path_length": 28,
     "target_snap_radius": 2,
-
-    # None means all valid snap candidates may be tried.
-    # Non-player policies can cap this to avoid many A* searches per request.
-    "target_snap_candidate_limit": None,
-
-    # Failed path cache key shape.
-    #
-    # "exact":
-    #   entity + start tile + target tile + policy + dynamic blocker context
-    #
-    # "target_only":
-    #   entity + target tile + policy
-    #
-    # Player movement should generally use "exact".
-    # Enemy movement can use "target_only" to suppress repeated failed
-    # attempts while clumped or blocked.
-    "failed_query_key_scope": "exact",
 
     # Minimum ticks between expensive path-build attempts for this entity.
     #
@@ -169,14 +146,8 @@ PATH_POLICIES = {
 
         "dynamic_block_response": "retry",
         "max_repath_attempts": 4,
+#        "max_repath_attempts": 1,
 #        "stall_ticks_before_repath": 5,
-
-        "failed_retry_ticks": 45,
-        "target_snap_candidate_limit": 4,
-        "failed_query_key_scope": "target_only",
-
-        "max_path_builds_per_tick": 2,
-        "path_build_budget_key": "actor_move",
     },
 }
 

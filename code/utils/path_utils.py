@@ -2,7 +2,7 @@ import heapq
 from utils.perf_profiler import profiled, record_counter_for_world
 from utils.placement_utils import (
     get_entity_placement_body_tiles,
-    is_tile_statically_valid_for_entity_placement_cached,
+    is_tile_valid_for_entity_placement,
 )
 from utils.occupancy_utils import (
     get_entity_movement_body_tiles,
@@ -184,10 +184,11 @@ class PathNavCache:
             "path.nav_checks",
         )
 
-        result = is_tile_statically_valid_for_entity_placement_cached(
+        result = is_tile_valid_for_entity_placement(
             self.world,
             tile,
             entity=self.entity,
+            include_dynamic=False,
         )
 
         if result and self.dynamic_blocker_context is not None:
@@ -278,10 +279,11 @@ def tile_is_navigable_for_entity(
         "path.nav_checks",
     )
 
-    result = is_tile_statically_valid_for_entity_placement_cached(
+    result = is_tile_valid_for_entity_placement(
         world,
         tile,
         entity=entity,
+        include_dynamic=False,
     )
 
     if not result:
@@ -634,9 +636,9 @@ def iter_target_snap_candidates(
     start_tile: Vec2i,
     snap_radius: int,
     nav_cache=None,
-    max_candidate_goals=None,
 ):
     candidates = []
+
     candidate_tests = 0
     candidate_valid = 0
 
@@ -647,6 +649,7 @@ def iter_target_snap_candidates(
                     target_tile.x + dx,
                     target_tile.y + dy,
                 )
+
                 distance_from_target = chebyshev_tile_distance(
                     candidate,
                     target_tile,
@@ -666,6 +669,7 @@ def iter_target_snap_candidates(
                     continue
 
                 candidate_valid += 1
+
                 distance_from_start = chebyshev_tile_distance(
                     candidate,
                     start_tile,
@@ -680,6 +684,18 @@ def iter_target_snap_candidates(
                     candidate,
                 ))
 
+    record_counter_for_world(
+        world,
+        "path.snap_tests",
+        candidate_tests,
+    )
+
+    record_counter_for_world(
+        world,
+        "path.snap_valid",
+        candidate_valid,
+    )
+
     candidates.sort(
         key=lambda item: (
             item[0],
@@ -688,25 +704,6 @@ def iter_target_snap_candidates(
             item[3],
             item[4],
         )
-    )
-
-    if max_candidate_goals is not None:
-        candidates = candidates[:max_candidate_goals]
-
-    record_counter_for_world(
-        world,
-        "path.snap_tests",
-        candidate_tests,
-    )
-    record_counter_for_world(
-        world,
-        "path.snap_valid",
-        candidate_valid,
-    )
-    record_counter_for_world(
-        world,
-        "path.snap_candidates_yielded",
-        len(candidates),
     )
 
     for candidate in candidates:
@@ -724,7 +721,6 @@ def find_static_tile_path_to_target(
     max_path_length,
     target_snap_radius: int,
     dynamic_blocker_context=None,
-    max_candidate_goals=None,
 ):
     record_path_request_source(
         world,
@@ -737,6 +733,7 @@ def find_static_tile_path_to_target(
         entity,
         dynamic_blocker_context=dynamic_blocker_context,
     )
+
     candidate_goals_tried = 0
 
     try:
@@ -747,7 +744,6 @@ def find_static_tile_path_to_target(
             start_tile,
             target_snap_radius,
             nav_cache=nav_cache,
-            max_candidate_goals=max_candidate_goals,
         ):
             if search_budget.remaining <= 0:
                 record_counter_for_world(
@@ -755,10 +751,12 @@ def find_static_tile_path_to_target(
                     "path.goals_tried",
                     candidate_goals_tried,
                 )
+
                 record_counter_for_world(
                     world,
                     "path.to_target.budget_empty",
                 )
+
                 return None
 
             candidate_goals_tried += 1
@@ -780,10 +778,12 @@ def find_static_tile_path_to_target(
                     "path.goals_tried",
                     candidate_goals_tried,
                 )
+
                 record_counter_for_world(
                     world,
                     "path.to_target.success",
                 )
+
                 return path
 
         record_counter_for_world(
@@ -791,10 +791,12 @@ def find_static_tile_path_to_target(
             "path.goals_tried",
             candidate_goals_tried,
         )
+
         record_counter_for_world(
             world,
             "path.to_target.failed",
         )
+
         return None
 
     finally:

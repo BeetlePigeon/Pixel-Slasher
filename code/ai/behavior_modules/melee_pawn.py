@@ -2,7 +2,6 @@ from utils.tile_vec_utils import tile_center
 from ai.ai_queries import (
     entity_is_in_attack_range_of_target,
     entity_is_valid_target,
-    get_entity_attack_range_tiles,
     find_closest_valid_attack_position,
     get_player_if_detectable,
     tile_distance_between_entities,
@@ -33,40 +32,17 @@ def set_debug_engagement_sprite(world, entity, in_range):
     sprite["image"] = image
 
 
-def build_flow_field_chase_intent(
-    world,
-    entity,
-    target,
-    path_policy,
-    max_radius_tiles,
-    flow_policy,
-    lookahead_nodes,
-):
-    return {
-        "type": "move_to_entity_flow_field",
-        "target_entity": target,
-        "desired_range_tiles": get_entity_attack_range_tiles(
-            world,
-            entity,
-        ),
-        "max_radius_tiles": max_radius_tiles,
-        "path_policy": path_policy,
-        "flow_policy": flow_policy,
-        "lookahead_nodes": lookahead_nodes,
-    }
-
 
 def think(context):
     world = context.world
     entity = context.entity
     agent = context.agent
-    params = agent["params"]
+    params = agent.get("params", {})
 
-    detect_radius_tiles = params["detect_radius_tiles"]
-    lose_radius_tiles = params["lose_radius_tiles"]
-    desired_range_tiles = params["desired_range_tiles"]
-    path_policy = params["path_policy"]
-    movement_mode = params["movement_mode"]
+    detect_radius_tiles = params.get("detect_radius_tiles")
+    lose_radius_tiles = params.get("lose_radius_tiles")
+    desired_range_tiles = params.get("desired_range_tiles")
+    path_policy = params.get("path_policy")
 
     target = agent.get("target_entity")
 
@@ -129,21 +105,6 @@ def think(context):
     else:
         set_debug_engagement_sprite(world, entity, False)
 
-    agent["state"] = "pursuing"
-
-    if movement_mode == "flow_field":
-        return [
-            build_flow_field_chase_intent(
-                world,
-                entity,
-                target,
-                path_policy,
-                max_radius_tiles=lose_radius_tiles,
-                flow_policy=params["flow_policy"],
-                lookahead_nodes=params["lookahead_nodes"],
-            )
-        ]
-
     attack_position_tile = find_closest_valid_attack_position(
         world,
         entity,
@@ -152,11 +113,14 @@ def think(context):
 
     if attack_position_tile is None:
         agent["state"] = "no_valid_attack_position"
+
         return [
             {
                 "type": "stop_moving",
             }
         ]
+
+    agent["state"] = "pursuing"
 
     return [
         {

@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from support import Vec2i
 from utils.tile_vec_utils import (
     scale_normalized_dir,
@@ -88,84 +88,6 @@ class DirectionalMoveController:
 
     def advance(self):
         pass
-
-    def finished(self) -> bool:
-        return False
-
-
-@dataclass
-class FlowChaseDirectController:
-    target_entity: int
-    desired_range_tiles: int
-    base_target_cpos: Vec2i
-    aim_vector: Vec2i
-    raw_vector: Vec2i
-    speed: int
-    steering_points: list[Vec2i] = field(default_factory=list)
-    local_steering_side: int = 0
-    local_steering_last_tick: int = -1
-    local_steering_last_delta: Vec2i = field(default_factory=lambda: Vec2i(0, 0))
-    local_steering_no_progress_ticks: int = 0
-    proactive_recent_move_delta: Vec2i = field(default_factory=lambda: Vec2i(0, 0))
-
-    diagnostic_no_clean_ticks: int = 0
-    diagnostic_hold_ticks: int = 0
-    diagnostic_no_attack_progress_ticks: int = 0
-    diagnostic_last_attack_distance_tiles: int = -1
-
-    motion_tag = "flow_chase_direct"
-    block_response = BLOCK_RESPONSE_RETRY
-
-    def sample_delta_from(self, current_cpos: Vec2i) -> Vec2i:
-        remaining_distance = self.speed
-        next_cpos = current_cpos
-        next_steering_index = 0
-
-        while remaining_distance > 0:
-            if next_steering_index < len(self.steering_points):
-                target_cpos = self.steering_points[next_steering_index]
-                target_is_steering_point = True
-            else:
-                target_cpos = self.base_target_cpos
-                target_is_steering_point = False
-
-            to_target = target_cpos - next_cpos
-            distance = math.isqrt(
-                to_target.x * to_target.x + to_target.y * to_target.y
-            )
-
-            if distance == 0:
-                if target_is_steering_point:
-                    next_steering_index += 1
-                    continue
-                break
-
-            if distance <= remaining_distance:
-                next_cpos = target_cpos
-                remaining_distance -= distance
-
-                if target_is_steering_point:
-                    next_steering_index += 1
-                    continue
-
-                break
-
-            step = scale_normalized_dir(
-                normalize_vector_to_dir_scale(to_target),
-                remaining_distance,
-            )
-            next_cpos = next_cpos + step
-            remaining_distance = 0
-
-        self._pending_steering_points = self.steering_points[next_steering_index:]
-        return next_cpos - current_cpos
-
-    def advance(self):
-        self.steering_points = getattr(
-            self,
-            "_pending_steering_points",
-            self.steering_points,
-        )
 
     def finished(self) -> bool:
         return False

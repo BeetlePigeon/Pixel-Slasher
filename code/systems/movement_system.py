@@ -7,20 +7,12 @@ from support import Vec2i
 from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
-from utils.perf_profiler import profiled, record_counter_for_world
-from flow_chase_tuning import apply_flow_chase_tuning_to_globals
-from utils.flow_field_utils import (
-    get_or_build_flow_field,
-    get_flow_field_side_pressure_counts,
-    get_flow_field_step_candidates,
-    get_flow_field_step_candidates_from_tile,
-)
+from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
     rebuild_dynamic_occupancy,
-    refresh_entity_dynamic_occupancy,
+    mark_dynamic_occupancy_dirty,
     is_tile_blocked_for_movement,
     get_dynamic_movement_blockers_for_placement,
-    get_dynamic_movement_blocker_sources_for_placement,
     get_movement_body_tiles_for_origin_tile,
 )
 from motion_controllers import (
@@ -31,15 +23,12 @@ from motion_controllers import (
     SettleToGridController,
     PathFollowController,
     DirectionalMoveController,
-    FlowChaseDirectController,
 )
 from utils.tile_vec_utils import (
     sign,
     tile_center,
     tile_from_cpos,
     normalize_vector_to_dir_scale,
-    scale_normalized_dir,
-    chebyshev_tile_distance,
 )
 from utils.path_utils import (
     find_static_tile_path_to_target,
@@ -53,51 +42,7 @@ CORNER_CROSSING_TOLERANCE_CPOS = 32
 PATH_FOLLOW_STALL_LOCAL = "local_stalled"
 PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT = "path_progress_timed_out"
 PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
-PATH_BUILD_DEFERRED = object()
 
-FLOW_CHASE_LOCAL_STEERING_ENABLED = True
-FLOW_CHASE_LOCAL_STEERING_SIDE_PERSIST_TICKS = 12
-FLOW_CHASE_LOCAL_STEERING_MAX_EXTRA_DISTANCE_CPOS = TILE_UNITS * 2
-FLOW_CHASE_LOCAL_STEERING_TINY_MOVE_DIAGNOSTIC_CPOS = TILE_UNITS // 8
-FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_NUMERATOR = 3
-FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR = 4
-FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX = 0
-FLOW_CHASE_LOCAL_STEERING_PURE_SIDE_MIN_NO_PROGRESS_TICKS = 9999
-
-FLOW_CHASE_PROACTIVE_STEERING_ENABLED = True
-FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS = TILE_UNITS * 2
-FLOW_CHASE_PROACTIVE_DYNAMIC_COLLISION_PENALTY = TILE_UNITS * 19
-FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY = TILE_UNITS * 42
-FLOW_CHASE_PROACTIVE_PARTIAL_MOVE_PENALTY = TILE_UNITS * 4
-FLOW_CHASE_PROACTIVE_CLEARANCE_WEIGHT = 4
-FLOW_CHASE_PROACTIVE_SIDE_CONTINUITY_BONUS = TILE_UNITS // 3
-FLOW_CHASE_PROACTIVE_SIDE_SWITCH_PENALTY = TILE_UNITS * 3
-FLOW_CHASE_PROACTIVE_DIRECT_BIAS = TILE_UNITS // 8
-FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING = True
-FLOW_CHASE_PROACTIVE_ALLOW_STATIC_SLIDE = False
-
-FLOW_CHASE_PROACTIVE_TIER_1_PENALTY = 0
-FLOW_CHASE_PROACTIVE_TIER_2_PENALTY = TILE_UNITS // 2
-FLOW_CHASE_PROACTIVE_TIER_3_PENALTY = TILE_UNITS
-
-FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR = 3
-FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR = 1
-FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR = 4
-
-FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE = TILE_UNITS * TILE_UNITS // 64
-FLOW_CHASE_PROACTIVE_BACKTRACK_PENALTY = TILE_UNITS * 3
-FLOW_CHASE_PROACTIVE_CONTINUATION_BONUS = TILE_UNITS // 2
-
-# Temporary
-FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED = False
-FLOW_CHASE_MANUAL_STEERING_TEST_ENTITY = None
-FLOW_CHASE_MANUAL_STEERING_TEST_SIDE = 1
-FLOW_CHASE_MANUAL_STEERING_TEST_SIDE_CPOS = TILE_UNITS
-FLOW_CHASE_MANUAL_STEERING_TEST_FORWARD_CPOS = TILE_UNITS * 2
-
-FLOW_CHASE_DIAGNOSTIC_CENTERED_TOLERANCE_CPOS = TILE_UNITS // 32
-FLOW_CHASE_DIAGNOSTIC_NEAR_CENTER_TOLERANCE_CPOS = TILE_UNITS // 8
-FLOW_CHASE_DIAGNOSTIC_LONG_STREAK_TICKS = 12
 
 @dataclass(frozen=True)
 class MovementCollisionResult:
@@ -303,8 +248,6 @@ def entity_can_start_voluntary_movement(world, entity):
 
 @profiled("movement_arbiter")
 def movement_arbiter_system(world):
-    apply_flow_chase_tuning_to_globals(globals())
-
     rebuild_dynamic_occupancy(world)
 
     active_directional_entities = {
@@ -312,10 +255,7 @@ def movement_arbiter_system(world):
         for entity, motion_state in world.motion_state.items()
         if isinstance(
             motion_state.get("controller"),
-            (
-                DirectionalMoveController,
-                FlowChaseDirectController,
-            ),
+            DirectionalMoveController,
         )
     }
 
@@ -335,10 +275,8 @@ def movement_arbiter_system(world):
         motion_state = world.motion_state[entity]
 
         if clear_stale_order_owned_move_target(world, entity):
-            refresh_moved_entity_occupancy(
-                world,
-                entity,
-            )
+            mark_dynamic_occupancy_dirty(world)
+            rebuild_dynamic_occupancy(world)
             continue
 
         if not entity_can_start_voluntary_movement(world, entity):
@@ -347,43 +285,24 @@ def movement_arbiter_system(world):
 
         controller = motion_state["controller"]
 
-        if isinstance(controller, FlowChaseDirectController):
-            if entity in world.move_intent:
-                cancel_move_target_for_directional_input(world, entity)
-                clear_motion_controller(motion_state)
-                refresh_moved_entity_occupancy(
-                    world,
-                    entity,
-                )
-                continue
-
-            update_flow_chase_direct_controller(
-                world,
-                entity,
-                controller,
-            )
-            continue
-
         if isinstance(controller, DirectionalMoveController):
             if entity in world.move_intent:
                 cancel_move_target_for_directional_input(world, entity)
+
                 updated = update_directional_continuous_controller(
                     world,
                     entity,
                     controller,
                     world.move_intent[entity],
                 )
-
                 if not updated:
                     stop_directional_continuous_controller(
                         world,
                         entity,
                     )
                 else:
-                    refresh_moved_entity_occupancy(
-                        world,
-                        entity,
-                    )
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
 
                 continue
 
@@ -405,10 +324,8 @@ def movement_arbiter_system(world):
 
                 clear_motion_controller(motion_state)
 
-                refresh_moved_entity_occupancy(
-                    world,
-                    entity,
-                )
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
 
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
@@ -446,10 +363,8 @@ def movement_arbiter_system(world):
                     entity,
                     desired_direction,
                 )
-                refresh_moved_entity_occupancy(
-                    world,
-                    entity,
-                )
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
                 continue
 
             started = start_directional_movement_controller(
@@ -507,59 +422,21 @@ def clear_motion_controller(motion_state):
     motion_state.pop("path_follow_progress", None)
 
 
-def refresh_moved_entity_occupancy(world, entity):
-    refresh_entity_dynamic_occupancy(
-        world,
-        entity,
-    )
-
-
 def make_path_query_key(
     entity,
     start_tile,
     target_tile,
     path_policy_name,
     dynamic_blocker_key,
-    path_policy,
 ):
-    key_scope = path_policy.get(
-        "failed_query_key_scope",
-        "exact",
-    )
-
-    if key_scope == "exact":
-        return (
-            entity,
-            "exact",
-            start_tile.x,
-            start_tile.y,
-            target_tile.x,
-            target_tile.y,
-            path_policy_name,
-            dynamic_blocker_key,
-        )
-
-    if key_scope == "target_only":
-        return (
-            entity,
-            "target_only",
-            target_tile.x,
-            target_tile.y,
-            path_policy_name,
-        )
-
-    raise ValueError(
-        f"Unknown failed_query_key_scope: {key_scope!r}"
-    )
-
-
-def path_query_key_needs_dynamic_blocker_context(path_policy):
     return (
-        path_policy.get(
-            "failed_query_key_scope",
-            "exact",
-        )
-        == "exact"
+        entity,
+        start_tile.x,
+        start_tile.y,
+        target_tile.x,
+        target_tile.y,
+        path_policy_name,
+        dynamic_blocker_key,
     )
 
 
@@ -583,33 +460,17 @@ def path_query_failed_recently(world, query_key):
     retry_tick = world.failed_path_queries.get(query_key)
 
     if retry_tick is None:
-        record_counter_for_world(
-            world,
-            "path.failed_cache.miss",
-        )
         return False
 
     if world.tick < retry_tick:
-        record_counter_for_world(
-            world,
-            "path.failed_cache.hit",
-        )
         return True
 
     world.failed_path_queries.pop(query_key, None)
-    record_counter_for_world(
-        world,
-        "path.failed_cache.expired",
-    )
     return False
 
 
 def remember_failed_path_query(world, query_key, retry_ticks):
     world.failed_path_queries[query_key] = world.tick + retry_ticks
-    record_counter_for_world(
-        world,
-        "path.failed_cache.remember",
-    )
 
 
 def clear_failed_path_query(world, query_key):
@@ -628,73 +489,6 @@ def get_path_policy_name(target):
 
 def get_path_policy(world, target):
     return PATH_POLICIES[get_path_policy_name(target)]
-
-
-def get_path_build_budget_key(path_policy_name, path_policy):
-    return path_policy.get(
-        "path_build_budget_key",
-        path_policy_name,
-    )
-
-
-def get_path_build_budget_state(world, budget_key):
-    state = world.path_build_budget_state.setdefault(
-        budget_key,
-        {
-            "tick": world.tick,
-            "used": 0,
-        },
-    )
-
-    if state["tick"] != world.tick:
-        state["tick"] = world.tick
-        state["used"] = 0
-
-    return state
-
-
-def path_build_budget_allows(
-    world,
-    path_policy_name,
-    path_policy,
-):
-    max_builds = path_policy.get("max_path_builds_per_tick")
-
-    if max_builds is None:
-        return True
-
-    budget_key = get_path_build_budget_key(
-        path_policy_name,
-        path_policy,
-    )
-    state = get_path_build_budget_state(
-        world,
-        budget_key,
-    )
-
-    if state["used"] >= max_builds:
-        record_counter_for_world(
-            world,
-            "path.build_budget.exhausted",
-        )
-        record_counter_for_world(
-            world,
-            f"path.build_budget.exhausted.{budget_key}",
-        )
-        return False
-
-    state["used"] += 1
-
-    record_counter_for_world(
-        world,
-        "path.build_budget.consumed",
-    )
-    record_counter_for_world(
-        world,
-        f"path.build_budget.consumed.{budget_key}",
-    )
-
-    return True
 
 
 def build_path_dynamic_blocker_context(
@@ -785,86 +579,8 @@ def cpos_distance_sq(a: Vec2i, b: Vec2i) -> int:
     return dx * dx + dy * dy
 
 
-def dot_vec(a: Vec2i, b: Vec2i) -> int:
-    return a.x * b.x + a.y * b.y
-
-
 def cpos_distance(a: Vec2i, b: Vec2i) -> int:
     return isqrt(cpos_distance_sq(a, b))
-
-
-def blend_flow_chase_recent_move_delta(
-    old_delta: Vec2i,
-    new_delta: Vec2i,
-) -> Vec2i:
-    return Vec2i(
-        (
-            old_delta.x * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR
-            + new_delta.x * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR
-        )
-        // FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR,
-        (
-            old_delta.y * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_OLD_NUMERATOR
-            + new_delta.y * FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_NEW_NUMERATOR
-        )
-        // FLOW_CHASE_PROACTIVE_RECENT_MOVE_BLEND_DENOMINATOR,
-    )
-
-
-def update_flow_chase_proactive_recent_move_delta(
-    world,
-    controller,
-    actual_move_delta: Vec2i,
-):
-    if not vec_is_nonzero(actual_move_delta):
-        return
-
-    old_delta = controller.proactive_recent_move_delta
-    controller.proactive_recent_move_delta = blend_flow_chase_recent_move_delta(
-        old_delta,
-        actual_move_delta,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.proactive.recent_move.updated",
-    )
-
-
-def score_flow_chase_recent_move_continuity(
-    world,
-    controller,
-    candidate_move_delta: Vec2i,
-    label,
-):
-    recent_move_delta = controller.proactive_recent_move_delta
-
-    if not vec_is_nonzero(recent_move_delta):
-        return 0
-
-    if not vec_is_nonzero(candidate_move_delta):
-        return 0
-
-    dot = flow_chase_dot_vec(
-        candidate_move_delta,
-        recent_move_delta,
-    )
-
-    if dot < -FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.backtrack.{label}",
-        )
-        return -FLOW_CHASE_PROACTIVE_BACKTRACK_PENALTY
-
-    if dot > FLOW_CHASE_PROACTIVE_BACKTRACK_DOT_DEADZONE:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.continuation.{label}",
-        )
-        return FLOW_CHASE_PROACTIVE_CONTINUATION_BONUS
-
-    return 0
 
 
 def scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
@@ -964,317 +680,6 @@ def make_local_avoidance_score(
         candidate_index,
         after_distance,
     )
-
-
-def find_best_flow_chase_local_steering_option(
-    world,
-    entity,
-    controller,
-    start_cpos,
-    candidate_deltas,
-    allowed_side,
-    allowed_labels=None,
-):
-    options = []
-
-    for index, (side, label, candidate_delta) in enumerate(candidate_deltas):
-        if allowed_side is not None and side != allowed_side:
-            continue
-
-        if allowed_labels is not None and label not in allowed_labels:
-            continue
-
-        previous_collision_context = push_movement_collision_debug_context(
-            world,
-            "flow_chase.local_steering_candidate",
-        )
-        try:
-            candidate_result, candidate_cpos = resolve_static_tile_movement(
-                world,
-                entity,
-                start_cpos,
-                candidate_delta,
-            )
-        finally:
-            pop_movement_collision_debug_context(
-                world,
-                previous_collision_context,
-            )
-
-        if not movement_collision_allows(candidate_result):
-            record_counter_for_world(
-                world,
-                f"flow_chase.local_steering.candidate_blocked.{label}",
-            )
-            continue
-
-        if not flow_chase_local_steering_resolved_enough(
-                start_cpos,
-                candidate_cpos,
-                candidate_delta,
-        ):
-            record_counter_for_world(
-                world,
-                f"flow_chase.local_steering.candidate_rejected_partial.{label}",
-            )
-            continue
-
-        if not flow_chase_local_steering_candidate_is_acceptable(
-            controller,
-            start_cpos,
-            candidate_cpos,
-        ):
-            record_counter_for_world(
-                world,
-                f"flow_chase.local_steering.candidate_rejected.{label}",
-            )
-            continue
-
-        score = make_flow_chase_local_steering_score(
-            controller,
-            start_cpos,
-            candidate_cpos,
-            side,
-            candidate_delta,
-            index,
-        )
-
-        options.append(
-            (
-                score,
-                side,
-                label,
-                candidate_result,
-                candidate_cpos,
-                candidate_delta,
-            )
-        )
-
-    if not options:
-        return None
-
-    options.sort(key=lambda item: item[0])
-    return options[0]
-
-
-def find_best_flow_chase_local_steering_option_for_side_tiers(
-    world,
-    entity,
-    controller,
-    start_cpos,
-    candidate_deltas,
-    allowed_side,
-):
-    forward_option = find_best_flow_chase_local_steering_option(
-        world,
-        entity,
-        controller,
-        start_cpos,
-        candidate_deltas,
-        allowed_side,
-        allowed_labels={
-            "forward_half_side",
-            "forward_full_side",
-        },
-    )
-
-    if forward_option is not None:
-        return forward_option
-
-    if not flow_chase_local_steering_pure_side_allowed(controller):
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.pure_side_suppressed_not_stuck",
-        )
-        return None
-
-    record_counter_for_world(
-        world,
-        "flow_chase.local_steering.pure_side_fallback_considered",
-    )
-
-    return find_best_flow_chase_local_steering_option(
-        world,
-        entity,
-        controller,
-        start_cpos,
-        candidate_deltas,
-        allowed_side,
-        allowed_labels={
-            "pure_side",
-        },
-    )
-
-
-def try_resolve_flow_chase_local_steering(
-    world,
-    entity,
-    controller,
-    start_cpos,
-    delta,
-    original_collision_result,
-):
-    record_counter_for_world(
-        world,
-        "flow_chase.local_steering.entry",
-    )
-
-    if not FLOW_CHASE_LOCAL_STEERING_ENABLED:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.skip.disabled",
-        )
-        return None
-
-    if not isinstance(controller, FlowChaseDirectController):
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.skip.not_flow_chase",
-        )
-        return None
-
-    if controller.steering_points:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.skip.has_steering_points",
-        )
-        return None
-
-    if original_collision_result.blocker_collision_type != "dynamic":
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.skip.not_dynamic",
-        )
-        record_counter_for_world(
-            world,
-            f"flow_chase.local_steering.skip.collision.{original_collision_result.collision_result}",
-        )
-
-        if original_collision_result.blocker_collision_type is None:
-            record_counter_for_world(
-                world,
-                "flow_chase.local_steering.skip.blocker_type.none",
-            )
-        else:
-            record_counter_for_world(
-                world,
-                f"flow_chase.local_steering.skip.blocker_type.{original_collision_result.blocker_collision_type}",
-            )
-
-        return None
-
-    candidate_deltas = iter_flow_chase_local_steering_candidate_deltas(
-        entity,
-        controller,
-        delta,
-    )
-
-    chosen_option = None
-
-    if controller.local_steering_side in {-1, 1}:
-        chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
-            world,
-            entity,
-            controller,
-            start_cpos,
-            candidate_deltas,
-            controller.local_steering_side,
-        )
-
-        if chosen_option is None:
-            chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
-                world,
-                entity,
-                controller,
-                start_cpos,
-                candidate_deltas,
-                -controller.local_steering_side,
-            )
-
-            if chosen_option is not None:
-                record_counter_for_world(
-                    world,
-                    "flow_chase.local_steering.side_switch",
-                )
-    else:
-        chosen_option = find_best_flow_chase_local_steering_option_for_side_tiers(
-            world,
-            entity,
-            controller,
-            start_cpos,
-            candidate_deltas,
-            None,
-        )
-
-    if chosen_option is None:
-        controller.local_steering_no_progress_ticks += 1
-
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.failed",
-        )
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.progress_state.failed_no_progress_tick",
-        )
-
-        return None
-
-    (
-        _score,
-        side,
-        label,
-        candidate_result,
-        candidate_cpos,
-        candidate_delta,
-    ) = chosen_option
-
-    controller.local_steering_side = side
-    controller.local_steering_last_tick = world.tick
-    controller.local_steering_last_delta = candidate_delta
-
-    update_flow_chase_local_steering_progress_state(
-        world,
-        controller,
-        start_cpos,
-        candidate_cpos,
-    )
-
-    record_flow_chase_local_steering_motion_diagnostics(
-        world,
-        controller,
-        start_cpos,
-        candidate_cpos,
-        candidate_delta,
-    )
-
-    if entity in world.facing:
-        world.facing[entity] = Vec2i(
-            sign(candidate_delta.x),
-            sign(candidate_delta.y),
-        )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.local_steering.resolved",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.local_steering.resolved.{label}",
-    )
-
-    if side < 0:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.side.left",
-        )
-    else:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.side.right",
-        )
-
-    return candidate_result, candidate_cpos
 
 
 def try_resolve_path_follow_local_avoidance(
@@ -1391,254 +796,6 @@ def local_avoidance_candidate_is_acceptable(
             return False
 
     return True
-
-
-def get_flow_chase_local_steering_sides(entity, controller):
-    if controller.local_steering_side in {-1, 1}:
-        return (
-            controller.local_steering_side,
-            -controller.local_steering_side,
-        )
-
-    if entity % 2 == 0:
-        return (1, -1)
-
-    return (-1, 1)
-
-
-def make_flow_chase_side_delta(delta, side):
-    return Vec2i(
-        -delta.y * side,
-        delta.x * side,
-    )
-
-
-def append_flow_chase_local_steering_candidate(
-    candidates,
-    seen,
-    side,
-    label,
-    delta,
-):
-    if not vec_is_nonzero(delta):
-        return
-
-    key = (delta.x, delta.y)
-
-    if key in seen:
-        return
-
-    seen.add(key)
-    candidates.append(
-        (
-            side,
-            label,
-            delta,
-        )
-    )
-
-
-def iter_flow_chase_local_steering_candidate_deltas(
-    entity,
-    controller,
-    delta,
-):
-    candidates = []
-    seen = set()
-
-    for side in get_flow_chase_local_steering_sides(
-        entity,
-        controller,
-    ):
-        side_delta = make_flow_chase_side_delta(
-            delta,
-            side,
-        )
-
-        half_side_delta = scale_vec_ratio(
-            side_delta,
-            1,
-            2,
-        )
-        forward_half_side_delta = clamp_vec_length_to_reference(
-            delta + half_side_delta,
-            delta,
-        )
-        append_flow_chase_local_steering_candidate(
-            candidates,
-            seen,
-            side,
-            "forward_half_side",
-            forward_half_side_delta,
-        )
-
-        forward_full_side_delta = clamp_vec_length_to_reference(
-            delta + side_delta,
-            delta,
-        )
-        append_flow_chase_local_steering_candidate(
-            candidates,
-            seen,
-            side,
-            "forward_full_side",
-            forward_full_side_delta,
-        )
-
-        append_flow_chase_local_steering_candidate(
-            candidates,
-            seen,
-            side,
-            "pure_side",
-            side_delta,
-        )
-
-    return candidates
-
-
-def flow_chase_local_steering_candidate_is_acceptable(
-    controller,
-    start_cpos,
-    resolved_cpos,
-):
-    if resolved_cpos == start_cpos:
-        return False
-
-    before_distance = cpos_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-    after_distance = cpos_distance(
-        resolved_cpos,
-        controller.base_target_cpos,
-    )
-
-    return (
-        after_distance
-        <= before_distance + FLOW_CHASE_LOCAL_STEERING_MAX_EXTRA_DISTANCE_CPOS
-    )
-
-
-def make_flow_chase_local_steering_score(
-    controller,
-    start_cpos,
-    resolved_cpos,
-    side,
-    candidate_delta,
-    candidate_index,
-):
-    before_distance = cpos_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-    after_distance = cpos_distance(
-        resolved_cpos,
-        controller.base_target_cpos,
-    )
-
-    made_progress_penalty = 0 if after_distance < before_distance else 1
-
-    heading_penalty = 0
-
-    if vec_is_nonzero(controller.local_steering_last_delta):
-        heading_penalty = -dot_vec(
-            candidate_delta,
-            controller.local_steering_last_delta,
-        )
-
-    return (
-        made_progress_penalty,
-        heading_penalty,
-        after_distance,
-        candidate_index,
-    )
-
-
-def record_flow_chase_local_steering_motion_diagnostics(
-    world,
-    controller,
-    start_cpos,
-    candidate_cpos,
-    candidate_delta,
-):
-    movement_distance = cpos_distance(
-        start_cpos,
-        candidate_cpos,
-    )
-
-    if movement_distance <= FLOW_CHASE_LOCAL_STEERING_TINY_MOVE_DIAGNOSTIC_CPOS:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.tiny_movement",
-        )
-
-    before_distance = cpos_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-    after_distance = cpos_distance(
-        candidate_cpos,
-        controller.base_target_cpos,
-    )
-
-    if after_distance < before_distance:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.progress",
-        )
-    else:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.no_progress",
-        )
-
-    if not vec_is_nonzero(controller.local_steering_last_delta):
-        return
-
-    heading_dot = dot_vec(
-        candidate_delta,
-        controller.local_steering_last_delta,
-    )
-
-    if heading_dot < 0:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.heading_flip",
-        )
-    elif heading_dot <= FLOW_CHASE_LOCAL_STEERING_SHARP_TURN_DOT_MAX:
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.heading_sharp_turn",
-        )
-
-
-def vec_length_cpos(delta: Vec2i) -> int:
-    return cpos_distance(
-        Vec2i(0, 0),
-        delta,
-    )
-
-
-def flow_chase_local_steering_resolved_enough(
-    start_cpos,
-    resolved_cpos,
-    candidate_delta,
-):
-    requested_distance = vec_length_cpos(
-        candidate_delta,
-    )
-
-    if requested_distance == 0:
-        return False
-
-    resolved_distance = cpos_distance(
-        start_cpos,
-        resolved_cpos,
-    )
-
-    return (
-        resolved_distance * FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_DENOMINATOR
-        >= requested_distance * FLOW_CHASE_LOCAL_STEERING_MIN_RESOLVED_NUMERATOR
-    )
 
 
 def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
@@ -1928,13 +1085,6 @@ def clear_move_target_after_path_finish_if_needed(world, entity):
     target = world.move_target.get(entity)
 
     if target is None:
-        return
-
-    if target["type"] == "flow_field_to_entity":
-        record_counter_for_world(
-            world,
-            "flow_field.finish.keep_target",
-        )
         return
 
     path_policy = get_path_policy(world, target)
@@ -2306,78 +1456,6 @@ def resolve_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i)
     return collision_result, resolved_cpos
 
 
-def resolve_flow_chase_direct_movement(
-    world,
-    entity,
-    controller,
-    start_cpos: Vec2i,
-    delta: Vec2i,
-):
-    collision_result, resolved_cpos = trace_static_tile_path(
-        world,
-        entity,
-        start_cpos,
-        delta,
-    )
-
-    if not (
-            movement_collision_slides(collision_result)
-            and collision_result.blocker_collision_type == "dynamic"
-    ):
-        controller.local_steering_no_progress_ticks = 0
-
-    if (
-            movement_collision_slides(collision_result)
-            and collision_result.blocker_collision_type == "dynamic"
-    ):
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.dynamic_slide_seen",
-        )
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.dynamic_retry_attempt",
-        )
-
-        local_steering_result = try_resolve_flow_chase_local_steering(
-            world,
-            entity,
-            controller,
-            start_cpos,
-            delta,
-            collision_result,
-        )
-
-        if local_steering_result is not None:
-            record_counter_for_world(
-                world,
-                "flow_chase.local_steering.dynamic_retry_resolved",
-            )
-            return local_steering_result
-
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.dynamic_retry_failed",
-        )
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.dynamic_retry_failed_no_generic_slide",
-        )
-
-        return collision_result, resolved_cpos
-
-    if movement_collision_slides(collision_result):
-        return resolve_slide_static_tile_movement(
-            world,
-            entity,
-            start_cpos,
-            delta,
-            collision_result,
-        )
-
-    return collision_result, resolved_cpos
-
-
 def resolve_slide_static_tile_movement(world, entity, start_cpos: Vec2i, delta: Vec2i, slide_source_result=None):
     ratio = get_movement_slide_ratio(world, entity)
 
@@ -2637,65 +1715,6 @@ def set_move_target(
         "created_tick": created_tick,
         "repath_attempts": repath_attempts,
         "next_repath_tick": next_repath_tick,
-    }
-
-
-def set_flow_field_move_target(
-    world,
-    entity,
-    target_entity,
-    desired_range_tiles,
-    max_radius_tiles,
-    path_policy,
-    flow_policy,
-    lookahead_nodes,
-    owner_order_id=None,
-):
-    existing_target = world.move_target.get(entity)
-
-    owner_changed = (
-        existing_target is not None
-        and existing_target.get("owner_order_id") != owner_order_id
-    )
-
-    if existing_target is None:
-        target_changed = True
-
-    elif existing_target.get("type") != "flow_field_to_entity":
-        target_changed = True
-
-    else:
-        target_changed = (
-            existing_target["target_entity"] != target_entity
-            or existing_target["desired_range_tiles"] != desired_range_tiles
-            or existing_target["max_radius_tiles"] != max_radius_tiles
-            or existing_target["path_policy"] != path_policy
-            or existing_target["flow_policy"] != flow_policy
-            or existing_target["lookahead_nodes"] != lookahead_nodes
-        )
-
-    if existing_target is None or owner_changed or target_changed:
-        created_tick = world.tick
-        repath_attempts = 0
-        next_repath_tick = world.tick
-
-    else:
-        created_tick = existing_target.get("created_tick", world.tick)
-        repath_attempts = existing_target.get("repath_attempts", 0)
-        next_repath_tick = existing_target.get("next_repath_tick", world.tick)
-
-    world.move_target[entity] = {
-        "type": "flow_field_to_entity",
-        "target_entity": target_entity,
-        "desired_range_tiles": desired_range_tiles,
-        "max_radius_tiles": max_radius_tiles,
-        "path_policy": path_policy,
-        "flow_policy": flow_policy,
-        "owner_order_id": owner_order_id,
-        "created_tick": created_tick,
-        "repath_attempts": repath_attempts,
-        "next_repath_tick": next_repath_tick,
-        "lookahead_nodes": lookahead_nodes,
     }
 
 
@@ -2963,250 +1982,6 @@ def handle_static_tile_collision(world, entity, next_tile):
     return MOVEMENT_COLLISION_ALLOW
 
 
-def get_movement_collision_debug_context(world):
-    return getattr(
-        world,
-        "_movement_collision_debug_context",
-        "unknown",
-    )
-
-
-def push_movement_collision_debug_context(world, context):
-    previous_context = get_movement_collision_debug_context(world)
-    world._movement_collision_debug_context = context
-    return previous_context
-
-
-def pop_movement_collision_debug_context(world, previous_context):
-    world._movement_collision_debug_context = previous_context
-
-
-def record_dynamic_movement_block_counter(world, entity):
-    record_counter_for_world(
-        world,
-        "movement.dynamic_block",
-    )
-    record_counter_for_world(
-        world,
-        f"movement.dynamic_block.context.{get_movement_collision_debug_context(world)}",
-    )
-
-    target = world.move_target.get(entity)
-    if target is not None:
-        record_counter_for_world(
-            world,
-            f"movement.dynamic_block.target.{target['type']}",
-        )
-
-    motion_state = world.motion_state.get(entity)
-    if motion_state is None:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.none",
-        )
-        return
-
-    controller = motion_state.get("controller")
-    if controller is None:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.none",
-        )
-        return
-
-    if isinstance(controller, PathFollowController):
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.path_follow",
-        )
-        return
-
-    if isinstance(controller, FlowChaseDirectController):
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.flow_chase_direct",
-        )
-        return
-
-    if isinstance(controller, DirectionalMoveController):
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.directional",
-        )
-        return
-
-    if isinstance(controller, GridMoveController):
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.grid_move",
-        )
-        return
-
-    if isinstance(controller, SettleToGridController):
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.controller.settle",
-        )
-        return
-
-    record_counter_for_world(
-        world,
-        "movement.dynamic_block.controller.other",
-    )
-
-
-def record_dynamic_movement_block_source_counters(world, blocker_sources):
-    current_body_on_center = bool(
-        blocker_sources.get("current_body_on_center")
-    )
-    current_center_on_body = bool(
-        blocker_sources.get("current_center_on_body")
-    )
-    reserved_body_on_center = bool(
-        blocker_sources.get("reserved_body_on_center")
-    )
-    reserved_center_on_body = bool(
-        blocker_sources.get("reserved_center_on_body")
-    )
-
-    has_current = current_body_on_center or current_center_on_body
-    has_reserved = reserved_body_on_center or reserved_center_on_body
-
-    if not has_current and not has_reserved:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.unknown",
-        )
-        return
-
-    if has_current:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.current",
-        )
-
-    if has_reserved:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.reserved",
-        )
-
-    if has_current and has_reserved:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.current_and_reserved",
-        )
-    elif has_current:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.current_only",
-        )
-    else:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.reserved_only",
-        )
-
-    if current_body_on_center:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.current_body_on_center",
-        )
-
-    if current_center_on_body:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.current_center_on_body",
-        )
-
-    if reserved_body_on_center:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.reserved_body_on_center",
-        )
-
-    if reserved_center_on_body:
-        record_counter_for_world(
-            world,
-            "movement.dynamic_block.source.reserved_center_on_body",
-        )
-
-
-def get_dynamic_blocker_controller_label(world, blocker_entity):
-    motion_state = world.motion_state.get(blocker_entity)
-
-    if motion_state is None:
-        return "no_motion_state"
-
-    controller = motion_state.get("controller")
-
-    if controller is None:
-        return "none"
-
-    if isinstance(controller, PathFollowController):
-        return "path_follow"
-
-    if isinstance(controller, FlowChaseDirectController):
-        return "flow_chase_direct"
-
-    if isinstance(controller, DirectionalMoveController):
-        return "directional"
-
-    if isinstance(controller, GridMoveController):
-        return "grid_move"
-
-    if isinstance(controller, SettleToGridController):
-        return "settle"
-
-    return "other"
-
-
-def record_dynamic_movement_blocker_state_counters(world, blocker_sources):
-    all_blockers = set()
-
-    current_blockers = set()
-    reserved_blockers = set()
-
-    for source_name, source_blockers in blocker_sources.items():
-        all_blockers.update(source_blockers)
-
-        if source_name.startswith("current_"):
-            current_blockers.update(source_blockers)
-
-        if source_name.startswith("reserved_"):
-            reserved_blockers.update(source_blockers)
-
-    for blocker_entity in all_blockers:
-        controller_label = get_dynamic_blocker_controller_label(
-            world,
-            blocker_entity,
-        )
-        record_counter_for_world(
-            world,
-            f"movement.dynamic_block.blocker_controller.{controller_label}",
-        )
-
-    for blocker_entity in current_blockers:
-        controller_label = get_dynamic_blocker_controller_label(
-            world,
-            blocker_entity,
-        )
-        record_counter_for_world(
-            world,
-            f"movement.dynamic_block.current_blocker_controller.{controller_label}",
-        )
-
-    for blocker_entity in reserved_blockers:
-        controller_label = get_dynamic_blocker_controller_label(
-            world,
-            blocker_entity,
-        )
-        record_counter_for_world(
-            world,
-            f"movement.dynamic_block.reserved_blocker_controller.{controller_label}",
-        )
-
-
 def handle_dynamic_movement_collision(world, entity, next_tile):
     policy = world.movement_collision[entity]
     behavior = policy["dynamic_blockers"]
@@ -3214,42 +1989,19 @@ def handle_dynamic_movement_collision(world, entity, next_tile):
     if behavior == "allow":
         return MOVEMENT_COLLISION_ALLOW
 
-    proposed_body_tiles = get_movement_body_tiles_for_origin_tile(
-        world,
-        entity,
-        next_tile,
-    )
-
     blockers = get_dynamic_movement_blockers_for_placement(
         world,
         mover_entity=entity,
         proposed_center_tile=next_tile,
-        proposed_body_tiles=proposed_body_tiles,
+        proposed_body_tiles=get_movement_body_tiles_for_origin_tile(
+            world,
+            entity,
+            next_tile,
+        ),
         include_reservations=True,
     )
 
     if blockers:
-        blocker_sources = get_dynamic_movement_blocker_sources_for_placement(
-            world,
-            mover_entity=entity,
-            proposed_center_tile=next_tile,
-            proposed_body_tiles=proposed_body_tiles,
-            include_reservations=True,
-        )
-
-        record_dynamic_movement_block_counter(
-            world,
-            entity,
-        )
-        record_dynamic_movement_block_source_counters(
-            world,
-            blocker_sources,
-        )
-        record_dynamic_movement_blocker_state_counters(
-            world,
-            blocker_sources,
-        )
-
         return make_movement_collision_result(
             behavior,
             blocker_collision_type="dynamic",
@@ -3393,6 +2145,7 @@ def build_direct_fallback_nodes(world, entity, target, path_policy):
 
 @profiled("path.build")
 def build_path_follow_nodes(world, entity, target):
+    transform = world.transform[entity]
     locomotion = world.locomotion[entity]
 
     current_tile = get_navigation_start_tile(world, entity)
@@ -3404,19 +2157,16 @@ def build_path_follow_nodes(world, entity, target):
     path_policy_name = get_path_policy_name(target)
     path_policy = get_path_policy(world, target)
 
-    dynamic_blocker_context = None
-    dynamic_blocker_key = None
+    dynamic_blocker_context = build_path_dynamic_blocker_context(
+        world,
+        entity,
+        current_tile,
+        path_policy,
+    )
 
-    if path_query_key_needs_dynamic_blocker_context(path_policy):
-        dynamic_blocker_context = build_path_dynamic_blocker_context(
-            world,
-            entity,
-            current_tile,
-            path_policy,
-        )
-        dynamic_blocker_key = get_path_dynamic_blocker_key(
-            dynamic_blocker_context,
-        )
+    dynamic_blocker_key = get_path_dynamic_blocker_key(
+        dynamic_blocker_context,
+    )
 
     query_key = make_path_query_key(
         entity,
@@ -3424,37 +2174,13 @@ def build_path_follow_nodes(world, entity, target):
         target_tile,
         path_policy_name,
         dynamic_blocker_key,
-        path_policy,
     )
 
     if path_query_failed_recently(world, query_key):
-        record_counter_for_world(
-            world,
-            "path.build.skipped_failed_cache",
-        )
         return build_direct_fallback_nodes(
             world,
             entity,
             target,
-            path_policy,
-        )
-
-    if not path_build_budget_allows(
-        world,
-        path_policy_name,
-        path_policy,
-    ):
-        record_counter_for_world(
-            world,
-            "path.build.deferred_budget",
-        )
-        return PATH_BUILD_DEFERRED
-
-    if not path_query_key_needs_dynamic_blocker_context(path_policy):
-        dynamic_blocker_context = build_path_dynamic_blocker_context(
-            world,
-            entity,
-            current_tile,
             path_policy,
         )
 
@@ -3468,7 +2194,6 @@ def build_path_follow_nodes(world, entity, target):
         max_path_length=path_policy["max_path_length"],
         target_snap_radius=path_policy["target_snap_radius"],
         dynamic_blocker_context=dynamic_blocker_context,
-        max_candidate_goals=path_policy["target_snap_candidate_limit"],
     )
 
     if path_tiles is None:
@@ -3477,6 +2202,7 @@ def build_path_follow_nodes(world, entity, target):
             query_key,
             path_policy["failed_retry_ticks"],
         )
+
         return build_direct_fallback_nodes(
             world,
             entity,
@@ -3490,7 +2216,6 @@ def build_path_follow_nodes(world, entity, target):
 
     if smooth_max is not None and len(path_tiles) > smooth_max:
         smoothed_tiles = path_tiles
-
     else:
         smoothed_tiles = smooth_static_tile_path(
             world,
@@ -3550,10 +2275,8 @@ def start_directional_node_follow_controller(
     if entity in world.facing:
         world.facing[entity] = resolved_direction
 
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
+    rebuild_dynamic_occupancy(world)
+
     return True
 
 
@@ -3607,10 +2330,8 @@ def start_directional_grid_move_controller(
     if entity in world.facing:
         world.facing[entity] = resolved_direction
 
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
+    rebuild_dynamic_occupancy(world)
+
     return True
 
 
@@ -3709,449 +2430,11 @@ def stop_directional_continuous_controller(world, entity):
 
     clear_motion_controller(motion_state)
 
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
 
     request_settle_when_allowed(world, entity)
     start_requested_settle_if_allowed(world, entity)
-
-
-def get_flow_chase_target_entity(world, target):
-    target_entity = target["target_entity"]
-
-    if target_entity not in world.transform:
-        return None
-
-    return target_entity
-
-
-def get_flow_chase_target_cpos(world, target):
-    target_entity = get_flow_chase_target_entity(
-        world,
-        target,
-    )
-
-    if target_entity is None:
-        return None
-
-    target_tile = tile_from_cpos(
-        world.transform[target_entity].cpos,
-    )
-
-    return tile_center(
-        target_tile,
-    )
-
-
-def flow_chase_entity_in_desired_range(world, entity, target):
-    target_cpos = get_flow_chase_target_cpos(
-        world,
-        target,
-    )
-
-    if target_cpos is None:
-        return False
-
-    current_tile = tile_from_cpos(
-        world.transform[entity].cpos,
-    )
-    target_tile = tile_from_cpos(
-        target_cpos,
-    )
-
-    return (
-        chebyshev_tile_distance(
-            current_tile,
-            target_tile,
-        )
-        <= target["desired_range_tiles"]
-    )
-
-
-def get_flow_chase_raw_vector(world, entity, target):
-    target_cpos = get_flow_chase_target_cpos(
-        world,
-        target,
-    )
-
-    if target_cpos is None:
-        return None
-
-    return target_cpos - world.transform[entity].cpos
-
-
-def discard_reached_flow_chase_steering_points(world, entity, controller):
-    transform = world.transform[entity]
-
-    while (
-        controller.steering_points
-        and is_at_cpos(transform.cpos, controller.steering_points[0])
-    ):
-        controller.steering_points.pop(0)
-        record_counter_for_world(
-            world,
-            "flow_chase.steering.point_reached",
-        )
-
-
-def get_flow_chase_active_target_cpos(controller):
-    if controller.steering_points:
-        return controller.steering_points[0]
-
-    return controller.base_target_cpos
-
-
-def flow_chase_manual_steering_test_applies_to_entity(entity):
-    return (
-        FLOW_CHASE_MANUAL_STEERING_TEST_ENTITY is None
-        or entity == FLOW_CHASE_MANUAL_STEERING_TEST_ENTITY
-    )
-
-
-def build_manual_flow_chase_steering_points(world, entity, base_target_cpos):
-    start_cpos = world.transform[entity].cpos
-    raw_forward = base_target_cpos - start_cpos
-    forward_dir = normalize_vector_to_dir_scale(raw_forward)
-
-    if forward_dir is None:
-        return []
-
-    raw_side = Vec2i(
-        -raw_forward.y * FLOW_CHASE_MANUAL_STEERING_TEST_SIDE,
-        raw_forward.x * FLOW_CHASE_MANUAL_STEERING_TEST_SIDE,
-    )
-    side_dir = normalize_vector_to_dir_scale(raw_side)
-
-    if side_dir is None:
-        return []
-
-    side_step = scale_normalized_dir(
-        side_dir,
-        FLOW_CHASE_MANUAL_STEERING_TEST_SIDE_CPOS,
-    )
-    forward_step = scale_normalized_dir(
-        forward_dir,
-        FLOW_CHASE_MANUAL_STEERING_TEST_FORWARD_CPOS,
-    )
-
-    return [
-        start_cpos + side_step,
-        start_cpos + side_step + forward_step,
-    ]
-
-
-def maybe_install_manual_flow_chase_steering_test(
-    world,
-    entity,
-    controller,
-    base_target_cpos,
-):
-    if not FLOW_CHASE_MANUAL_STEERING_TEST_ENABLED:
-        return
-
-    if not flow_chase_manual_steering_test_applies_to_entity(entity):
-        return
-
-    if getattr(controller, "manual_steering_test_installed", False):
-        return
-
-    if controller.steering_points:
-        return
-
-    steering_points = build_manual_flow_chase_steering_points(
-        world,
-        entity,
-        base_target_cpos,
-    )
-
-    if not steering_points:
-        return
-
-    controller.steering_points = steering_points
-    controller.manual_steering_test_installed = True
-
-    record_counter_for_world(
-        world,
-        "flow_chase.manual_steering_test.installed",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.manual_steering_test.points.{len(steering_points)}",
-    )
-
-
-def clear_stale_flow_chase_local_steering_side(world, controller):
-    if controller.local_steering_side == 0:
-        return
-
-    if (
-        world.tick - controller.local_steering_last_tick
-        <= FLOW_CHASE_LOCAL_STEERING_SIDE_PERSIST_TICKS
-    ):
-        return
-
-    controller.local_steering_side = 0
-    controller.local_steering_last_tick = -1
-    controller.local_steering_last_delta = Vec2i(0, 0)
-    controller.local_steering_no_progress_ticks = 0
-
-
-def flow_chase_local_steering_makes_progress(
-    controller,
-    start_cpos,
-    candidate_cpos,
-):
-    before_distance = cpos_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-    after_distance = cpos_distance(
-        candidate_cpos,
-        controller.base_target_cpos,
-    )
-
-    return after_distance < before_distance
-
-
-def flow_chase_local_steering_pure_side_allowed(controller):
-    return (
-        controller.local_steering_no_progress_ticks
-        >= FLOW_CHASE_LOCAL_STEERING_PURE_SIDE_MIN_NO_PROGRESS_TICKS
-    )
-
-
-def update_flow_chase_local_steering_progress_state(
-    world,
-    controller,
-    start_cpos,
-    candidate_cpos,
-):
-    if flow_chase_local_steering_makes_progress(
-        controller,
-        start_cpos,
-        candidate_cpos,
-    ):
-        controller.local_steering_no_progress_ticks = 0
-        record_counter_for_world(
-            world,
-            "flow_chase.local_steering.progress_state.reset",
-        )
-        return
-
-    controller.local_steering_no_progress_ticks += 1
-    record_counter_for_world(
-        world,
-        "flow_chase.local_steering.progress_state.no_progress_tick",
-    )
-
-
-def update_flow_chase_direct_controller_values(
-    world,
-    entity,
-    controller,
-    base_target_cpos,
-):
-    controller.base_target_cpos = base_target_cpos
-
-    clear_stale_flow_chase_local_steering_side(
-        world,
-        controller,
-    )
-
-    discard_reached_flow_chase_steering_points(
-        world,
-        entity,
-        controller,
-    )
-
-    active_target_cpos = get_flow_chase_active_target_cpos(
-        controller,
-    )
-
-    raw_vector = active_target_cpos - world.transform[entity].cpos
-    aim_vector = normalize_vector_to_dir_scale(raw_vector)
-
-    if aim_vector is None:
-        return False
-
-    controller.aim_vector = aim_vector
-    controller.raw_vector = raw_vector
-    controller.speed = get_locomotion_speed_cpos_per_tick(
-        world.locomotion[entity],
-    )
-
-    if entity in world.facing:
-        world.facing[entity] = Vec2i(
-            sign(raw_vector.x),
-            sign(raw_vector.y),
-        )
-
-    return True
-
-
-def start_flow_chase_direct_controller(world, entity, target):
-    target_entity = get_flow_chase_target_entity(
-        world,
-        target,
-    )
-
-    if target_entity is None:
-        clear_move_target(world, entity)
-        return False
-
-    if flow_chase_entity_in_desired_range(
-        world,
-        entity,
-        target,
-    ):
-        record_counter_for_world(
-            world,
-            "flow_chase.direct.in_desired_range",
-        )
-        return False
-
-    if not world.locomotion[entity].get("can_move_8way", True):
-        return False
-
-    base_target_cpos = get_flow_chase_target_cpos(
-        world,
-        target,
-    )
-
-    if base_target_cpos is None:
-        clear_move_target(world, entity)
-        return False
-
-    raw_vector = base_target_cpos - world.transform[entity].cpos
-    aim_vector = normalize_vector_to_dir_scale(raw_vector)
-
-    if aim_vector is None:
-        return False
-
-    controller = FlowChaseDirectController(
-        target_entity=target_entity,
-        desired_range_tiles=target["desired_range_tiles"],
-        base_target_cpos=base_target_cpos,
-        aim_vector=aim_vector,
-        raw_vector=raw_vector,
-        speed=get_locomotion_speed_cpos_per_tick(
-            world.locomotion[entity],
-        ),
-    )
-
-    motion_state = world.motion_state[entity]
-    motion_state["controller"] = controller
-    motion_state["controller_source"] = "flow_chase_direct"
-
-    if entity in world.facing:
-        world.facing[entity] = Vec2i(
-            sign(raw_vector.x),
-            sign(raw_vector.y),
-        )
-
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.direct.start",
-    )
-
-    return True
-
-
-def stop_flow_chase_direct_controller(world, entity):
-    motion_state = world.motion_state[entity]
-    clear_motion_controller(motion_state)
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.direct.stop",
-    )
-
-
-def update_flow_chase_direct_controller(world, entity, controller):
-    target = world.move_target.get(entity)
-
-    if target is None or target["type"] != "flow_field_to_entity":
-        stop_flow_chase_direct_controller(
-            world,
-            entity,
-        )
-        return
-
-    target_entity = get_flow_chase_target_entity(
-        world,
-        target,
-    )
-
-    if target_entity is None:
-        clear_move_target(world, entity)
-        stop_flow_chase_direct_controller(
-            world,
-            entity,
-        )
-        return
-
-    if flow_chase_entity_in_desired_range(
-        world,
-        entity,
-        target,
-    ):
-        stop_flow_chase_direct_controller(
-            world,
-            entity,
-        )
-        record_counter_for_world(
-            world,
-            "flow_chase.direct.stop_in_desired_range",
-        )
-        return
-
-    base_target_cpos = get_flow_chase_target_cpos(
-        world,
-        target,
-    )
-
-    if base_target_cpos is None:
-        clear_move_target(world, entity)
-        stop_flow_chase_direct_controller(
-            world,
-            entity,
-        )
-        return
-
-    updated = update_flow_chase_direct_controller_values(
-        world,
-        entity,
-        controller,
-        base_target_cpos,
-    )
-
-    if not updated:
-        stop_flow_chase_direct_controller(
-            world,
-            entity,
-        )
-        return
-
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.direct.update",
-    )
 
 
 def install_path_follow_controller(world, entity, target, nodes):
@@ -4176,332 +2459,19 @@ def install_path_follow_controller(world, entity, target, nodes):
         motion_state["controller"],
     )
 
-    refresh_moved_entity_occupancy(
-        world,
-        entity,
-    )
+    rebuild_dynamic_occupancy(world)
+
     return True
 
 
-def build_flow_field_lookahead_nodes(
-    world,
-    entity,
-    flow_field,
-    start_tile,
-    first_direction,
-    max_nodes,
-    side_pressure_counts,
-    side_pressure_weight,
-):
-    max_nodes = max(
-        1,
-        max_nodes,
-    )
-
-    nodes = []
-    current_tile = start_tile
-    direction = first_direction
-    final_tile = start_tile
-
-    for _ in range(max_nodes):
-        next_tile = current_tile + direction
-
-        if next_tile not in flow_field["distances"]:
-            break
-
-        nodes.append(
-            tile_center(next_tile),
-        )
-
-        final_tile = next_tile
-        current_tile = next_tile
-
-        candidate_directions = get_flow_field_step_candidates_from_tile(
-            world,
-            entity,
-            flow_field,
-            current_tile,
-            include_sideways=False,
-            side_pressure_counts=side_pressure_counts,
-            side_pressure_weight=side_pressure_weight,
-        )
-
-        if not candidate_directions:
-            break
-
-        direction = candidate_directions[0]
-
-    return nodes, final_tile
-
-
-def start_flow_field_controller(world, entity, target):
-    record_counter_for_world(
-        world,
-        "flow_field.start.attempt",
-    )
-
-    target_entity = target["target_entity"]
-
-    if target_entity not in world.transform:
-        clear_move_target(world, entity)
-        return False
-
-    locomotion = world.locomotion[entity]
-    current_tile = get_navigation_start_tile(
-        world,
-        entity,
-    )
-
-    flow_policy = target["flow_policy"]
-    flow_field = get_or_build_flow_field(
-        world,
-        mover_entity=entity,
-        target_entity=target_entity,
-        desired_range_tiles=target["desired_range_tiles"],
-        max_radius_tiles=target["max_radius_tiles"],
-        can_move_8way=locomotion["can_move_8way"],
-        rebuild_interval_ticks=flow_policy["rebuild_interval_ticks"],
-        rebuild_distance_tiles=flow_policy["rebuild_distance_tiles"],
-    )
-
-    if flow_field is None:
-        record_counter_for_world(
-            world,
-            "flow_field.start.no_field",
-        )
-        return False
-
-    current_distance = flow_field["distances"].get(current_tile)
-
-    target_tile = flow_field["target_tile"]
-
-    side_pressure_counts = {}
-    side_pressure_weight = 0
-
-    if target_tile is not None:
-        distance_to_target = max(
-            abs(current_tile.x - target_tile.x),
-            abs(current_tile.y - target_tile.y),
-        )
-
-        if distance_to_target <= flow_policy["engagement_pressure_radius_tiles"]:
-            side_pressure_counts = get_flow_field_side_pressure_counts(
-                world,
-                entity,
-                target_entity,
-                target_tile,
-                flow_policy["engagement_pressure_radius_tiles"],
-            )
-            side_pressure_weight = flow_policy[
-                "engagement_side_pressure_weight"
-            ]
-
-            record_counter_for_world(
-                world,
-                "flow_field.pressure.active",
-            )
-
-    candidate_directions = get_flow_field_step_candidates(
-        world,
-        entity,
-        flow_field,
-        include_sideways=False,
-        side_pressure_counts=side_pressure_counts,
-        side_pressure_weight=side_pressure_weight,
-    )
-
-    if not candidate_directions:
-        candidate_directions = get_flow_field_step_candidates(
-            world,
-            entity,
-            flow_field,
-            include_sideways=True,
-            side_pressure_counts=side_pressure_counts,
-            side_pressure_weight=side_pressure_weight,
-        )
-
-        if candidate_directions:
-            record_counter_for_world(
-                world,
-                "flow_field.start.sideways_fallback",
-            )
-
-    if not candidate_directions:
-        record_counter_for_world(
-            world,
-            "flow_field.start.no_direction",
-        )
-        return False
-
-    for desired_direction in candidate_directions:
-        record_counter_for_world(
-            world,
-            "flow_field.start.candidate_considered",
-        )
-
-        previous_collision_context = push_movement_collision_debug_context(
-            world,
-            "flow_field.start_candidate",
-        )
-        try:
-            resolved_direction = resolve_grid_move_direction_from_tile(
-                world,
-                entity,
-                current_tile,
-                desired_direction,
-                slide_vector=desired_direction,
-                slide_context="grid",
-            )
-        finally:
-            pop_movement_collision_debug_context(
-                world,
-                previous_collision_context,
-            )
-
-        if resolved_direction is None:
-            record_counter_for_world(
-                world,
-                "flow_field.start.candidate_blocked",
-            )
-            record_counter_for_world(
-                world,
-                "flow_field.start.candidate_unresolved",
-            )
-            continue
-
-        if resolved_direction == desired_direction:
-            record_counter_for_world(
-                world,
-                "flow_field.start.candidate_direct_resolved",
-            )
-        else:
-            record_counter_for_world(
-                world,
-                "flow_field.start.candidate_slide_resolved",
-            )
-
-        next_tile = current_tile + resolved_direction
-        next_distance = flow_field["distances"].get(next_tile)
-
-        if next_distance is None:
-            record_counter_for_world(
-                world,
-                "flow_field.start.candidate_off_field",
-            )
-            continue
-
-        if current_distance is not None:
-            if next_distance > current_distance:
-                record_counter_for_world(
-                    world,
-                    "flow_field.start.candidate_uphill",
-                )
-                continue
-
-            if next_distance == current_distance:
-                record_counter_for_world(
-                    world,
-                    "flow_field.start.sideways_step",
-                )
-
-        lookahead_nodes = target["lookahead_nodes"]
-
-        nodes, final_tile = build_flow_field_lookahead_nodes(
-            world,
-            entity,
-            flow_field,
-            current_tile,
-            resolved_direction,
-            lookahead_nodes,
-            side_pressure_counts,
-            side_pressure_weight,
-        )
-
-        record_counter_for_world(
-            world,
-            "flow_field.start.lookahead_nodes",
-            len(nodes),
-        )
-
-        if not nodes:
-            record_counter_for_world(
-                world,
-                "flow_field.start.no_lookahead_nodes",
-            )
-            continue
-
-        motion_state = world.motion_state[entity]
-
-        motion_state["controller"] = PathFollowController(
-            nodes=nodes,
-            current_index=0,
-            speed=get_locomotion_speed_cpos_per_tick(locomotion),
-            created_tick=world.tick,
-            target_tile=final_tile,
-            block_response=BLOCK_RESPONSE_ABORT,
-        )
-        motion_state["controller_source"] = "move_target"
-
-        if entity in world.facing:
-            world.facing[entity] = resolved_direction
-
-        initialize_path_follow_progress(
-            world,
-            entity,
-            motion_state["controller"],
-        )
-
-        refresh_moved_entity_occupancy(
-            world,
-            entity,
-        )
-
-        if resolved_direction == desired_direction:
-            record_counter_for_world(
-                world,
-                "flow_field.start.success",
-            )
-
-        else:
-            record_counter_for_world(
-                world,
-                "flow_field.start.slide_success",
-            )
-
-        return True
-
-    record_counter_for_world(
-        world,
-        "flow_field.start.blocked",
-    )
-
-    return False
-
-
 def start_path_follow_controller(world, entity, target):
-    if target["type"] == "flow_field_to_entity":
-        if start_flow_chase_direct_controller(
-            world,
-            entity,
-            target,
-        ):
-            return True
-
-        return start_flow_field_controller(
-            world,
-            entity,
-            target,
-        )
-
     path_policy = get_path_policy(world, target)
+
     nodes = build_path_follow_nodes(
         world,
         entity,
         target,
     )
-
-    if nodes is PATH_BUILD_DEFERRED:
-        return False
 
     if nodes is None:
         if path_policy["clear_target_on_path_fail"]:
@@ -4526,9 +2496,6 @@ def start_path_follow_controller(world, entity, target):
 def discard_pending_controller_advance(controller):
     if hasattr(controller, "_pending_index"):
         delattr(controller, "_pending_index")
-
-    if hasattr(controller, "_pending_steering_points"):
-        delattr(controller, "_pending_steering_points")
 
 
 def path_follow_target_changed(controller, target):
@@ -4586,11 +2553,10 @@ def refresh_path_follow_controller_if_needed(world, entity, controller):
         target,
     )
 
-    # Refresh is non-destructive.
-    # If the current world state cannot
+    # Refresh is non-destructive. If the current world state cannot
     # produce a usable replacement path, keep following the existing
     # controller and let the normal movement pipeline continue.
-    if nodes is PATH_BUILD_DEFERRED:
+    if nodes is None:
         return False
 
     if not nodes:
@@ -5200,1341 +3166,8 @@ def path_follow_movement_was_modified(
     return resolved_cpos != requested_cpos
 
 
-def flow_chase_movement_was_modified(
-    controller,
-    requested_cpos,
-    resolved_cpos,
-):
-    if not isinstance(controller, FlowChaseDirectController):
-        return False
-
-    return resolved_cpos != requested_cpos
-
-
-def flow_chase_vec_distance_sq(a: Vec2i, b: Vec2i) -> int:
-    dx = a.x - b.x
-    dy = a.y - b.y
-    return dx * dx + dy * dy
-
-
-def flow_chase_vec_distance(a: Vec2i, b: Vec2i) -> int:
-    return isqrt(flow_chase_vec_distance_sq(a, b))
-
-
-def flow_chase_scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
-    return Vec2i(
-        vec.x * numerator // denominator,
-        vec.y * numerator // denominator,
-    )
-
-
-def flow_chase_dot_vec(a: Vec2i, b: Vec2i) -> int:
-    return a.x * b.x + a.y * b.y
-
-
-def get_flow_chase_proactive_candidate_tier_penalty(label):
-    if label in {
-        "direct",
-        "forward_left_small",
-        "forward_right_small",
-        "forward_left_wide",
-        "forward_right_wide",
-    }:
-        return FLOW_CHASE_PROACTIVE_TIER_1_PENALTY
-
-    if label in {
-        "forward_left_very_wide",
-        "forward_right_very_wide",
-        "side_left_forward_tiny",
-        "side_right_forward_tiny",
-        "side_left_forward",
-        "side_right_forward",
-    }:
-        return FLOW_CHASE_PROACTIVE_TIER_2_PENALTY
-
-    return FLOW_CHASE_PROACTIVE_TIER_3_PENALTY
-
-
-def flow_chase_candidate_delta_from_raw(raw_delta: Vec2i, speed: int) -> Vec2i:
-    aim_vector = normalize_vector_to_dir_scale(raw_delta)
-
-    if aim_vector is None:
-        return Vec2i(0, 0)
-
-    return scale_normalized_dir(
-        aim_vector,
-        speed,
-    )
-
-
-def build_flow_chase_proactive_candidates(base_delta: Vec2i, speed: int):
-    if not vec_is_nonzero(base_delta):
-        return []
-
-    left_side_delta = Vec2i(
-        -base_delta.y,
-        base_delta.x,
-    )
-    right_side_delta = Vec2i(
-        base_delta.y,
-        -base_delta.x,
-    )
-
-    return [
-        (
-            "direct",
-            0,
-            base_delta,
-        ),
-
-        # Tier 1: normal forward-biased fanning.
-        (
-            "forward_left_small",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 1, 4),
-                speed,
-            ),
-        ),
-        (
-            "forward_right_small",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 1, 4),
-                speed,
-            ),
-        ),
-        (
-            "forward_left_wide",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 1, 2),
-                speed,
-            ),
-        ),
-        (
-            "forward_right_wide",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 1, 2),
-                speed,
-            ),
-        ),
-
-        # Tier 2: stronger fanning / circumvention, still forward-biased.
-        (
-            "forward_left_very_wide",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(left_side_delta, 3, 4),
-                speed,
-            ),
-        ),
-        (
-            "forward_right_very_wide",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                base_delta + flow_chase_scale_vec_ratio(right_side_delta, 3, 4),
-                speed,
-            ),
-        ),
-        (
-            "side_left_forward_tiny",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                left_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 8),
-                speed,
-            ),
-        ),
-        (
-            "side_right_forward_tiny",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                right_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 8),
-                speed,
-            ),
-        ),
-        (
-            "side_left_forward",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                left_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 4),
-                speed,
-            ),
-        ),
-        (
-            "side_right_forward",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                right_side_delta + flow_chase_scale_vec_ratio(base_delta, 1, 4),
-                speed,
-            ),
-        ),
-
-        # Tier 3: true circumvention candidates.
-        # These are safe now because C13 rejects dirty candidates.
-        (
-            "side_left",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                left_side_delta,
-                speed,
-            ),
-        ),
-        (
-            "side_right",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                right_side_delta,
-                speed,
-            ),
-        ),
-        (
-            "side_left_back_tiny",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                left_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 8),
-                speed,
-            ),
-        ),
-        (
-            "side_right_back_tiny",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                right_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 8),
-                speed,
-            ),
-        ),
-        (
-            "side_left_back",
-            -1,
-            flow_chase_candidate_delta_from_raw(
-                left_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 4),
-                speed,
-            ),
-        ),
-        (
-            "side_right_back",
-            1,
-            flow_chase_candidate_delta_from_raw(
-                right_side_delta - flow_chase_scale_vec_ratio(base_delta, 1, 4),
-                speed,
-            ),
-        ),
-    ]
-
-
-def get_flow_chase_same_target_neighbor_cposes(
-    world,
-    entity,
-    controller,
-):
-    current_cpos = world.transform[entity].cpos
-    radius_sq = (
-        FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS
-        * FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS
-    )
-
-    neighbors = []
-
-    for other_entity, other_transform in world.transform.items():
-        if other_entity == entity:
-            continue
-
-        other_motion_state = world.motion_state.get(other_entity)
-
-        if other_motion_state is None:
-            continue
-
-        other_controller = other_motion_state.get("controller")
-
-        if not isinstance(other_controller, FlowChaseDirectController):
-            continue
-
-        if other_controller.target_entity != controller.target_entity:
-            continue
-
-        distance_sq = flow_chase_vec_distance_sq(
-            current_cpos,
-            other_transform.cpos,
-        )
-
-        if distance_sq > radius_sq:
-            continue
-
-        neighbors.append(
-            (
-                distance_sq,
-                other_entity,
-                other_transform.cpos,
-            )
-        )
-
-    neighbors.sort(
-        key=lambda item: (
-            item[0],
-            item[1],
-        )
-    )
-
-    return [
-        neighbor_cpos
-        for _distance_sq, _other_entity, neighbor_cpos in neighbors
-    ]
-
-
-def score_flow_chase_neighbor_clearance(
-    candidate_cpos: Vec2i,
-    neighbor_cposes,
-):
-    score = 0
-
-    for neighbor_cpos in neighbor_cposes:
-        distance = flow_chase_vec_distance(
-            candidate_cpos,
-            neighbor_cpos,
-        )
-
-        if distance >= FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS:
-            continue
-
-        score -= (
-            FLOW_CHASE_PROACTIVE_NEIGHBOR_RADIUS_CPOS - distance
-        ) * FLOW_CHASE_PROACTIVE_CLEARANCE_WEIGHT
-
-    return score
-
-
-def record_flow_chase_diagnostic_streak_bucket(world, prefix, ticks):
-    if ticks <= 0:
-        return
-
-    if ticks == 1:
-        record_counter_for_world(world, f"{prefix}.streak.1")
-        return
-
-    if ticks < 4:
-        record_counter_for_world(world, f"{prefix}.streak.2_to_3")
-        return
-
-    if ticks < FLOW_CHASE_DIAGNOSTIC_LONG_STREAK_TICKS:
-        record_counter_for_world(world, f"{prefix}.streak.4_to_11")
-        return
-
-    record_counter_for_world(world, f"{prefix}.streak.12_plus")
-
-
-def get_flow_chase_tile_center_offset_distance(cpos: Vec2i):
-    center_cpos = tile_center(tile_from_cpos(cpos))
-    return flow_chase_vec_distance(cpos, center_cpos)
-
-
-def get_flow_chase_alignment_label(cpos: Vec2i):
-    distance = get_flow_chase_tile_center_offset_distance(cpos)
-
-    if distance == 0:
-        return "exact_center", distance
-
-    if distance <= FLOW_CHASE_DIAGNOSTIC_CENTERED_TOLERANCE_CPOS:
-        return "centered_tolerance", distance
-
-    if distance <= FLOW_CHASE_DIAGNOSTIC_NEAR_CENTER_TOLERANCE_CPOS:
-        return "near_center", distance
-
-    return "off_center", distance
-
-
-def record_flow_chase_alignment_diagnostics(world, prefix, cpos: Vec2i):
-    alignment_label, offset_distance = get_flow_chase_alignment_label(cpos)
-
-    record_counter_for_world(
-        world,
-        f"{prefix}.alignment.{alignment_label}",
-    )
-
-    if offset_distance > 0:
-        record_counter_for_world(
-            world,
-            f"{prefix}.alignment.offset_cpos",
-            offset_distance,
-        )
-
-
-def get_flow_chase_direction_label(delta: Vec2i):
-    step_x = sign(delta.x)
-    step_y = sign(delta.y)
-
-    if step_x == 0 and step_y == 0:
-        return "zero"
-
-    if step_x == 0 and step_y < 0:
-        return "north"
-
-    if step_x > 0 and step_y < 0:
-        return "north_east"
-
-    if step_x > 0 and step_y == 0:
-        return "east"
-
-    if step_x > 0 and step_y > 0:
-        return "south_east"
-
-    if step_x == 0 and step_y > 0:
-        return "south"
-
-    if step_x < 0 and step_y > 0:
-        return "south_west"
-
-    if step_x < 0 and step_y == 0:
-        return "west"
-
-    return "north_west"
-
-
-def get_flow_chase_tile_relation_label(delta_tile: Vec2i):
-    abs_x = abs(delta_tile.x)
-    abs_y = abs(delta_tile.y)
-
-    if abs_x == 0 and abs_y == 0:
-        return "same_tile"
-
-    if abs_x == 1 and abs_y == 1:
-        return "diagonal_adjacent"
-
-    if abs_x + abs_y == 1:
-        return "cardinal_adjacent"
-
-    if abs_x == abs_y:
-        return "diagonal_far"
-
-    if abs_x == 0 or abs_y == 0:
-        return "cardinal_far"
-
-    return "mixed_far"
-
-
-def get_flow_chase_candidate_blocker_alignment_label(
-    candidate_delta: Vec2i,
-    blocker_delta: Vec2i,
-):
-    if not vec_is_nonzero(candidate_delta):
-        return "candidate_zero"
-
-    if not vec_is_nonzero(blocker_delta):
-        return "blocker_same_position"
-
-    dot = flow_chase_dot_vec(
-        candidate_delta,
-        blocker_delta,
-    )
-
-    if dot > 0:
-        return "toward_blocker"
-
-    if dot < 0:
-        return "away_from_blocker"
-
-    return "tangent_to_blocker"
-
-
-def get_flow_chase_dynamic_contact_sources_for_candidate(
-    world,
-    entity,
-    collision_result,
-):
-    if collision_result.blocked_tile is None:
-        return {}
-
-    proposed_body_tiles = get_movement_body_tiles_for_origin_tile(
-        world,
-        entity,
-        collision_result.blocked_tile,
-    )
-
-    return get_dynamic_movement_blocker_sources_for_placement(
-        world,
-        mover_entity=entity,
-        proposed_center_tile=collision_result.blocked_tile,
-        proposed_body_tiles=proposed_body_tiles,
-        include_reservations=True,
-    )
-
-
-def get_flow_chase_blocker_contact_source_labels(blocker_sources, blocker_entity):
-    source_labels = []
-
-    for source_name, source_blockers in blocker_sources.items():
-        if blocker_entity in source_blockers:
-            source_labels.append(source_name)
-
-    return source_labels
-
-
-def record_flow_chase_contact_source_diagnostics(
-    world,
-    source_labels,
-):
-    if not source_labels:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_contact.source.unknown",
-        )
-        return
-
-    has_current_body_on_center = "current_body_on_center" in source_labels
-    has_current_center_on_body = "current_center_on_body" in source_labels
-    has_reserved_body_on_center = "reserved_body_on_center" in source_labels
-    has_reserved_center_on_body = "reserved_center_on_body" in source_labels
-
-    for source_label in source_labels:
-        record_counter_for_world(
-            world,
-            f"flow_chase.diagnostic.plus5_contact.source.{source_label}",
-        )
-
-    if has_current_body_on_center and has_current_center_on_body:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_contact.source.current_both",
-        )
-
-    if has_reserved_body_on_center and has_reserved_center_on_body:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_contact.source.reserved_both",
-        )
-
-    if has_current_body_on_center or has_current_center_on_body:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_contact.source.any_current_center_body",
-        )
-
-    if has_reserved_body_on_center or has_reserved_center_on_body:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_contact.source.any_reserved_center_body",
-        )
-
-
-def source_labels_include_plus5_center_body_contact(source_labels):
-    return (
-        "current_body_on_center" in source_labels
-        or "current_center_on_body" in source_labels
-        or "reserved_body_on_center" in source_labels
-        or "reserved_center_on_body" in source_labels
-    )
-
-
-def get_flow_chase_attack_distance_tiles(world, entity, controller):
-    if controller.target_entity not in world.transform:
-        return None
-
-    current_tile = tile_from_cpos(world.transform[entity].cpos)
-    target_tile = tile_from_cpos(controller.base_target_cpos)
-
-    return chebyshev_tile_distance(
-        current_tile,
-        target_tile,
-    )
-
-
-def record_flow_chase_attack_access_diagnostics(world, entity, controller):
-    distance_tiles = get_flow_chase_attack_distance_tiles(
-        world,
-        entity,
-        controller,
-    )
-
-    if distance_tiles is None:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.attack_access.missing_target",
-        )
-        return
-
-    over_range_tiles = max(
-        0,
-        distance_tiles - controller.desired_range_tiles,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.diagnostic.attack_access.distance_tiles",
-        distance_tiles,
-    )
-    record_counter_for_world(
-        world,
-        "flow_chase.diagnostic.attack_access.over_range_tiles",
-        over_range_tiles,
-    )
-
-    if over_range_tiles == 0:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.attack_access.in_desired_range",
-        )
-    else:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.attack_access.outside_desired_range",
-        )
-
-    previous_distance = controller.diagnostic_last_attack_distance_tiles
-
-    if previous_distance >= 0:
-        if distance_tiles < previous_distance:
-            controller.diagnostic_no_attack_progress_ticks = 0
-            record_counter_for_world(
-                world,
-                "flow_chase.diagnostic.attack_progress.improved",
-            )
-        elif distance_tiles == previous_distance:
-            controller.diagnostic_no_attack_progress_ticks += 1
-            record_counter_for_world(
-                world,
-                "flow_chase.diagnostic.attack_progress.unchanged",
-            )
-        else:
-            controller.diagnostic_no_attack_progress_ticks += 1
-            record_counter_for_world(
-                world,
-                "flow_chase.diagnostic.attack_progress.worse",
-            )
-
-    controller.diagnostic_last_attack_distance_tiles = distance_tiles
-
-    record_flow_chase_diagnostic_streak_bucket(
-        world,
-        "flow_chase.diagnostic.attack_progress.no_progress",
-        controller.diagnostic_no_attack_progress_ticks,
-    )
-
-
-def get_flow_chase_target_for_entity(world, entity):
-    target = world.move_target.get(entity)
-
-    if target is None:
-        return None
-
-    if target.get("type") != "flow_field_to_entity":
-        return None
-
-    if target.get("target_entity") not in world.transform:
-        return None
-
-    return target
-
-
-def get_flow_chase_blocker_motion_label(world, blocker_entity):
-    motion_state = world.motion_state.get(blocker_entity)
-
-    if motion_state is None:
-        return "no_motion_state"
-
-    last_delta = motion_state.get("last_delta", Vec2i(0, 0))
-
-    if vec_is_nonzero(last_delta):
-        return "moving"
-
-    controller = motion_state.get("controller")
-
-    if controller is None:
-        return "stationary_no_controller"
-
-    return "stationary_with_controller"
-
-
-def get_flow_chase_blocker_role_label(world, blocker_entity, target_entity):
-    blocker_target = get_flow_chase_target_for_entity(
-        world,
-        blocker_entity,
-    )
-
-    if blocker_target is None:
-        return "non_flow_chase"
-
-    if blocker_target.get("target_entity") != target_entity:
-        return "other_flow_target"
-
-    if flow_chase_entity_in_desired_range(
-        world,
-        blocker_entity,
-        blocker_target,
-    ):
-        return "same_target_in_desired_range"
-
-    return "same_target_chaser"
-
-
-def record_flow_chase_candidate_blocker_diagnostics(
-    world,
-    entity,
-    controller,
-    candidate,
-):
-    collision_result = candidate["collision_result"]
-
-    if collision_result.blocker_collision_type != "dynamic":
-        return False
-
-    blocker_entity = collision_result.blocker_entity
-
-    if blocker_entity is None:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.candidate_blocker.missing_entity",
-        )
-        return False
-
-    if blocker_entity not in world.transform:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.candidate_blocker.missing_transform",
-        )
-        return False
-
-    label = candidate["label"]
-    start_cpos = candidate["start_cpos"]
-    candidate_delta = candidate["delta"]
-
-    motion_label = get_flow_chase_blocker_motion_label(
-        world,
-        blocker_entity,
-    )
-    role_label = get_flow_chase_blocker_role_label(
-        world,
-        blocker_entity,
-        controller.target_entity,
-    )
-
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.candidate_blocker.motion.{motion_label}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.candidate_blocker.role.{role_label}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.candidate_blocker.label.{label}",
-    )
-
-    blocker_cpos = world.transform[blocker_entity].cpos
-
-    mover_tile = tile_from_cpos(start_cpos)
-    blocker_tile = tile_from_cpos(blocker_cpos)
-    relative_tile_delta = blocker_tile - mover_tile
-    relative_cpos_delta = blocker_cpos - start_cpos
-
-    relative_tile_relation = get_flow_chase_tile_relation_label(
-        relative_tile_delta,
-    )
-    relative_tile_direction = get_flow_chase_direction_label(
-        relative_tile_delta,
-    )
-    relative_cpos_direction = get_flow_chase_direction_label(
-        relative_cpos_delta,
-    )
-    candidate_direction = get_flow_chase_direction_label(
-        candidate_delta,
-    )
-    candidate_blocker_alignment = (
-        get_flow_chase_candidate_blocker_alignment_label(
-            candidate_delta,
-            relative_cpos_delta,
-        )
-    )
-
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.plus5_contact.relative_tile.{relative_tile_relation}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.plus5_contact.relative_tile_dir.{relative_tile_direction}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.plus5_contact.relative_cpos_dir.{relative_cpos_direction}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.plus5_contact.candidate_dir.{candidate_direction}",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.diagnostic.plus5_contact.candidate_alignment.{candidate_blocker_alignment}",
-    )
-
-    blocker_sources = get_flow_chase_dynamic_contact_sources_for_candidate(
-        world,
-        entity,
-        collision_result,
-    )
-    source_labels = get_flow_chase_blocker_contact_source_labels(
-        blocker_sources,
-        blocker_entity,
-    )
-
-    record_flow_chase_contact_source_diagnostics(
-        world,
-        source_labels,
-    )
-
-    actor_alignment_label, _offset_distance = get_flow_chase_alignment_label(
-        start_cpos,
-    )
-
-    is_diagonal_relation = relative_tile_relation in {
-        "diagonal_adjacent",
-        "diagonal_far",
-    }
-    has_plus5_center_body_contact = (
-        source_labels_include_plus5_center_body_contact(source_labels)
-    )
-    is_actor_off_center = actor_alignment_label == "off_center"
-    candidate_pushes_toward_blocker = (
-        candidate_blocker_alignment == "toward_blocker"
-    )
-
-    likely_corner_pocket = (
-        is_actor_off_center
-        and is_diagonal_relation
-        and has_plus5_center_body_contact
-        and candidate_pushes_toward_blocker
-    )
-
-    if likely_corner_pocket:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_corner_pocket.likely",
-        )
-        record_counter_for_world(
-            world,
-            f"flow_chase.diagnostic.plus5_corner_pocket.dir.{relative_tile_direction}",
-        )
-        record_counter_for_world(
-            world,
-            f"flow_chase.diagnostic.plus5_corner_pocket.candidate.{label}",
-        )
-        record_counter_for_world(
-            world,
-            f"flow_chase.diagnostic.plus5_corner_pocket.source.{role_label}",
-        )
-        return True
-
-    if (
-        is_actor_off_center
-        and has_plus5_center_body_contact
-        and candidate_pushes_toward_blocker
-    ):
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.plus5_pressure.non_diagonal",
-        )
-
-    return False
-
-
-def record_flow_chase_active_diagnostics(world, entity, controller, start_cpos):
-    record_counter_for_world(
-        world,
-        "flow_chase.diagnostic.active",
-    )
-
-    record_flow_chase_alignment_diagnostics(
-        world,
-        "flow_chase.diagnostic.active",
-        start_cpos,
-    )
-
-    record_flow_chase_attack_access_diagnostics(
-        world,
-        entity,
-        controller,
-    )
-
-
-def record_flow_chase_hold_diagnostics(
-    world,
-    entity,
-    controller,
-    start_cpos,
-    scored_candidates,
-):
-    record_counter_for_world(
-        world,
-        "flow_chase.diagnostic.hold",
-    )
-
-    record_flow_chase_alignment_diagnostics(
-        world,
-        "flow_chase.diagnostic.hold",
-        start_cpos,
-    )
-
-    dynamic_collision_count = 0
-    static_collision_count = 0
-    blocked_count = 0
-    rejected_partial_count = 0
-    no_progress_count = 0
-    likely_plus5_corner_pocket_count = 0
-
-    before_distance = flow_chase_vec_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-
-    for candidate in scored_candidates:
-        collision_result = candidate["collision_result"]
-
-        if movement_collision_slides(collision_result):
-            if collision_result.blocker_collision_type == "dynamic":
-                dynamic_collision_count += 1
-
-                if record_flow_chase_candidate_blocker_diagnostics(
-                        world,
-                        entity,
-                        controller,
-                        candidate,
-                ):
-                    likely_plus5_corner_pocket_count += 1
-            else:
-                static_collision_count += 1
-
-        if movement_collision_blocks(collision_result):
-            blocked_count += 1
-
-        if not candidate["resolved_enough"]:
-            rejected_partial_count += 1
-
-        after_distance = flow_chase_vec_distance(
-            candidate["resolved_cpos"],
-            controller.base_target_cpos,
-        )
-
-        if after_distance >= before_distance:
-            no_progress_count += 1
-
-    if dynamic_collision_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_dynamic_collision",
-            dynamic_collision_count,
-        )
-
-    if static_collision_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_static_collision",
-            static_collision_count,
-        )
-
-    if blocked_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_blocked",
-            blocked_count,
-        )
-
-    if rejected_partial_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_rejected_partial",
-            rejected_partial_count,
-        )
-
-    if no_progress_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_no_progress",
-            no_progress_count,
-        )
-
-    if likely_plus5_corner_pocket_count:
-        record_counter_for_world(
-            world,
-            "flow_chase.diagnostic.hold.candidate_likely_plus5_corner_pocket",
-            likely_plus5_corner_pocket_count,
-        )
-
-
-def is_flow_chase_proactive_candidate_clean(candidate):
-    collision_result = candidate["collision_result"]
-
-    if movement_collision_destroys(collision_result):
-        return False
-
-    if movement_collision_blocks(collision_result):
-        return False
-
-    if movement_collision_slides(collision_result):
-        if collision_result.blocker_collision_type == "dynamic":
-            return False
-
-        return FLOW_CHASE_PROACTIVE_ALLOW_STATIC_SLIDE
-
-    if not candidate["resolved_enough"]:
-        return False
-
-    if candidate["resolved_cpos"] == candidate["start_cpos"]:
-        return False
-
-    return True
-
-
-def score_flow_chase_proactive_candidate(
-    world,
-    entity,
-    controller,
-    start_cpos: Vec2i,
-    base_delta: Vec2i,
-    label,
-    side,
-    candidate_delta: Vec2i,
-    neighbor_cposes,
-):
-    if not vec_is_nonzero(candidate_delta):
-        return None
-
-    previous_collision_context = push_movement_collision_debug_context(
-        world,
-        "flow_chase.proactive_candidate",
-    )
-    try:
-        collision_result, resolved_cpos = trace_static_tile_path(
-            world,
-            entity,
-            start_cpos,
-            candidate_delta,
-        )
-    finally:
-        pop_movement_collision_debug_context(
-            world,
-            previous_collision_context,
-        )
-
-    if movement_collision_destroys(collision_result):
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.destroyed.{label}",
-        )
-        return None
-
-    before_distance = flow_chase_vec_distance(
-        start_cpos,
-        controller.base_target_cpos,
-    )
-    after_distance = flow_chase_vec_distance(
-        resolved_cpos,
-        controller.base_target_cpos,
-    )
-
-    progress = before_distance - after_distance
-
-    requested_distance = flow_chase_vec_distance(
-        start_cpos,
-        start_cpos + candidate_delta,
-    )
-    resolved_distance = flow_chase_vec_distance(
-        start_cpos,
-        resolved_cpos,
-    )
-
-    resolved_enough = flow_chase_local_steering_resolved_enough(
-        start_cpos,
-        resolved_cpos,
-        candidate_delta,
-    )
-
-    score = progress
-
-    score -= get_flow_chase_proactive_candidate_tier_penalty(label)
-
-    if label == "direct":
-        score += FLOW_CHASE_PROACTIVE_DIRECT_BIAS
-
-    score += score_flow_chase_neighbor_clearance(
-        resolved_cpos,
-        neighbor_cposes,
-    )
-
-    candidate_move_delta = resolved_cpos - start_cpos
-
-    score += score_flow_chase_recent_move_continuity(
-        world,
-        controller,
-        candidate_move_delta,
-        label,
-    )
-
-    previous_side = getattr(
-        controller,
-        "local_steering_side",
-        0,
-    )
-
-    if side != 0 and previous_side != 0:
-        if side == previous_side:
-            score += FLOW_CHASE_PROACTIVE_SIDE_CONTINUITY_BONUS
-        else:
-            score -= FLOW_CHASE_PROACTIVE_SIDE_SWITCH_PENALTY
-
-    if movement_collision_slides(collision_result):
-        if collision_result.blocker_collision_type == "dynamic":
-            score -= FLOW_CHASE_PROACTIVE_DYNAMIC_COLLISION_PENALTY
-            record_counter_for_world(
-                world,
-                f"flow_chase.proactive_candidate.dynamic_collision.{label}",
-            )
-        else:
-            score -= FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY
-            record_counter_for_world(
-                world,
-                f"flow_chase.proactive_candidate.static_collision.{label}",
-            )
-
-    if movement_collision_blocks(collision_result):
-        score -= FLOW_CHASE_PROACTIVE_STATIC_COLLISION_PENALTY
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.blocked.{label}",
-        )
-
-    if resolved_distance < requested_distance:
-        score -= (
-            requested_distance - resolved_distance
-        ) * FLOW_CHASE_PROACTIVE_PARTIAL_MOVE_PENALTY // max(
-            1,
-            TILE_UNITS,
-        )
-
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.partial.{label}",
-        )
-
-    if not resolved_enough:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.rejected_partial.{label}",
-        )
-
-    if after_distance < before_distance:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.progress.{label}",
-        )
-    else:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.no_progress.{label}",
-        )
-
-    return {
-        "score": score,
-        "label": label,
-        "side": side,
-        "delta": candidate_delta,
-        "collision_result": collision_result,
-        "resolved_cpos": resolved_cpos,
-        "start_cpos": start_cpos,
-        "resolved_enough": resolved_enough,
-    }
-
-
-def choose_flow_chase_proactive_delta(
-    world,
-    entity,
-    controller,
-    start_cpos: Vec2i,
-    base_delta: Vec2i,
-):
-    if not FLOW_CHASE_PROACTIVE_STEERING_ENABLED:
-        return base_delta
-
-    if not isinstance(controller, FlowChaseDirectController):
-        return base_delta
-
-    if not vec_is_nonzero(base_delta):
-        return base_delta
-
-    record_flow_chase_active_diagnostics(
-        world,
-        entity,
-        controller,
-        start_cpos,
-    )
-
-    record_counter_for_world(
-        world,
-        "flow_chase.proactive.entry",
-    )
-
-    speed = getattr(
-        controller,
-        "speed",
-        flow_chase_vec_distance(
-            start_cpos,
-            start_cpos + base_delta,
-        ),
-    )
-
-    neighbor_cposes = get_flow_chase_same_target_neighbor_cposes(
-        world,
-        entity,
-        controller,
-    )
-
-    if neighbor_cposes:
-        record_counter_for_world(
-            world,
-            "flow_chase.proactive.neighbors",
-            len(neighbor_cposes),
-        )
-
-    candidates = build_flow_chase_proactive_candidates(
-        base_delta,
-        speed,
-    )
-
-    scored_candidates = []
-
-    for label, side, candidate_delta in candidates:
-        record_counter_for_world(
-            world,
-            f"flow_chase.proactive_candidate.considered.{label}",
-        )
-
-        scored_candidate = score_flow_chase_proactive_candidate(
-            world,
-            entity,
-            controller,
-            start_cpos,
-            base_delta,
-            label,
-            side,
-            candidate_delta,
-            neighbor_cposes,
-        )
-
-        if scored_candidate is None:
-            continue
-
-        scored_candidates.append(scored_candidate)
-
-    if not scored_candidates:
-        controller.diagnostic_no_clean_ticks += 1
-        controller.diagnostic_hold_ticks = 0
-
-        record_counter_for_world(
-            world,
-            "flow_chase.proactive.no_candidate",
-        )
-        record_flow_chase_diagnostic_streak_bucket(
-            world,
-            "flow_chase.diagnostic.no_candidate",
-            controller.diagnostic_no_clean_ticks,
-        )
-
-        return base_delta
-
-    clean_candidates = [
-        candidate
-        for candidate in scored_candidates
-        if is_flow_chase_proactive_candidate_clean(candidate)
-    ]
-
-    if clean_candidates:
-        controller.diagnostic_no_clean_ticks = 0
-        controller.diagnostic_hold_ticks = 0
-
-        record_counter_for_world(
-            world,
-            "flow_chase.proactive.clean_candidate",
-        )
-        candidates_to_sort = clean_candidates
-    else:
-        controller.diagnostic_no_clean_ticks += 1
-
-        record_counter_for_world(
-            world,
-            "flow_chase.proactive.no_clean_candidate",
-        )
-        record_flow_chase_diagnostic_streak_bucket(
-            world,
-            "flow_chase.diagnostic.no_clean",
-            controller.diagnostic_no_clean_ticks,
-        )
-
-        if FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING:
-            controller.diagnostic_hold_ticks += 1
-
-            record_counter_for_world(
-                world,
-                "flow_chase.proactive.selected.hold",
-            )
-            record_flow_chase_diagnostic_streak_bucket(
-                world,
-                "flow_chase.diagnostic.hold",
-                controller.diagnostic_hold_ticks,
-            )
-            record_flow_chase_hold_diagnostics(
-                world,
-                entity,
-                controller,
-                start_cpos,
-                scored_candidates,
-            )
-
-            return Vec2i(0, 0)
-
-        candidates_to_sort = scored_candidates
-
-    candidates_to_sort.sort(
-        key=lambda candidate: (
-            -candidate["score"],
-            candidate["label"],
-        )
-    )
-
-    chosen = candidates_to_sort[0]
-
-    record_counter_for_world(
-        world,
-        "flow_chase.proactive.selected",
-    )
-    record_counter_for_world(
-        world,
-        f"flow_chase.proactive.selected.{chosen['label']}",
-    )
-
-    if chosen["label"] != "direct":
-        record_counter_for_world(
-            world,
-            "flow_chase.proactive.selected_non_direct",
-        )
-
-    if chosen["side"] != 0:
-        controller.local_steering_side = chosen["side"]
-        controller.local_steering_last_tick = world.tick
-        controller.local_steering_last_delta = chosen["delta"]
-
-    update_flow_chase_proactive_recent_move_delta(
-        world,
-        controller,
-        chosen["resolved_cpos"] - chosen["start_cpos"],
-    )
-
-    return chosen["delta"]
-
-
 @profiled("movement_system")
 def movement_system(world):
-    apply_flow_chase_tuning_to_globals(globals())
-
     rebuild_dynamic_occupancy(world)
 
     entities = (
@@ -6555,65 +3188,38 @@ def movement_system(world):
                 transform.cpos,
             )
 
-        start_cpos = transform.cpos
-
-        if isinstance(controller, FlowChaseDirectController):
-            base_delta = choose_flow_chase_proactive_delta(
-                world,
-                entity,
-                controller,
-                start_cpos,
-                base_delta,
-            )
-
         influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
         influence_active = vec_is_nonzero(influence_delta)
+
         delta = base_delta + influence_delta
+        start_cpos = transform.cpos
 
         if vec_is_nonzero(delta):
             requested_cpos = start_cpos + delta
 
-            previous_collision_context = push_movement_collision_debug_context(
+            collision_result, resolved_cpos = resolve_static_tile_movement(
                 world,
-                "movement_system.main_resolve",
+                entity,
+                start_cpos,
+                delta,
             )
-            try:
-                if isinstance(controller, FlowChaseDirectController):
-                    collision_result, resolved_cpos = resolve_flow_chase_direct_movement(
-                        world,
-                        entity,
-                        controller,
-                        start_cpos,
-                        delta,
-                    )
-                else:
-                    collision_result, resolved_cpos = resolve_static_tile_movement(
-                        world,
-                        entity,
-                        start_cpos,
-                        delta,
-                    )
-            finally:
-                pop_movement_collision_debug_context(
-                    world,
-                    previous_collision_context,
-                )
 
-            if not isinstance(controller, FlowChaseDirectController):
-                local_avoidance_result = try_resolve_path_follow_local_avoidance(
-                    world,
-                    entity,
-                    controller,
-                    start_cpos,
-                    delta,
-                    collision_result,
-                )
-                if local_avoidance_result is not None:
-                    collision_result, resolved_cpos = local_avoidance_result
+            local_avoidance_result = try_resolve_path_follow_local_avoidance(
+                world,
+                entity,
+                controller,
+                start_cpos,
+                delta,
+                collision_result,
+            )
+
+            if local_avoidance_result is not None:
+                collision_result, resolved_cpos = local_avoidance_result
 
             if movement_collision_destroys(collision_result):
                 collision_cpos = resolved_cpos
                 collision_tile = tile_from_cpos(collision_cpos)
+
                 emit_movement_collision_event(
                     world,
                     "entity_destroyed_by_movement_collision",
@@ -6624,6 +3230,7 @@ def movement_system(world):
                     controller,
                     influence_active,
                 )
+
                 world.entities.destroy(entity)
                 continue
 
@@ -6653,10 +3260,8 @@ def movement_system(world):
                 )
 
                 if controller is None:
-                    refresh_moved_entity_occupancy(
-                        world,
-                        entity,
-                    )
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
                     continue
 
                 if controller_ages_on_block(controller):
@@ -6667,17 +3272,13 @@ def movement_system(world):
                             entity,
                             controller,
                     ):
-                        refresh_moved_entity_occupancy(
-                            world,
-                            entity,
-                        )
+                        mark_dynamic_occupancy_dirty(world)
+                        rebuild_dynamic_occupancy(world)
 
                         continue
 
-                    refresh_moved_entity_occupancy(
-                        world,
-                        entity,
-                    )
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
 
                     continue
 
@@ -6693,17 +3294,13 @@ def movement_system(world):
                         request_settle_when_allowed(world, entity)
                         start_requested_settle_if_allowed(world, entity)
 
-                    refresh_moved_entity_occupancy(
-                        world,
-                        entity,
-                    )
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
                     continue
 
                 if controller_retries_on_block(controller):
-                    refresh_moved_entity_occupancy(
-                        world,
-                        entity,
-                    )
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
 
                     continue
 
@@ -6733,23 +3330,16 @@ def movement_system(world):
 
             motion_state["last_delta"] = transform.cpos - start_cpos
 
-            if (
-                    path_follow_movement_was_modified(
-                        controller,
-                        requested_cpos,
-                        resolved_cpos,
-                    )
-                    or flow_chase_movement_was_modified(
-                controller,
-                requested_cpos,
-                resolved_cpos,
-            )
+            if path_follow_movement_was_modified(
+                    controller,
+                    requested_cpos,
+                    resolved_cpos,
             ):
                 discard_pending_controller_advance(controller)
-                refresh_moved_entity_occupancy(
-                    world,
-                    entity,
-                )
+
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
                 continue
 
         else:
@@ -6794,10 +3384,8 @@ def movement_system(world):
                 request_settle_when_allowed(world, entity)
                 start_requested_settle_if_allowed(world, entity)
 
-        refresh_moved_entity_occupancy(
-            world,
-            entity,
-        )
+        mark_dynamic_occupancy_dirty(world)
+        rebuild_dynamic_occupancy(world)
 
 
 def cancel_motion_by_tags_for_status(world, entity, motion_tags):

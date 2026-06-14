@@ -2,7 +2,7 @@ from constants import TILE_UNITS
 from data.tables_tile_footprints import get_footprint_offsets
 from support import Vec2i
 from utils.contact_filtering_utils import filter_contact_candidates
-from utils.perf_profiler import profiled, record_counter_for_world
+from utils.perf_profiler import profiled
 from utils.tile_vec_utils import sign, tile_from_cpos
 
 
@@ -262,177 +262,12 @@ def get_entity_reserved_tiles(world, eid):
     return get_entity_reserved_body_tiles(world, eid)
 
 
-def reset_dynamic_occupancy_maps(world):
-    world.dynamic_center_occupancy = {}
-    world.dynamic_body_occupancy = {}
-    world.dynamic_reserved_centers = {}
-    world.dynamic_reserved_bodies = {}
-
-    world.dynamic_center_tiles_by_entity = {}
-    world.dynamic_body_tiles_by_entity = {}
-    world.dynamic_reserved_center_tiles_by_entity = {}
-    world.dynamic_reserved_body_tiles_by_entity = {}
-
-    # Compatibility aliases.
-    world.dynamic_occupancy = world.dynamic_body_occupancy
-    world.dynamic_blocking_occupancy = world.dynamic_body_occupancy
-    world.dynamic_reservations = world.dynamic_reserved_bodies
-
-
-def add_entity_tile_to_occupancy(
-    occupancy_map,
-    reverse_map,
-    eid,
-    tile,
-):
-    occupancy_map.setdefault(
-        tile,
-        set(),
-    ).add(eid)
-
-    reverse_map.setdefault(
-        eid,
-        set(),
-    ).add(tile)
-
-
-def discard_entity_tiles_from_occupancy(
-    occupancy_map,
-    reverse_map,
-    eid,
-):
-    tiles = reverse_map.pop(
-        eid,
-        set(),
-    )
-
-    for tile in tiles:
-        entities = occupancy_map.get(tile)
-
-        if entities is None:
-            continue
-
-        entities.discard(eid)
-
-        if not entities:
-            occupancy_map.pop(
-                tile,
-                None,
-            )
-
-
-def remove_entity_from_dynamic_occupancy(world, eid):
-    discard_entity_tiles_from_occupancy(
-        world.dynamic_center_occupancy,
-        world.dynamic_center_tiles_by_entity,
-        eid,
-    )
-    discard_entity_tiles_from_occupancy(
-        world.dynamic_body_occupancy,
-        world.dynamic_body_tiles_by_entity,
-        eid,
-    )
-    discard_entity_tiles_from_occupancy(
-        world.dynamic_reserved_centers,
-        world.dynamic_reserved_center_tiles_by_entity,
-        eid,
-    )
-    discard_entity_tiles_from_occupancy(
-        world.dynamic_reserved_bodies,
-        world.dynamic_reserved_body_tiles_by_entity,
-        eid,
-    )
-
-
-def add_entity_to_dynamic_occupancy(world, eid):
-    if eid not in world.space_occupier:
-        return
-
-    if eid not in world.transform:
-        return
-
-    if not space_occupier_blocks_movement(world, eid):
-        return
-
-    center_tile = get_entity_movement_center_tile(
-        world,
-        eid,
-    )
-
-    if center_tile is None:
-        return
-
-    add_entity_tile_to_occupancy(
-        world.dynamic_center_occupancy,
-        world.dynamic_center_tiles_by_entity,
-        eid,
-        center_tile,
-    )
-
-    for body_tile in get_entity_movement_body_tiles(
-        world,
-        eid,
-    ):
-        add_entity_tile_to_occupancy(
-            world.dynamic_body_occupancy,
-            world.dynamic_body_tiles_by_entity,
-            eid,
-            body_tile,
-        )
-
-    reserved_center_tile = get_entity_reserved_center_tile(
-        world,
-        eid,
-    )
-
-    if reserved_center_tile is not None:
-        add_entity_tile_to_occupancy(
-            world.dynamic_reserved_centers,
-            world.dynamic_reserved_center_tiles_by_entity,
-            eid,
-            reserved_center_tile,
-        )
-
-    for reserved_body_tile in get_entity_reserved_body_tiles(
-        world,
-        eid,
-    ):
-        add_entity_tile_to_occupancy(
-            world.dynamic_reserved_bodies,
-            world.dynamic_reserved_body_tiles_by_entity,
-            eid,
-            reserved_body_tile,
-        )
-
-
-@profiled("occupancy.refresh_entity")
-def refresh_entity_dynamic_occupancy(world, eid):
-    record_counter_for_world(
-        world,
-        "occupancy.refresh_entity",
-    )
-
-    if world.dynamic_occupancy_dirty:
-        record_counter_for_world(
-            world,
-            "occupancy.refresh_entity.full_rebuild_fallback",
-        )
-        rebuild_dynamic_occupancy(world)
-        return
-
-    remove_entity_from_dynamic_occupancy(
-        world,
-        eid,
-    )
-    add_entity_to_dynamic_occupancy(
-        world,
-        eid,
-    )
-
-
 @profiled("occupancy.rebuild")
 def rebuild_dynamic_occupancy(world):
-    reset_dynamic_occupancy_maps(world)
+    dynamic_center_occupancy = {}
+    dynamic_body_occupancy = {}
+    dynamic_reserved_centers = {}
+    dynamic_reserved_bodies = {}
 
     entities = (
         set(world.space_occupier)
@@ -440,10 +275,52 @@ def rebuild_dynamic_occupancy(world):
     )
 
     for eid in sorted(entities):
-        add_entity_to_dynamic_occupancy(
-            world,
-            eid,
-        )
+        if not space_occupier_blocks_movement(world, eid):
+            continue
+
+        center_tile = get_entity_movement_center_tile(world, eid)
+
+        if center_tile is None:
+            continue
+
+        dynamic_center_occupancy.setdefault(
+            center_tile,
+            set(),
+        ).add(eid)
+
+        for body_tile in get_entity_movement_body_tiles(world, eid):
+            dynamic_body_occupancy.setdefault(
+                body_tile,
+                set(),
+            ).add(eid)
+
+        reserved_center_tile = get_entity_reserved_center_tile(world, eid)
+
+        if reserved_center_tile is not None:
+            dynamic_reserved_centers.setdefault(
+                reserved_center_tile,
+                set(),
+            ).add(eid)
+
+            for reserved_body_tile in get_entity_reserved_body_tiles(
+                world,
+                eid,
+            ):
+                dynamic_reserved_bodies.setdefault(
+                    reserved_body_tile,
+                    set(),
+                ).add(eid)
+
+    world.dynamic_center_occupancy = dynamic_center_occupancy
+    world.dynamic_body_occupancy = dynamic_body_occupancy
+
+    world.dynamic_reserved_centers = dynamic_reserved_centers
+    world.dynamic_reserved_bodies = dynamic_reserved_bodies
+
+    # Compatibility aliases.
+    world.dynamic_occupancy = dynamic_body_occupancy
+    world.dynamic_blocking_occupancy = dynamic_body_occupancy
+    world.dynamic_reservations = dynamic_reserved_bodies
 
     world.dynamic_occupancy_dirty = False
 
@@ -558,65 +435,6 @@ def get_dynamic_movement_blockers_for_placement(
         mover_entity,
         blockers,
     )
-
-
-def get_dynamic_movement_blocker_sources_for_placement(
-    world,
-    mover_entity,
-    proposed_center_tile,
-    proposed_body_tiles,
-    include_reservations=True,
-):
-    ensure_dynamic_occupancy_current(world)
-
-    source_candidates = {
-        "current_body_on_center": set(
-            world.dynamic_body_occupancy.get(
-                proposed_center_tile,
-                (),
-            )
-        ),
-        "current_center_on_body": set(),
-    }
-
-    if include_reservations:
-        source_candidates["reserved_body_on_center"] = set(
-            world.dynamic_reserved_bodies.get(
-                proposed_center_tile,
-                (),
-            )
-        )
-        source_candidates["reserved_center_on_body"] = set()
-
-    for body_tile in proposed_body_tiles:
-        source_candidates["current_center_on_body"].update(
-            world.dynamic_center_occupancy.get(
-                body_tile,
-                (),
-            )
-        )
-
-        if include_reservations:
-            source_candidates["reserved_center_on_body"].update(
-                world.dynamic_reserved_centers.get(
-                    body_tile,
-                    (),
-                )
-            )
-
-    source_blockers = {}
-
-    for source_name, candidates in source_candidates.items():
-        blockers = get_relevant_dynamic_blockers(
-            world,
-            mover_entity,
-            candidates,
-        )
-
-        if blockers:
-            source_blockers[source_name] = blockers
-
-    return source_blockers
 
 
 def is_tile_static_blocked(world, tile):

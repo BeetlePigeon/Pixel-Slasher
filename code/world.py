@@ -21,9 +21,6 @@ class World:
         self.tick = 0
         self.failed_path_queries = {}
         self.path_build_state = {}
-        self.path_build_budget_state = {}
-        self.static_placement_cache = {}
-        self.flow_field_cache = {}
         self.hovered_selectable = None
 
         control_settings = self.game.settings["controls"]
@@ -115,19 +112,15 @@ class World:
         # Dynamic movement blocks center/body overlap, not wing/wing overlap.
         self.dynamic_center_occupancy = {}
         self.dynamic_body_occupancy = {}
+
         self.dynamic_reserved_centers = {}
         self.dynamic_reserved_bodies = {}
 
-        # Reverse indexes for cheap per-entity occupancy refresh.
-        self.dynamic_center_tiles_by_entity = {}
-        self.dynamic_body_tiles_by_entity = {}
-        self.dynamic_reserved_center_tiles_by_entity = {}
-        self.dynamic_reserved_body_tiles_by_entity = {}
-
         # Compatibility aliases for older debug/query code.
-        self.dynamic_occupancy = self.dynamic_body_occupancy
-        self.dynamic_blocking_occupancy = self.dynamic_body_occupancy
-        self.dynamic_reservations = self.dynamic_reserved_bodies
+        self.dynamic_occupancy = {}
+        self.dynamic_blocking_occupancy = {}
+        self.dynamic_reservations = {}
+
         self.dynamic_occupancy_dirty = True
 
         self.influence_emitter = {}
@@ -311,8 +304,6 @@ class World:
         self.static_collision_tiles = set(
             self.current_area.static_collision_tiles
         )
-        self.static_placement_cache = {}
-        self.flow_field_cache = {}
 
         spawn_def = self.current_area.spawn_points[spawn_id]
         self.player = self.spawn_player(spawn_def)
@@ -342,7 +333,6 @@ class World:
         self.tile_images = {}
         self.tilemap = []
         self.static_collision_tiles = set()
-        self.static_placement_cache = {}
         mark_dynamic_occupancy_dirty(self)
 
 
@@ -597,14 +587,6 @@ class World:
                 "lose_radius_tiles": 26,
                 "desired_range_tiles": 1,
                 "path_policy": "actor_move",
-                "movement_mode": "flow_field",
-                "lookahead_nodes": 6,
-                "flow_policy": {
-                    "rebuild_interval_ticks": 8,
-                    "rebuild_distance_tiles": 2,
-                    "engagement_pressure_radius_tiles": 8,
-                    "engagement_side_pressure_weight": 1,
-                },
             },
 
             # Runtime memory for behavior-specific state.
