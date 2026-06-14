@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled, record_counter_for_world
+from flow_chase_tuning import apply_flow_chase_tuning_to_globals
 from utils.flow_field_utils import (
     get_or_build_flow_field,
     get_flow_field_side_pressure_counts,
@@ -299,6 +300,8 @@ def entity_can_start_voluntary_movement(world, entity):
 
 @profiled("movement_arbiter")
 def movement_arbiter_system(world):
+    apply_flow_chase_tuning_to_globals(globals())
+
     rebuild_dynamic_occupancy(world)
 
     active_directional_entities = {
@@ -5830,6 +5833,8 @@ def choose_flow_chase_proactive_delta(
 
 @profiled("movement_system")
 def movement_system(world):
+    apply_flow_chase_tuning_to_globals(globals())
+
     rebuild_dynamic_occupancy(world)
 
     entities = (
