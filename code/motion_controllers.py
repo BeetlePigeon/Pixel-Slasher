@@ -108,6 +108,11 @@ class FlowChaseDirectController:
     local_steering_no_progress_ticks: int = 0
     proactive_recent_move_delta: Vec2i = field(default_factory=lambda: Vec2i(0, 0))
 
+    diagnostic_no_clean_ticks: int = 0
+    diagnostic_hold_ticks: int = 0
+    diagnostic_no_attack_progress_ticks: int = 0
+    diagnostic_last_attack_distance_tiles: int = -1
+
     motion_tag = "flow_chase_direct"
     block_response = BLOCK_RESPONSE_RETRY
 

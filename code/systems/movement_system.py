@@ -95,6 +95,9 @@ FLOW_CHASE_MANUAL_STEERING_TEST_SIDE = 1
 FLOW_CHASE_MANUAL_STEERING_TEST_SIDE_CPOS = TILE_UNITS
 FLOW_CHASE_MANUAL_STEERING_TEST_FORWARD_CPOS = TILE_UNITS * 2
 
+FLOW_CHASE_DIAGNOSTIC_CENTERED_TOLERANCE_CPOS = TILE_UNITS // 32
+FLOW_CHASE_DIAGNOSTIC_NEAR_CENTER_TOLERANCE_CPOS = TILE_UNITS // 8
+FLOW_CHASE_DIAGNOSTIC_LONG_STREAK_TICKS = 12
 
 @dataclass(frozen=True)
 class MovementCollisionResult:
@@ -5502,6 +5505,662 @@ def score_flow_chase_neighbor_clearance(
     return score
 
 
+def record_flow_chase_diagnostic_streak_bucket(world, prefix, ticks):
+    if ticks <= 0:
+        return
+
+    if ticks == 1:
+        record_counter_for_world(world, f"{prefix}.streak.1")
+        return
+
+    if ticks < 4:
+        record_counter_for_world(world, f"{prefix}.streak.2_to_3")
+        return
+
+    if ticks < FLOW_CHASE_DIAGNOSTIC_LONG_STREAK_TICKS:
+        record_counter_for_world(world, f"{prefix}.streak.4_to_11")
+        return
+
+    record_counter_for_world(world, f"{prefix}.streak.12_plus")
+
+
+def get_flow_chase_tile_center_offset_distance(cpos: Vec2i):
+    center_cpos = tile_center(tile_from_cpos(cpos))
+    return flow_chase_vec_distance(cpos, center_cpos)
+
+
+def get_flow_chase_alignment_label(cpos: Vec2i):
+    distance = get_flow_chase_tile_center_offset_distance(cpos)
+
+    if distance == 0:
+        return "exact_center", distance
+
+    if distance <= FLOW_CHASE_DIAGNOSTIC_CENTERED_TOLERANCE_CPOS:
+        return "centered_tolerance", distance
+
+    if distance <= FLOW_CHASE_DIAGNOSTIC_NEAR_CENTER_TOLERANCE_CPOS:
+        return "near_center", distance
+
+    return "off_center", distance
+
+
+def record_flow_chase_alignment_diagnostics(world, prefix, cpos: Vec2i):
+    alignment_label, offset_distance = get_flow_chase_alignment_label(cpos)
+
+    record_counter_for_world(
+        world,
+        f"{prefix}.alignment.{alignment_label}",
+    )
+
+    if offset_distance > 0:
+        record_counter_for_world(
+            world,
+            f"{prefix}.alignment.offset_cpos",
+            offset_distance,
+        )
+
+
+def get_flow_chase_direction_label(delta: Vec2i):
+    step_x = sign(delta.x)
+    step_y = sign(delta.y)
+
+    if step_x == 0 and step_y == 0:
+        return "zero"
+
+    if step_x == 0 and step_y < 0:
+        return "north"
+
+    if step_x > 0 and step_y < 0:
+        return "north_east"
+
+    if step_x > 0 and step_y == 0:
+        return "east"
+
+    if step_x > 0 and step_y > 0:
+        return "south_east"
+
+    if step_x == 0 and step_y > 0:
+        return "south"
+
+    if step_x < 0 and step_y > 0:
+        return "south_west"
+
+    if step_x < 0 and step_y == 0:
+        return "west"
+
+    return "north_west"
+
+
+def get_flow_chase_tile_relation_label(delta_tile: Vec2i):
+    abs_x = abs(delta_tile.x)
+    abs_y = abs(delta_tile.y)
+
+    if abs_x == 0 and abs_y == 0:
+        return "same_tile"
+
+    if abs_x == 1 and abs_y == 1:
+        return "diagonal_adjacent"
+
+    if abs_x + abs_y == 1:
+        return "cardinal_adjacent"
+
+    if abs_x == abs_y:
+        return "diagonal_far"
+
+    if abs_x == 0 or abs_y == 0:
+        return "cardinal_far"
+
+    return "mixed_far"
+
+
+def get_flow_chase_candidate_blocker_alignment_label(
+    candidate_delta: Vec2i,
+    blocker_delta: Vec2i,
+):
+    if not vec_is_nonzero(candidate_delta):
+        return "candidate_zero"
+
+    if not vec_is_nonzero(blocker_delta):
+        return "blocker_same_position"
+
+    dot = flow_chase_dot_vec(
+        candidate_delta,
+        blocker_delta,
+    )
+
+    if dot > 0:
+        return "toward_blocker"
+
+    if dot < 0:
+        return "away_from_blocker"
+
+    return "tangent_to_blocker"
+
+
+def get_flow_chase_dynamic_contact_sources_for_candidate(
+    world,
+    entity,
+    collision_result,
+):
+    if collision_result.blocked_tile is None:
+        return {}
+
+    proposed_body_tiles = get_movement_body_tiles_for_origin_tile(
+        world,
+        entity,
+        collision_result.blocked_tile,
+    )
+
+    return get_dynamic_movement_blocker_sources_for_placement(
+        world,
+        mover_entity=entity,
+        proposed_center_tile=collision_result.blocked_tile,
+        proposed_body_tiles=proposed_body_tiles,
+        include_reservations=True,
+    )
+
+
+def get_flow_chase_blocker_contact_source_labels(blocker_sources, blocker_entity):
+    source_labels = []
+
+    for source_name, source_blockers in blocker_sources.items():
+        if blocker_entity in source_blockers:
+            source_labels.append(source_name)
+
+    return source_labels
+
+
+def record_flow_chase_contact_source_diagnostics(
+    world,
+    source_labels,
+):
+    if not source_labels:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_contact.source.unknown",
+        )
+        return
+
+    has_current_body_on_center = "current_body_on_center" in source_labels
+    has_current_center_on_body = "current_center_on_body" in source_labels
+    has_reserved_body_on_center = "reserved_body_on_center" in source_labels
+    has_reserved_center_on_body = "reserved_center_on_body" in source_labels
+
+    for source_label in source_labels:
+        record_counter_for_world(
+            world,
+            f"flow_chase.diagnostic.plus5_contact.source.{source_label}",
+        )
+
+    if has_current_body_on_center and has_current_center_on_body:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_contact.source.current_both",
+        )
+
+    if has_reserved_body_on_center and has_reserved_center_on_body:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_contact.source.reserved_both",
+        )
+
+    if has_current_body_on_center or has_current_center_on_body:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_contact.source.any_current_center_body",
+        )
+
+    if has_reserved_body_on_center or has_reserved_center_on_body:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_contact.source.any_reserved_center_body",
+        )
+
+
+def source_labels_include_plus5_center_body_contact(source_labels):
+    return (
+        "current_body_on_center" in source_labels
+        or "current_center_on_body" in source_labels
+        or "reserved_body_on_center" in source_labels
+        or "reserved_center_on_body" in source_labels
+    )
+
+
+def get_flow_chase_attack_distance_tiles(world, entity, controller):
+    if controller.target_entity not in world.transform:
+        return None
+
+    current_tile = tile_from_cpos(world.transform[entity].cpos)
+    target_tile = tile_from_cpos(controller.base_target_cpos)
+
+    return chebyshev_tile_distance(
+        current_tile,
+        target_tile,
+    )
+
+
+def record_flow_chase_attack_access_diagnostics(world, entity, controller):
+    distance_tiles = get_flow_chase_attack_distance_tiles(
+        world,
+        entity,
+        controller,
+    )
+
+    if distance_tiles is None:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.attack_access.missing_target",
+        )
+        return
+
+    over_range_tiles = max(
+        0,
+        distance_tiles - controller.desired_range_tiles,
+    )
+
+    record_counter_for_world(
+        world,
+        "flow_chase.diagnostic.attack_access.distance_tiles",
+        distance_tiles,
+    )
+    record_counter_for_world(
+        world,
+        "flow_chase.diagnostic.attack_access.over_range_tiles",
+        over_range_tiles,
+    )
+
+    if over_range_tiles == 0:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.attack_access.in_desired_range",
+        )
+    else:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.attack_access.outside_desired_range",
+        )
+
+    previous_distance = controller.diagnostic_last_attack_distance_tiles
+
+    if previous_distance >= 0:
+        if distance_tiles < previous_distance:
+            controller.diagnostic_no_attack_progress_ticks = 0
+            record_counter_for_world(
+                world,
+                "flow_chase.diagnostic.attack_progress.improved",
+            )
+        elif distance_tiles == previous_distance:
+            controller.diagnostic_no_attack_progress_ticks += 1
+            record_counter_for_world(
+                world,
+                "flow_chase.diagnostic.attack_progress.unchanged",
+            )
+        else:
+            controller.diagnostic_no_attack_progress_ticks += 1
+            record_counter_for_world(
+                world,
+                "flow_chase.diagnostic.attack_progress.worse",
+            )
+
+    controller.diagnostic_last_attack_distance_tiles = distance_tiles
+
+    record_flow_chase_diagnostic_streak_bucket(
+        world,
+        "flow_chase.diagnostic.attack_progress.no_progress",
+        controller.diagnostic_no_attack_progress_ticks,
+    )
+
+
+def get_flow_chase_target_for_entity(world, entity):
+    target = world.move_target.get(entity)
+
+    if target is None:
+        return None
+
+    if target.get("type") != "flow_field_to_entity":
+        return None
+
+    if target.get("target_entity") not in world.transform:
+        return None
+
+    return target
+
+
+def get_flow_chase_blocker_motion_label(world, blocker_entity):
+    motion_state = world.motion_state.get(blocker_entity)
+
+    if motion_state is None:
+        return "no_motion_state"
+
+    last_delta = motion_state.get("last_delta", Vec2i(0, 0))
+
+    if vec_is_nonzero(last_delta):
+        return "moving"
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return "stationary_no_controller"
+
+    return "stationary_with_controller"
+
+
+def get_flow_chase_blocker_role_label(world, blocker_entity, target_entity):
+    blocker_target = get_flow_chase_target_for_entity(
+        world,
+        blocker_entity,
+    )
+
+    if blocker_target is None:
+        return "non_flow_chase"
+
+    if blocker_target.get("target_entity") != target_entity:
+        return "other_flow_target"
+
+    if flow_chase_entity_in_desired_range(
+        world,
+        blocker_entity,
+        blocker_target,
+    ):
+        return "same_target_in_desired_range"
+
+    return "same_target_chaser"
+
+
+def record_flow_chase_candidate_blocker_diagnostics(
+    world,
+    entity,
+    controller,
+    candidate,
+):
+    collision_result = candidate["collision_result"]
+
+    if collision_result.blocker_collision_type != "dynamic":
+        return False
+
+    blocker_entity = collision_result.blocker_entity
+
+    if blocker_entity is None:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.candidate_blocker.missing_entity",
+        )
+        return False
+
+    if blocker_entity not in world.transform:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.candidate_blocker.missing_transform",
+        )
+        return False
+
+    label = candidate["label"]
+    start_cpos = candidate["start_cpos"]
+    candidate_delta = candidate["delta"]
+
+    motion_label = get_flow_chase_blocker_motion_label(
+        world,
+        blocker_entity,
+    )
+    role_label = get_flow_chase_blocker_role_label(
+        world,
+        blocker_entity,
+        controller.target_entity,
+    )
+
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.candidate_blocker.motion.{motion_label}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.candidate_blocker.role.{role_label}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.candidate_blocker.label.{label}",
+    )
+
+    blocker_cpos = world.transform[blocker_entity].cpos
+
+    mover_tile = tile_from_cpos(start_cpos)
+    blocker_tile = tile_from_cpos(blocker_cpos)
+    relative_tile_delta = blocker_tile - mover_tile
+    relative_cpos_delta = blocker_cpos - start_cpos
+
+    relative_tile_relation = get_flow_chase_tile_relation_label(
+        relative_tile_delta,
+    )
+    relative_tile_direction = get_flow_chase_direction_label(
+        relative_tile_delta,
+    )
+    relative_cpos_direction = get_flow_chase_direction_label(
+        relative_cpos_delta,
+    )
+    candidate_direction = get_flow_chase_direction_label(
+        candidate_delta,
+    )
+    candidate_blocker_alignment = (
+        get_flow_chase_candidate_blocker_alignment_label(
+            candidate_delta,
+            relative_cpos_delta,
+        )
+    )
+
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.plus5_contact.relative_tile.{relative_tile_relation}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.plus5_contact.relative_tile_dir.{relative_tile_direction}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.plus5_contact.relative_cpos_dir.{relative_cpos_direction}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.plus5_contact.candidate_dir.{candidate_direction}",
+    )
+    record_counter_for_world(
+        world,
+        f"flow_chase.diagnostic.plus5_contact.candidate_alignment.{candidate_blocker_alignment}",
+    )
+
+    blocker_sources = get_flow_chase_dynamic_contact_sources_for_candidate(
+        world,
+        entity,
+        collision_result,
+    )
+    source_labels = get_flow_chase_blocker_contact_source_labels(
+        blocker_sources,
+        blocker_entity,
+    )
+
+    record_flow_chase_contact_source_diagnostics(
+        world,
+        source_labels,
+    )
+
+    actor_alignment_label, _offset_distance = get_flow_chase_alignment_label(
+        start_cpos,
+    )
+
+    is_diagonal_relation = relative_tile_relation in {
+        "diagonal_adjacent",
+        "diagonal_far",
+    }
+    has_plus5_center_body_contact = (
+        source_labels_include_plus5_center_body_contact(source_labels)
+    )
+    is_actor_off_center = actor_alignment_label == "off_center"
+    candidate_pushes_toward_blocker = (
+        candidate_blocker_alignment == "toward_blocker"
+    )
+
+    likely_corner_pocket = (
+        is_actor_off_center
+        and is_diagonal_relation
+        and has_plus5_center_body_contact
+        and candidate_pushes_toward_blocker
+    )
+
+    if likely_corner_pocket:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_corner_pocket.likely",
+        )
+        record_counter_for_world(
+            world,
+            f"flow_chase.diagnostic.plus5_corner_pocket.dir.{relative_tile_direction}",
+        )
+        record_counter_for_world(
+            world,
+            f"flow_chase.diagnostic.plus5_corner_pocket.candidate.{label}",
+        )
+        record_counter_for_world(
+            world,
+            f"flow_chase.diagnostic.plus5_corner_pocket.source.{role_label}",
+        )
+        return True
+
+    if (
+        is_actor_off_center
+        and has_plus5_center_body_contact
+        and candidate_pushes_toward_blocker
+    ):
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.plus5_pressure.non_diagonal",
+        )
+
+    return False
+
+
+def record_flow_chase_active_diagnostics(world, entity, controller, start_cpos):
+    record_counter_for_world(
+        world,
+        "flow_chase.diagnostic.active",
+    )
+
+    record_flow_chase_alignment_diagnostics(
+        world,
+        "flow_chase.diagnostic.active",
+        start_cpos,
+    )
+
+    record_flow_chase_attack_access_diagnostics(
+        world,
+        entity,
+        controller,
+    )
+
+
+def record_flow_chase_hold_diagnostics(
+    world,
+    entity,
+    controller,
+    start_cpos,
+    scored_candidates,
+):
+    record_counter_for_world(
+        world,
+        "flow_chase.diagnostic.hold",
+    )
+
+    record_flow_chase_alignment_diagnostics(
+        world,
+        "flow_chase.diagnostic.hold",
+        start_cpos,
+    )
+
+    dynamic_collision_count = 0
+    static_collision_count = 0
+    blocked_count = 0
+    rejected_partial_count = 0
+    no_progress_count = 0
+    likely_plus5_corner_pocket_count = 0
+
+    before_distance = flow_chase_vec_distance(
+        start_cpos,
+        controller.base_target_cpos,
+    )
+
+    for candidate in scored_candidates:
+        collision_result = candidate["collision_result"]
+
+        if movement_collision_slides(collision_result):
+            if collision_result.blocker_collision_type == "dynamic":
+                dynamic_collision_count += 1
+
+                if record_flow_chase_candidate_blocker_diagnostics(
+                        world,
+                        entity,
+                        controller,
+                        candidate,
+                ):
+                    likely_plus5_corner_pocket_count += 1
+            else:
+                static_collision_count += 1
+
+        if movement_collision_blocks(collision_result):
+            blocked_count += 1
+
+        if not candidate["resolved_enough"]:
+            rejected_partial_count += 1
+
+        after_distance = flow_chase_vec_distance(
+            candidate["resolved_cpos"],
+            controller.base_target_cpos,
+        )
+
+        if after_distance >= before_distance:
+            no_progress_count += 1
+
+    if dynamic_collision_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_dynamic_collision",
+            dynamic_collision_count,
+        )
+
+    if static_collision_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_static_collision",
+            static_collision_count,
+        )
+
+    if blocked_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_blocked",
+            blocked_count,
+        )
+
+    if rejected_partial_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_rejected_partial",
+            rejected_partial_count,
+        )
+
+    if no_progress_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_no_progress",
+            no_progress_count,
+        )
+
+    if likely_plus5_corner_pocket_count:
+        record_counter_for_world(
+            world,
+            "flow_chase.diagnostic.hold.candidate_likely_plus5_corner_pocket",
+            likely_plus5_corner_pocket_count,
+        )
+
+
 def is_flow_chase_proactive_candidate_clean(candidate):
     collision_result = candidate["collision_result"]
 
@@ -5702,6 +6361,13 @@ def choose_flow_chase_proactive_delta(
     if not vec_is_nonzero(base_delta):
         return base_delta
 
+    record_flow_chase_active_diagnostics(
+        world,
+        entity,
+        controller,
+        start_cpos,
+    )
+
     record_counter_for_world(
         world,
         "flow_chase.proactive.entry",
@@ -5760,10 +6426,19 @@ def choose_flow_chase_proactive_delta(
         scored_candidates.append(scored_candidate)
 
     if not scored_candidates:
+        controller.diagnostic_no_clean_ticks += 1
+        controller.diagnostic_hold_ticks = 0
+
         record_counter_for_world(
             world,
             "flow_chase.proactive.no_candidate",
         )
+        record_flow_chase_diagnostic_streak_bucket(
+            world,
+            "flow_chase.diagnostic.no_candidate",
+            controller.diagnostic_no_clean_ticks,
+        )
+
         return base_delta
 
     clean_candidates = [
@@ -5773,22 +6448,47 @@ def choose_flow_chase_proactive_delta(
     ]
 
     if clean_candidates:
+        controller.diagnostic_no_clean_ticks = 0
+        controller.diagnostic_hold_ticks = 0
+
         record_counter_for_world(
             world,
             "flow_chase.proactive.clean_candidate",
         )
         candidates_to_sort = clean_candidates
     else:
+        controller.diagnostic_no_clean_ticks += 1
+
         record_counter_for_world(
             world,
             "flow_chase.proactive.no_clean_candidate",
         )
+        record_flow_chase_diagnostic_streak_bucket(
+            world,
+            "flow_chase.diagnostic.no_clean",
+            controller.diagnostic_no_clean_ticks,
+        )
 
         if FLOW_CHASE_PROACTIVE_HOLD_ON_ALL_COLLIDING:
+            controller.diagnostic_hold_ticks += 1
+
             record_counter_for_world(
                 world,
                 "flow_chase.proactive.selected.hold",
             )
+            record_flow_chase_diagnostic_streak_bucket(
+                world,
+                "flow_chase.diagnostic.hold",
+                controller.diagnostic_hold_ticks,
+            )
+            record_flow_chase_hold_diagnostics(
+                world,
+                entity,
+                controller,
+                start_cpos,
+                scored_candidates,
+            )
+
             return Vec2i(0, 0)
 
         candidates_to_sort = scored_candidates
