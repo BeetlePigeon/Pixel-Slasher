@@ -9,6 +9,8 @@ from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled
 from utils.occupancy_utils import (
+    clear_dynamic_movement_reservations,
+    add_entity_movement_reservations_for_origin_path,
     rebuild_dynamic_occupancy,
     mark_dynamic_occupancy_dirty,
     is_tile_blocked_for_movement,
@@ -90,6 +92,14 @@ class MovementApproval:
     delta: Vec2i
     resolution_kind: str
     collision_result: MovementCollisionResult = MOVEMENT_COLLISION_ALLOW
+    placement_path: tuple = ()
+    requested_cpos: Optional[Vec2i] = None
+    resolved_cpos: Optional[Vec2i] = None
+
+
+@dataclass(frozen=True)
+class MovementPathCheckResult:
+    collision_result: MovementCollisionResult
     placement_path: tuple = ()
 
 
@@ -2044,7 +2054,12 @@ def get_first_extrapolated_tile_for_delta(start_cpos: Vec2i, delta: Vec2i):
     return Vec2i(current_tile.x + step_x, current_tile.y + step_y)
 
 
-def build_normal_movement_placement_path(start_cpos: Vec2i, delta: Vec2i):
+def build_normal_movement_placement_path(
+    world,
+    entity,
+    start_cpos: Vec2i,
+    delta: Vec2i,
+):
     if not vec_is_nonzero(delta):
         return ()
 
@@ -2711,6 +2726,286 @@ def build_movement_proposal(world, entity):
     )
 
 
+def check_normal_movement_delta_path(
+    world,
+    entity,
+    start_cpos: Vec2i,
+    delta: Vec2i,
+):
+    placement_path = build_normal_movement_placement_path(
+        world,
+        entity,
+        start_cpos,
+        delta,
+    )
+
+    for tile in placement_path:
+        collision_result = handle_movement_tile_collision(
+            world,
+            entity,
+            tile,
+        )
+
+        if not movement_collision_allows(collision_result):
+            return MovementPathCheckResult(
+                collision_result=collision_result,
+                placement_path=placement_path,
+            )
+
+    return MovementPathCheckResult(
+        collision_result=MOVEMENT_COLLISION_ALLOW,
+        placement_path=placement_path,
+    )
+
+
+def make_allowed_movement_approval(
+    proposal: MovementProposal,
+    delta: Vec2i,
+    resolution_kind: str,
+    placement_path=(),
+):
+    return MovementApproval(
+        entity=proposal.entity,
+        approved=True,
+        delta=delta,
+        resolution_kind=resolution_kind,
+        collision_result=MOVEMENT_COLLISION_ALLOW,
+        placement_path=placement_path,
+        requested_cpos=proposal.start_cpos + proposal.final_delta,
+        resolved_cpos=proposal.start_cpos + delta,
+    )
+
+
+def make_blocked_movement_approval(
+    proposal: MovementProposal,
+    collision_result: MovementCollisionResult,
+    resolution_kind: str,
+    placement_path=(),
+):
+    return MovementApproval(
+        entity=proposal.entity,
+        approved=True,
+        delta=Vec2i(0, 0),
+        resolution_kind=resolution_kind,
+        collision_result=collision_result,
+        placement_path=placement_path,
+        requested_cpos=proposal.start_cpos + proposal.final_delta,
+        resolved_cpos=proposal.start_cpos,
+    )
+
+
+def is_explicit_current_tile_centering(proposal: MovementProposal):
+    return (
+        isinstance(proposal.controller, SettleToGridController)
+        and not proposal.influence_active
+    )
+
+
+def build_explicit_centering_approval(proposal: MovementProposal):
+    return make_allowed_movement_approval(
+        proposal,
+        proposal.final_delta,
+        "explicit_centering",
+        placement_path=(),
+    )
+
+
+def build_finish_current_tile_delta(start_cpos: Vec2i, reference_delta: Vec2i):
+    if not vec_is_nonzero(reference_delta):
+        return Vec2i(0, 0)
+
+    current_tile = tile_from_cpos(start_cpos)
+    current_center = tile_center(current_tile)
+    to_center = current_center - start_cpos
+
+    if not vec_is_nonzero(to_center):
+        return Vec2i(0, 0)
+
+    return clamp_vec_length_to_reference(
+        to_center,
+        reference_delta,
+    )
+
+
+def try_build_finish_current_tile_approval(
+    proposal: MovementProposal,
+    rejection_result: MovementCollisionResult,
+):
+    # A destroy collision should remain a destroy collision. Do not convert
+    # projectile/impact-style movement into actor centering.
+    if movement_collision_destroys(rejection_result):
+        return None
+
+    finish_delta = build_finish_current_tile_delta(
+        proposal.start_cpos,
+        proposal.final_delta,
+    )
+
+    if not vec_is_nonzero(finish_delta):
+        return None
+
+    return make_allowed_movement_approval(
+        proposal,
+        finish_delta,
+        "finish_current_tile",
+        placement_path=(),
+    )
+
+
+def try_build_direct_movement_approval(proposal: MovementProposal, world):
+    path_check = check_normal_movement_delta_path(
+        world,
+        proposal.entity,
+        proposal.start_cpos,
+        proposal.final_delta,
+    )
+
+    if not movement_collision_allows(path_check.collision_result):
+        return None, path_check
+
+    return (
+        make_allowed_movement_approval(
+            proposal,
+            proposal.final_delta,
+            "direct",
+            placement_path=path_check.placement_path,
+        ),
+        path_check,
+    )
+
+
+def try_build_static_slide_approval(
+    world,
+    proposal: MovementProposal,
+    direct_rejection: MovementPathCheckResult,
+):
+    collision_result = direct_rejection.collision_result
+
+    if not movement_collision_slides(collision_result):
+        return None
+
+    if collision_result.blocker_collision_type != "static":
+        return None
+
+    requested_delta = proposal.final_delta
+    ratio = get_movement_slide_ratio(
+        world,
+        proposal.entity,
+    )
+
+    options = []
+
+    if requested_delta.x != 0:
+        x_delta = Vec2i(requested_delta.x, 0)
+        tangent = requested_delta.x
+        normal = requested_delta.y
+
+        if passes_slide_threshold(tangent, normal, ratio):
+            x_check = check_normal_movement_delta_path(
+                world,
+                proposal.entity,
+                proposal.start_cpos,
+                x_delta,
+            )
+
+            if movement_collision_allows(x_check.collision_result):
+                options.append(
+                    (
+                        -abs(tangent),
+                        "x",
+                        x_delta,
+                        x_check.placement_path,
+                    )
+                )
+
+    if requested_delta.y != 0:
+        y_delta = Vec2i(0, requested_delta.y)
+        tangent = requested_delta.y
+        normal = requested_delta.x
+
+        if passes_slide_threshold(tangent, normal, ratio):
+            y_check = check_normal_movement_delta_path(
+                world,
+                proposal.entity,
+                proposal.start_cpos,
+                y_delta,
+            )
+
+            if movement_collision_allows(y_check.collision_result):
+                options.append(
+                    (
+                        -abs(tangent),
+                        "y",
+                        y_delta,
+                        y_check.placement_path,
+                    )
+                )
+
+    if not options:
+        return None
+
+    options.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+
+    _, _, slide_delta, placement_path = options[0]
+
+    return make_allowed_movement_approval(
+        proposal,
+        slide_delta,
+        "static_slide",
+        placement_path=placement_path,
+    )
+
+
+def build_movement_admission_approval(world, proposal: MovementProposal):
+    if not vec_is_nonzero(proposal.final_delta):
+        return make_allowed_movement_approval(
+            proposal,
+            Vec2i(0, 0),
+            "zero",
+            placement_path=(),
+        )
+
+    if is_explicit_current_tile_centering(proposal):
+        return build_explicit_centering_approval(proposal)
+
+    direct_approval, direct_rejection = try_build_direct_movement_approval(
+        proposal,
+        world,
+    )
+
+    if direct_approval is not None:
+        return direct_approval
+
+    static_slide_approval = try_build_static_slide_approval(
+        world,
+        proposal,
+        direct_rejection,
+    )
+
+    if static_slide_approval is not None:
+        return static_slide_approval
+
+    finish_current_tile_approval = try_build_finish_current_tile_approval(
+        proposal,
+        direct_rejection.collision_result,
+    )
+
+    if finish_current_tile_approval is not None:
+        return finish_current_tile_approval
+
+    return make_blocked_movement_approval(
+        proposal,
+        direct_rejection.collision_result,
+        "blocked",
+        placement_path=direct_rejection.placement_path,
+    )
+
+
 MOVEMENT_DIAGNOSTIC_DIRECTIONS = (
     ("N", Vec2i(0, -1)),
     ("NE", Vec2i(1, -1)),
@@ -3304,6 +3599,9 @@ def path_follow_movement_was_modified(
 def movement_proposal_system(world):
     world.clear_movement_planning_runtime()
 
+    rebuild_dynamic_occupancy(world)
+    clear_dynamic_movement_reservations(world)
+
     entities = (
         set(world.transform)
         & set(world.motion_state)
@@ -3317,15 +3615,23 @@ def movement_proposal_system(world):
 
         world.movement_proposal[entity] = proposal
 
-        # Temporary pass-through approval.
-        #
-        # Real admission will replace this in the next stages.
-        world.movement_approval[entity] = MovementApproval(
-            entity=entity,
-            approved=True,
-            delta=proposal.final_delta,
-            resolution_kind="legacy_passthrough",
+        approval = build_movement_admission_approval(
+            world,
+            proposal,
         )
+
+        world.movement_approval[entity] = approval
+
+        if (
+            approval.approved
+            and movement_collision_allows(approval.collision_result)
+            and approval.placement_path
+        ):
+            add_entity_movement_reservations_for_origin_path(
+                world,
+                entity,
+                approval.placement_path,
+            )
 
 
 @profiled("movement_apply_system")
@@ -3342,41 +3648,34 @@ def movement_apply_system(world):
         controller = motion_state["controller"]
         transform = world.transform[entity]
 
-        base_delta = Vec2i(0, 0)
+        proposal = world.movement_proposal.get(entity)
+        approval = world.movement_approval.get(entity)
 
-        if controller is not None:
-            base_delta = sample_controller_delta(
-                controller,
-                transform.cpos,
-            )
+        if proposal is None or approval is None:
+            motion_state["last_delta"] = Vec2i(0, 0)
+            continue
 
-        influence_delta = world.influence_delta.get(entity, Vec2i(0, 0))
-        influence_active = vec_is_nonzero(influence_delta)
+        influence_active = proposal.influence_active
 
-        delta = base_delta + influence_delta
-        start_cpos = transform.cpos
+        if not approval.approved:
+            motion_state["last_delta"] = Vec2i(0, 0)
+            continue
 
-        if vec_is_nonzero(delta):
-            requested_cpos = start_cpos + delta
+        start_cpos = proposal.start_cpos
+        delta = approval.delta
 
-            collision_result, resolved_cpos = resolve_static_tile_movement(
-                world,
-                entity,
-                start_cpos,
-                delta,
-            )
+        requested_cpos = approval.requested_cpos
+        if requested_cpos is None:
+            requested_cpos = start_cpos + proposal.final_delta
 
-            local_avoidance_result = try_resolve_path_follow_local_avoidance(
-                world,
-                entity,
-                controller,
-                start_cpos,
-                delta,
-                collision_result,
-            )
+        resolved_cpos = approval.resolved_cpos
+        if resolved_cpos is None:
+            resolved_cpos = start_cpos + delta
 
-            if local_avoidance_result is not None:
-                collision_result, resolved_cpos = local_avoidance_result
+        collision_result = approval.collision_result
+        movement_was_requested = vec_is_nonzero(proposal.final_delta)
+
+        if movement_was_requested:
 
             if movement_collision_destroys(collision_result):
                 collision_cpos = resolved_cpos
