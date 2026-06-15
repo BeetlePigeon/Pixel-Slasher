@@ -12,6 +12,17 @@ DEBUG_DEFAULT_IMAGE_KEY = "enemy_normal"
 DEBUG_IN_RANGE_IMAGE_KEY = "enemy_angry"
 
 
+def set_melee_pawn_debug_info(
+    agent,
+    target_entity=None,
+    in_attack_range=None,
+    attack_position_tile=None,
+):
+    agent["debug_target_entity"] = target_entity
+    agent["debug_in_attack_range"] = in_attack_range
+    agent["debug_attack_position_tile"] = attack_position_tile
+
+
 def set_debug_engagement_sprite(world, entity, in_range):
     sprite = world.sprite.get(entity)
 
@@ -64,6 +75,13 @@ def think(context):
         agent["target_entity"] = None
         agent["state"] = "idle"
 
+        set_melee_pawn_debug_info(
+            agent,
+            target_entity=None,
+            in_attack_range=False,
+            attack_position_tile=None,
+        )
+
         return [
             {
                 "type": "stop_moving",
@@ -80,6 +98,13 @@ def think(context):
         agent["target_entity"] = None
         agent["state"] = "idle"
 
+        set_melee_pawn_debug_info(
+            agent,
+            target_entity=None,
+            in_attack_range=False,
+            attack_position_tile=None,
+        )
+
         return [
             {
                 "type": "stop_moving",
@@ -94,6 +119,13 @@ def think(context):
             target,
     ):
         agent["state"] = "in_range"
+
+        set_melee_pawn_debug_info(
+            agent,
+            target_entity=target,
+            in_attack_range=True,
+            attack_position_tile=None,
+        )
 
         set_debug_engagement_sprite(world, entity, True)
 
@@ -119,6 +151,13 @@ def think(context):
                 "type": "stop_moving",
             }
         ]
+
+    set_melee_pawn_debug_info(
+        agent,
+        target_entity=target,
+        in_attack_range=False,
+        attack_position_tile=attack_position_tile,
+    )
 
     agent["state"] = "pursuing"
 

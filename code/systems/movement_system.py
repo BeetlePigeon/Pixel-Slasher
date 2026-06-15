@@ -416,8 +416,6 @@ def movement_arbiter_system(world):
         clear_buffered_move_intent(world, entity)
 
 
-
-
 @profiled("movement_proposal_system")
 def movement_proposal_system(world):
     world.clear_movement_planning_runtime()
@@ -445,6 +443,12 @@ def movement_proposal_system(world):
 
         world.movement_approval[entity] = approval
 
+        record_debug_enemy_movement_info(
+            world,
+            proposal,
+            approval,
+        )
+        
         if proposal.admission_policy.claims_movement_space:
             record_counter_for_world(
                 world,
@@ -3340,6 +3344,103 @@ MOVEMENT_DIAGNOSTIC_DIRECTIONS = (
     ("W", Vec2i(-1, 0)),
     ("NW", Vec2i(-1, -1)),
 )
+
+
+def get_controller_debug_name(controller):
+    if controller is None:
+        return "none"
+
+    return getattr(
+        controller,
+        "motion_tag",
+        controller.__class__.__name__,
+    )
+
+
+def get_path_follow_debug_info(controller):
+    if not isinstance(controller, PathFollowController):
+        return {
+            "path_index": None,
+            "path_len": None,
+            "current_path_node": None,
+            "next_path_nodes": (),
+        }
+
+    nodes = getattr(controller, "nodes", ())
+    current_index = getattr(controller, "current_index", None)
+
+    current_path_node = None
+    next_path_nodes = ()
+
+    if current_index is not None and 0 <= current_index < len(nodes):
+        current_path_node = nodes[current_index]
+        next_path_nodes = tuple(nodes[current_index:current_index + 4])
+
+    return {
+        "path_index": current_index,
+        "path_len": len(nodes),
+        "current_path_node": current_path_node,
+        "next_path_nodes": next_path_nodes,
+    }
+
+
+def get_move_target_debug_info(world, entity):
+    move_target = world.move_target.get(entity)
+    if move_target is None:
+        return {
+            "move_target_tile": None,
+            "move_target_cpos": None,
+        }
+
+    return {
+        "move_target_tile": move_target.get("target_tile"),
+        "move_target_cpos": move_target.get("target_cpos"),
+    }
+
+
+def build_debug_enemy_movement_info(world, proposal, approval):
+    entity = proposal.entity
+    agent = world.ai_agent.get(entity, {})
+    motion_state = world.motion_state.get(entity, {})
+    controller = proposal.controller
+
+    path_info = get_path_follow_debug_info(controller)
+    move_target_info = get_move_target_debug_info(world, entity)
+
+    return {
+        "entity": entity,
+        "ai_state": agent.get("state"),
+        "target_entity": agent.get("debug_target_entity", agent.get("target_entity")),
+        "in_attack_range": agent.get("debug_in_attack_range"),
+        "attack_position_tile": agent.get("debug_attack_position_tile"),
+        "controller": get_controller_debug_name(controller),
+        "controller_source": motion_state.get("controller_source"),
+        "start_cpos": proposal.start_cpos,
+        "direct_end_cpos": proposal.start_cpos + proposal.final_delta,
+        "approved_end_cpos": approval.resolved_cpos,
+        "resolution_kind": approval.resolution_kind,
+        "collision_result": approval.collision_result.collision_result,
+        "blocker_collision_type": approval.collision_result.blocker_collision_type,
+        "blocked_tile": approval.collision_result.blocked_tile,
+        "blocker_entity": approval.collision_result.blocker_entity,
+        "placement_path": approval.placement_path,
+        **move_target_info,
+        **path_info,
+    }
+
+
+def record_debug_enemy_movement_info(world, proposal, approval):
+    if not getattr(world.game, "debug_mode", False):
+        return
+
+    if proposal.entity not in world.ai_agent:
+        return
+
+    world.debug_enemy_movement[proposal.entity] = build_debug_enemy_movement_info(
+        world,
+        proposal,
+        approval,
+    )
 
 
 def format_debug_vec(value):

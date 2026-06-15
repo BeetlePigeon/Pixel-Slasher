@@ -734,3 +734,261 @@ class Debug:
             scaled_debug_highlighted_tile_image,
             (screen_x, screen_y),
         )
+
+    def get_debug_tile_screen_center(self, world, tile):
+        base_x, base_y = iso_to_screen(
+            tile.x,
+            tile.y,
+            world.tile_size,
+        )
+
+        screen_x, screen_y = project_screen_point(
+            world,
+            base_x,
+            base_y,
+        )
+
+        return (
+            screen_x + world.tile_size // 2,
+            screen_y + world.tile_size // 4,
+        )
+
+    def draw_debug_marker_on_tile(self, world, surface, tile, color, radius=4):
+        if tile is None:
+            return
+
+        pygame.draw.circle(
+            surface,
+            color,
+            self.get_debug_tile_screen_center(world, tile),
+            radius,
+            1,
+        )
+
+    def draw_debug_line_between_tiles(self, world, surface, start_tile, end_tile, color, width=1):
+        if start_tile is None or end_tile is None:
+            return
+
+        pygame.draw.line(
+            surface,
+            color,
+            self.get_debug_tile_screen_center(world, start_tile),
+            self.get_debug_tile_screen_center(world, end_tile),
+            width,
+        )
+
+    def draw_enemy_debug_eid_label(self, world, surface, entity):
+        transform = world.transform.get(entity)
+        if transform is None:
+            return
+
+        tile = tile_from_cpos(transform.cpos)
+        screen_x, screen_y = self.get_debug_tile_screen_center(
+            world,
+            tile,
+        )
+
+        label = str(entity)
+
+        text_surface = self.game.display.debug_font.render(
+            label,
+            False,
+            "white",
+        )
+
+        surface.blit(
+            text_surface,
+            (
+                screen_x - text_surface.get_width() // 2,
+                screen_y - 22,
+            ),
+        )
+
+    def format_enemy_movement_debug_row(self, entity, info):
+        row = (
+            f"eid={entity} "
+            f"ai={info.get('ai_state')} "
+            f"target={info.get('target_entity')} "
+            f"in_range={info.get('in_attack_range')} "
+            f"atk_tile={info.get('attack_position_tile')} "
+            f"ctrl={info.get('controller')} "
+            f"src={info.get('controller_source')} "
+            f"move_tile={info.get('move_target_tile')} "
+            f"path={info.get('path_index')}/{info.get('path_len')} "
+            f"result={info.get('resolution_kind')} "
+            f"collision={info.get('collision_result')}"
+        )
+
+        blocker_type = info.get("blocker_collision_type")
+        if blocker_type is not None:
+            row += f" block={blocker_type}"
+
+        blocker_entity = info.get("blocker_entity")
+        if blocker_entity is not None:
+            row += f" blocker_eid={blocker_entity}"
+
+        blocked_tile = info.get("blocked_tile")
+        if blocked_tile is not None:
+            row += f" blocked_tile={blocked_tile}"
+
+        return row
+
+    def draw_enemy_movement_debug_rows(self, world, surface):
+        if not world.debug_enemy_movement:
+            return
+
+        row_surfaces = []
+
+        for entity in sorted(world.debug_enemy_movement):
+            row = self.format_enemy_movement_debug_row(
+                entity,
+                world.debug_enemy_movement[entity],
+            )
+
+            row_surfaces.append(
+                self.game.display.debug_font.render(
+                    row,
+                    False,
+                    "white",
+                )
+            )
+
+        if not row_surfaces:
+            return
+
+        line_height = 12
+        row_gap = 1
+        padding_x = 6
+        padding_y = 4
+
+        block_width = max(
+            row_surface.get_width()
+            for row_surface in row_surfaces
+        )
+        block_height = (
+            len(row_surfaces) * (line_height + row_gap)
+            + padding_y * 2
+        )
+
+        x = (
+            4
+        )
+        y = (
+            self.game.display.internal_height
+            - block_height
+            - 64
+        )
+
+        pygame.draw.rect(
+            surface,
+            "black",
+            (
+                x,
+                y,
+                block_width + padding_x * 2,
+                block_height,
+            ),
+        )
+
+        for index, row_surface in enumerate(row_surfaces):
+            surface.blit(
+                row_surface,
+                (
+                    x + padding_x,
+                    y + padding_y + index * (line_height + row_gap),
+                ),
+            )
+
+
+    def draw_enemy_movement_debug(self, world, surface):
+        if not world.debug_enemy_movement:
+            return
+
+        highlighted_tile_image = world.game.assets.images["highlighted_tile"]
+        scaled_debug_highlighted_tile_image = scale_surface_by_camera_zoom(
+            world,
+            highlighted_tile_image,
+        )
+
+        for entity in sorted(world.debug_enemy_movement):
+            info = world.debug_enemy_movement[entity]
+
+            if entity not in world.transform:
+                continue
+
+            current_tile = tile_from_cpos(world.transform[entity].cpos)
+            attack_position_tile = info.get("attack_position_tile")
+            move_target_tile = info.get("move_target_tile")
+            current_path_node = info.get("current_path_node")
+            next_path_nodes = info.get("next_path_nodes", ())
+
+            self.draw_enemy_debug_eid_label(
+                world,
+                surface,
+                entity,
+            )
+
+            # AI-selected attack tile.
+            self.draw_debug_line_between_tiles(
+                world,
+                surface,
+                current_tile,
+                attack_position_tile,
+                "blue",
+                width=1,
+            )
+            self.draw_debug_marker_on_tile(
+                world,
+                surface,
+                attack_position_tile,
+                "blue",
+                radius=5,
+            )
+
+            # Current move target.
+            self.draw_debug_line_between_tiles(
+                world,
+                surface,
+                current_tile,
+                move_target_tile,
+                "green",
+                width=1,
+            )
+            self.draw_debug_marker_on_tile(
+                world,
+                surface,
+                move_target_tile,
+                "green",
+                radius=4,
+            )
+
+            # Current path node.
+            self.draw_debug_marker_on_tile(
+                world,
+                surface,
+                current_path_node,
+                "yellow",
+                radius=4,
+            )
+
+            for path_tile in next_path_nodes:
+                self.draw_debug_marker_on_tile(
+                    world,
+                    surface,
+                    path_tile,
+                    "yellow",
+                    radius=2,
+                )
+
+            for tile in info.get("placement_path", ()):
+                self.draw_debug_highlighted_tile_image_on_tile(
+                    world,
+                    surface,
+                    tile,
+                    scaled_debug_highlighted_tile_image,
+                )
+
+        self.draw_enemy_movement_debug_rows(
+            world,
+            surface,
+        )

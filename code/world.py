@@ -98,6 +98,7 @@ class World:
         # These are transient runtime maps, not persistent save data.
         self.movement_proposal = {}
         self.movement_approval = {}
+        self.debug_enemy_movement = {}
 
         # Movement occupancy is passive physical presence:
         # which gameplay tile footprint an entity uses for movement,
@@ -241,6 +242,7 @@ class World:
     def clear_movement_planning_runtime(self):
         self.movement_proposal.clear()
         self.movement_approval.clear()
+        self.debug_enemy_movement.clear()
         
 
     def remove_entity(self, eid):

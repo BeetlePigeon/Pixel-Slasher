@@ -1366,7 +1366,7 @@ class StateGameplay(State):
         sprite_system(self.game.world, surface, render_alpha, draw_debug=self.game.debug_mode)
 
         if self.game.debug_mode:
-            pass
+            self.game.debug.draw_enemy_movement_debug(self.game.world, surface)
             #self.game.debug.draw_projectile_contact_footprints(self.game.world, surface)
 
         self.gameplay_ui.draw(surface)
