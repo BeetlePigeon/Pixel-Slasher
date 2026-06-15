@@ -30,7 +30,6 @@ from utils.tile_vec_utils import (
     sign,
     tile_center,
     tile_from_cpos,
-    tiles_crossed_by_segment,
     normalize_vector_to_dir_scale,
 )
 from utils.path_utils import (
@@ -1997,97 +1996,6 @@ def resolve_corner_crossing_collision(
     raise ValueError(f"Unknown corner_cutting policy: {corner_policy}")
 
 
-def get_first_extrapolated_tile_for_delta(start_cpos: Vec2i, delta: Vec2i):
-    if not vec_is_nonzero(delta):
-        return None
-
-    current_tile = tile_from_cpos(start_cpos)
-
-    dx = delta.x
-    dy = delta.y
-    step_x = sign(dx)
-    step_y = sign(dy)
-    abs_dx = abs(dx)
-    abs_dy = abs(dy)
-
-    if step_x > 0:
-        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
-        next_cross_x = next_x_boundary - start_cpos.x
-    elif step_x < 0:
-        next_x_boundary = current_tile.x * TILE_UNITS
-        next_cross_x = start_cpos.x - next_x_boundary
-    else:
-        next_cross_x = None
-
-    if step_y > 0:
-        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
-        next_cross_y = next_y_boundary - start_cpos.y
-    elif step_y < 0:
-        next_y_boundary = current_tile.y * TILE_UNITS
-        next_cross_y = start_cpos.y - next_y_boundary
-    else:
-        next_cross_y = None
-
-    if next_cross_x is None:
-        return Vec2i(current_tile.x, current_tile.y + step_y)
-
-    if next_cross_y is None:
-        return Vec2i(current_tile.x + step_x, current_tile.y)
-
-    left = next_cross_x * abs_dy
-    right = next_cross_y * abs_dx
-
-    if near_corner_crossing(
-        next_cross_x,
-        next_cross_y,
-        abs_dx,
-        abs_dy,
-    ):
-        return Vec2i(current_tile.x + step_x, current_tile.y + step_y)
-
-    if left < right:
-        return Vec2i(current_tile.x + step_x, current_tile.y)
-
-    if right < left:
-        return Vec2i(current_tile.x, current_tile.y + step_y)
-
-    return Vec2i(current_tile.x + step_x, current_tile.y + step_y)
-
-
-def build_normal_movement_placement_path(
-    world,
-    entity,
-    start_cpos: Vec2i,
-    delta: Vec2i,
-):
-    if not vec_is_nonzero(delta):
-        return ()
-
-    current_tile = tile_from_cpos(start_cpos)
-    end_cpos = start_cpos + delta
-    target_tile = tile_from_cpos(end_cpos)
-
-    if current_tile == target_tile:
-        extrapolated_tile = get_first_extrapolated_tile_for_delta(
-            start_cpos,
-            delta,
-        )
-        if extrapolated_tile is None:
-            return ()
-        return (extrapolated_tile,)
-
-    crossed_tiles = tiles_crossed_by_segment(
-        start_cpos,
-        end_cpos,
-    )
-
-    return tuple(
-        tile
-        for tile in crossed_tiles
-        if tile != current_tile
-    )
-
-
 def handle_static_tile_collision(world, entity, next_tile):
     policy = world.movement_collision[entity]
     behavior = policy["static_tiles"]
@@ -2726,35 +2634,307 @@ def build_movement_proposal(world, entity):
     )
 
 
+def append_unique_movement_placement(path, tile):
+    if tile not in path:
+        path.append(tile)
+
+
+def get_initial_movement_crossing_distances(
+    current_tile: Vec2i,
+    start_cpos: Vec2i,
+    step_x: int,
+    step_y: int,
+):
+    if step_x > 0:
+        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
+        next_cross_x = next_x_boundary - start_cpos.x
+    elif step_x < 0:
+        next_x_boundary = current_tile.x * TILE_UNITS
+        next_cross_x = start_cpos.x - next_x_boundary
+    else:
+        next_cross_x = None
+
+    if step_y > 0:
+        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
+        next_cross_y = next_y_boundary - start_cpos.y
+    elif step_y < 0:
+        next_y_boundary = current_tile.y * TILE_UNITS
+        next_cross_y = start_cpos.y - next_y_boundary
+    else:
+        next_cross_y = None
+
+    return next_cross_x, next_cross_y
+
+
+def get_next_movement_crossing_axis(
+    next_cross_x,
+    next_cross_y,
+    abs_dx: int,
+    abs_dy: int,
+):
+    if next_cross_x is None:
+        return "y"
+
+    if next_cross_y is None:
+        return "x"
+
+    if near_corner_crossing(
+        next_cross_x,
+        next_cross_y,
+        abs_dx,
+        abs_dy,
+    ):
+        return "corner"
+
+    left = next_cross_x * abs_dy
+    right = next_cross_y * abs_dx
+
+    if left < right:
+        return "x"
+
+    if right < left:
+        return "y"
+
+    return "corner"
+
+
+def check_axis_movement_placement(world, entity, placement_path, tile):
+    collision_result = handle_movement_tile_collision(
+        world,
+        entity,
+        tile,
+    )
+
+    if not movement_collision_allows(collision_result):
+        return collision_result
+
+    append_unique_movement_placement(
+        placement_path,
+        tile,
+    )
+
+    return MOVEMENT_COLLISION_ALLOW
+
+
+def check_corner_movement_placement(
+    world,
+    entity,
+    placement_path,
+    current_tile: Vec2i,
+    step_x: int,
+    step_y: int,
+):
+    side_x_tile = Vec2i(
+        current_tile.x + step_x,
+        current_tile.y,
+    )
+    side_y_tile = Vec2i(
+        current_tile.x,
+        current_tile.y + step_y,
+    )
+    diagonal_tile = Vec2i(
+        current_tile.x + step_x,
+        current_tile.y + step_y,
+    )
+
+    collision_result = resolve_corner_crossing_collision(
+        world,
+        entity,
+        side_x_tile,
+        side_y_tile,
+        diagonal_tile,
+    )
+
+    if not movement_collision_allows(collision_result):
+        return collision_result, current_tile
+
+    # The diagonal tile is the actual next logical center placement.
+    # The side tiles are corner-clearance tests, not necessarily claimed
+    # origin placements.
+    append_unique_movement_placement(
+        placement_path,
+        diagonal_tile,
+    )
+
+    return MOVEMENT_COLLISION_ALLOW, diagonal_tile
+
+
+def check_same_tile_extrapolated_movement_path(
+    world,
+    entity,
+    current_tile: Vec2i,
+    step_x: int,
+    step_y: int,
+    next_cross_x,
+    next_cross_y,
+    abs_dx: int,
+    abs_dy: int,
+):
+    placement_path = []
+
+    step_axis = get_next_movement_crossing_axis(
+        next_cross_x,
+        next_cross_y,
+        abs_dx,
+        abs_dy,
+    )
+
+    if step_axis == "x":
+        tile = Vec2i(
+            current_tile.x + step_x,
+            current_tile.y,
+        )
+        collision_result = check_axis_movement_placement(
+            world,
+            entity,
+            placement_path,
+            tile,
+        )
+    elif step_axis == "y":
+        tile = Vec2i(
+            current_tile.x,
+            current_tile.y + step_y,
+        )
+        collision_result = check_axis_movement_placement(
+            world,
+            entity,
+            placement_path,
+            tile,
+        )
+    else:
+        collision_result, _ = check_corner_movement_placement(
+            world,
+            entity,
+            placement_path,
+            current_tile,
+            step_x,
+            step_y,
+        )
+
+    return MovementPathCheckResult(
+        collision_result=collision_result,
+        placement_path=tuple(placement_path),
+    )
+
+
 def check_normal_movement_delta_path(
     world,
     entity,
     start_cpos: Vec2i,
     delta: Vec2i,
 ):
-    placement_path = build_normal_movement_placement_path(
-        world,
-        entity,
+    if not vec_is_nonzero(delta):
+        return MovementPathCheckResult(
+            collision_result=MOVEMENT_COLLISION_ALLOW,
+            placement_path=(),
+        )
+
+    current_tile = tile_from_cpos(start_cpos)
+    end_cpos = start_cpos + delta
+    target_tile = tile_from_cpos(end_cpos)
+
+    dx = delta.x
+    dy = delta.y
+    step_x = sign(dx)
+    step_y = sign(dy)
+    abs_dx = abs(dx)
+    abs_dy = abs(dy)
+
+    next_cross_x, next_cross_y = get_initial_movement_crossing_distances(
+        current_tile,
         start_cpos,
-        delta,
+        step_x,
+        step_y,
     )
 
-    for tile in placement_path:
-        collision_result = handle_movement_tile_collision(
+    if current_tile == target_tile:
+        return check_same_tile_extrapolated_movement_path(
             world,
             entity,
-            tile,
+            current_tile,
+            step_x,
+            step_y,
+            next_cross_x,
+            next_cross_y,
+            abs_dx,
+            abs_dy,
+        )
+
+    placement_path = []
+
+    while current_tile != target_tile:
+        step_axis = get_next_movement_crossing_axis(
+            next_cross_x,
+            next_cross_y,
+            abs_dx,
+            abs_dy,
+        )
+
+        if step_axis == "x":
+            current_tile = Vec2i(
+                current_tile.x + step_x,
+                current_tile.y,
+            )
+
+            collision_result = check_axis_movement_placement(
+                world,
+                entity,
+                placement_path,
+                current_tile,
+            )
+
+            if not movement_collision_allows(collision_result):
+                return MovementPathCheckResult(
+                    collision_result=collision_result,
+                    placement_path=tuple(placement_path),
+                )
+
+            next_cross_x += TILE_UNITS
+            continue
+
+        if step_axis == "y":
+            current_tile = Vec2i(
+                current_tile.x,
+                current_tile.y + step_y,
+            )
+
+            collision_result = check_axis_movement_placement(
+                world,
+                entity,
+                placement_path,
+                current_tile,
+            )
+
+            if not movement_collision_allows(collision_result):
+                return MovementPathCheckResult(
+                    collision_result=collision_result,
+                    placement_path=tuple(placement_path),
+                )
+
+            next_cross_y += TILE_UNITS
+            continue
+
+        collision_result, current_tile = check_corner_movement_placement(
+            world,
+            entity,
+            placement_path,
+            current_tile,
+            step_x,
+            step_y,
         )
 
         if not movement_collision_allows(collision_result):
             return MovementPathCheckResult(
                 collision_result=collision_result,
-                placement_path=placement_path,
+                placement_path=tuple(placement_path),
             )
+
+        next_cross_x += TILE_UNITS
+        next_cross_y += TILE_UNITS
 
     return MovementPathCheckResult(
         collision_result=MOVEMENT_COLLISION_ALLOW,
-        placement_path=placement_path,
+        placement_path=tuple(placement_path),
     )
 
 
