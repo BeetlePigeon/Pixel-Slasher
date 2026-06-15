@@ -7,7 +7,7 @@ from support import Vec2i
 from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
-from utils.perf_profiler import profiled
+from utils.perf_profiler import profiled, record_counter_for_world
 from utils.occupancy_utils import (
     clear_dynamic_movement_reservations,
     add_entity_movement_reservations_for_origin_path,
@@ -74,6 +74,13 @@ MOVEMENT_COLLISION_ALLOW = MovementCollisionResult("allow")
 
 
 @dataclass(frozen=True)
+class MovementAdmissionPolicy:
+    claims_movement_space: bool
+    reserves_movement_space: bool
+    allows_finish_current_tile: bool
+
+
+@dataclass(frozen=True)
 class MovementProposal:
     entity: int
     controller: object
@@ -82,6 +89,7 @@ class MovementProposal:
     influence_delta: Vec2i
     final_delta: Vec2i
     influence_active: bool
+    admission_policy: MovementAdmissionPolicy
 
 
 @dataclass(frozen=True)
@@ -132,6 +140,87 @@ def movement_collision_slides(collision_result):
 
 def movement_collision_destroys(collision_result):
     return collision_result.destroys_entity
+
+
+def get_collision_counter_name(collision_result):
+    if collision_result.blocker_collision_type is not None:
+        return collision_result.blocker_collision_type
+
+    return collision_result.collision_result
+
+
+def record_collision_result_counter(world, prefix, collision_result):
+    record_counter_for_world(
+        world,
+        f"{prefix}.{collision_result.collision_result}",
+    )
+
+    collision_name = get_collision_counter_name(collision_result)
+    if collision_name is not None:
+        record_counter_for_world(
+            world,
+            f"{prefix}.{collision_name}",
+        )
+
+
+def record_movement_approval_counters(world, approval):
+    record_counter_for_world(
+        world,
+        "movement.proposal.total",
+    )
+
+    if movement_collision_allows(approval.collision_result):
+        record_counter_for_world(
+            world,
+            f"movement.proposal.approved.{approval.resolution_kind}",
+        )
+
+        if approval.placement_path:
+            record_counter_for_world(
+                world,
+                "movement.proposal.approved.with_path",
+            )
+            record_counter_for_world(
+                world,
+                "movement.proposal.path_len",
+                len(approval.placement_path),
+            )
+            record_counter_for_world(
+                world,
+                f"movement.proposal.path_len.{approval.resolution_kind}",
+                len(approval.placement_path),
+            )
+
+        return
+
+    record_counter_for_world(
+        world,
+        f"movement.proposal.rejected.{approval.resolution_kind}",
+    )
+    record_collision_result_counter(
+        world,
+        "movement.proposal.rejected",
+        approval.collision_result,
+    )
+
+    if approval.placement_path:
+        record_counter_for_world(
+            world,
+            "movement.proposal.rejected.path_len",
+            len(approval.placement_path),
+        )
+
+
+def record_direct_rejection_counters(world, collision_result):
+    record_counter_for_world(
+        world,
+        "movement.proposal.direct_rejected",
+    )
+    record_collision_result_counter(
+        world,
+        "movement.proposal.direct_rejected",
+        collision_result,
+    )
 
 
 def emit_movement_collision_event(
@@ -356,8 +445,25 @@ def movement_proposal_system(world):
 
         world.movement_approval[entity] = approval
 
+        if proposal.admission_policy.claims_movement_space:
+            record_counter_for_world(
+                world,
+                "movement.proposal.policy.claims_space",
+            )
+        else:
+            record_counter_for_world(
+                world,
+                "movement.proposal.policy.non_space_claiming",
+            )
+
+        record_movement_approval_counters(
+            world,
+            approval,
+        )
+
         if (
-            approval.approved
+            proposal.admission_policy.reserves_movement_space
+            and approval.approved
             and movement_collision_allows(approval.collision_result)
             and approval.placement_path
         ):
@@ -365,6 +471,15 @@ def movement_proposal_system(world):
                 world,
                 entity,
                 approval.placement_path,
+            )
+            record_counter_for_world(
+                world,
+                "movement.proposal.reserved_path",
+            )
+            record_counter_for_world(
+                world,
+                "movement.proposal.reserved_path_len",
+                len(approval.placement_path),
             )
 
 
@@ -2588,6 +2703,27 @@ def sample_controller_delta(controller, current_cpos):
     return controller.sample_delta()
 
 
+def entity_claims_movement_space(world, entity):
+    space_occupier = world.space_occupier.get(entity)
+    if space_occupier is None:
+        return False
+
+    return space_occupier.get("blocks_movement", False)
+
+
+def get_movement_admission_policy(world, entity):
+    claims_movement_space = entity_claims_movement_space(
+        world,
+        entity,
+    )
+
+    return MovementAdmissionPolicy(
+        claims_movement_space=claims_movement_space,
+        reserves_movement_space=claims_movement_space,
+        allows_finish_current_tile=claims_movement_space,
+    )
+
+
 def build_movement_proposal(world, entity):
     motion_state = world.motion_state[entity]
     controller = motion_state["controller"]
@@ -2611,6 +2747,10 @@ def build_movement_proposal(world, entity):
         influence_delta=influence_delta,
         final_delta=final_delta,
         influence_active=vec_is_nonzero(influence_delta),
+        admission_policy=get_movement_admission_policy(
+            world,
+            entity,
+        ),
     )
 
 
@@ -2704,6 +2844,11 @@ def check_corner_movement_placement(
     step_x: int,
     step_y: int,
 ):
+    record_counter_for_world(
+        world,
+        "movement.proposal.corner_crossing",
+    )
+
     side_x_tile = Vec2i(
         current_tile.x + step_x,
         current_tile.y,
@@ -2724,6 +2869,18 @@ def check_corner_movement_placement(
         side_y_tile,
         diagonal_tile,
     )
+
+    if movement_collision_allows(collision_result):
+        record_counter_for_world(
+            world,
+            "movement.proposal.corner_crossing.allow",
+        )
+    else:
+        record_collision_result_counter(
+            world,
+            "movement.proposal.corner_crossing.blocked",
+            collision_result,
+        )
 
     if not movement_collision_allows(collision_result):
         return collision_result, current_tile
@@ -2956,7 +3113,8 @@ def make_blocked_movement_approval(
 
 def is_explicit_current_tile_centering(proposal: MovementProposal):
     return (
-        isinstance(proposal.controller, SettleToGridController)
+        proposal.admission_policy.allows_finish_current_tile
+        and isinstance(proposal.controller, SettleToGridController)
         and not proposal.influence_active
     )
 
@@ -2991,8 +3149,9 @@ def try_build_finish_current_tile_approval(
     proposal: MovementProposal,
     rejection_result: MovementCollisionResult,
 ):
-    # A destroy collision should remain a destroy collision. Do not convert
-    # projectile/impact-style movement into actor centering.
+    if not proposal.admission_policy.allows_finish_current_tile:
+        return None
+
     if movement_collision_destroys(rejection_result):
         return None
 
@@ -3140,6 +3299,11 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
 
     if direct_approval is not None:
         return direct_approval
+
+    record_direct_rejection_counters(
+        world,
+        direct_rejection.collision_result,
+    )
 
     static_slide_approval = try_build_static_slide_approval(
         world,
