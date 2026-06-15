@@ -158,125 +158,6 @@ def emit_movement_collision_event(
     )
 
 
-def vec_is_nonzero(vec: Vec2i) -> bool:
-    return vec.x != 0 or vec.y != 0
-
-
-def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
-    return a.x == b.x and a.y == b.y
-
-
-def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
-    return Vec2i(
-        start.x + delta.x * axis_distance // axis_abs_delta,
-        start.y + delta.y * axis_distance // axis_abs_delta,
-    )
-
-
-def corner_boundary_cpos(current_tile: Vec2i, step_x: int, step_y: int) -> Vec2i:
-    if step_x > 0:
-        boundary_x = (current_tile.x + 1) * TILE_UNITS
-    else:
-        boundary_x = current_tile.x * TILE_UNITS
-
-    if step_y > 0:
-        boundary_y = (current_tile.y + 1) * TILE_UNITS
-    else:
-        boundary_y = current_tile.y * TILE_UNITS
-
-    return Vec2i(boundary_x, boundary_y)
-
-
-def near_corner_crossing(
-    next_cross_x: int,
-    next_cross_y: int,
-    abs_dx: int,
-    abs_dy: int,
-) -> bool:
-    # left/right are the existing integer cross-multiply comparison.
-    left = next_cross_x * abs_dy
-    right = next_cross_y * abs_dx
-
-    # Scale tolerance into the same cross-multiplied space.
-    tolerance = CORNER_CROSSING_TOLERANCE_CPOS * max(abs_dx, abs_dy)
-
-    return abs(left - right) <= tolerance
-
-
-def safe_before_boundary_coord(boundary_coord: int, step: int) -> int:
-    if step > 0:
-        return boundary_coord - 1
-
-    if step < 0:
-        return boundary_coord
-
-    return boundary_coord
-
-
-def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
-    return Vec2i(
-        safe_before_boundary_coord(boundary_cpos.x, step_x),
-        boundary_cpos.y,
-    )
-
-
-def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
-    return Vec2i(
-        boundary_cpos.x,
-        safe_before_boundary_coord(boundary_cpos.y, step_y),
-    )
-
-
-def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> Vec2i:
-    return Vec2i(
-        safe_before_boundary_coord(boundary_cpos.x, step_x),
-        safe_before_boundary_coord(boundary_cpos.y, step_y),
-    )
-
-
-def buffer_move_intent(world, entity, direction: Vec2i):
-    world.buffered_move_intent[entity] = {
-        "type": "direction",
-        "direction": direction,
-        "expires_tick": world.tick + MOVE_BUFFER_TICKS,
-    }
-
-
-def clear_buffered_move_intent(world, entity):
-    world.buffered_move_intent.pop(entity, None)
-
-
-def get_buffered_move_direction(world, entity):
-    buffered = world.buffered_move_intent.get(entity)
-
-    if buffered is None:
-        return None
-
-    if world.tick > buffered["expires_tick"]:
-        clear_buffered_move_intent(world, entity)
-        return None
-
-    if buffered["type"] != "direction":
-        return None
-
-    return buffered["direction"]
-
-
-def movement_start_suppressed_this_tick(world, entity):
-    motion_state = world.motion_state.get(entity)
-
-    if motion_state is None:
-        return False
-
-    return motion_state.get("suppress_move_start_tick") == world.tick
-
-
-def entity_can_start_voluntary_movement(world, entity):
-    active_action_tags = get_active_action_tags(world, entity)
-
-    return not tags_block_voluntary_movement(active_action_tags)
-
-
 @profiled("movement_arbiter")
 def movement_arbiter_system(world):
     rebuild_dynamic_occupancy(world)
@@ -446,11 +327,386 @@ def movement_arbiter_system(world):
         clear_buffered_move_intent(world, entity)
 
 
+
+
+@profiled("movement_proposal_system")
+def movement_proposal_system(world):
+    world.clear_movement_planning_runtime()
+
+    rebuild_dynamic_occupancy(world)
+    clear_dynamic_movement_reservations(world)
+
+    entities = (
+        set(world.transform)
+        & set(world.motion_state)
+    )
+
+    for entity in sorted(entities):
+        proposal = build_movement_proposal(
+            world,
+            entity,
+        )
+
+        world.movement_proposal[entity] = proposal
+
+        approval = build_movement_admission_approval(
+            world,
+            proposal,
+        )
+
+        world.movement_approval[entity] = approval
+
+        if (
+            approval.approved
+            and movement_collision_allows(approval.collision_result)
+            and approval.placement_path
+        ):
+            add_entity_movement_reservations_for_origin_path(
+                world,
+                entity,
+                approval.placement_path,
+            )
+
+
+@profiled("movement_apply_system")
+def movement_apply_system(world):
+    rebuild_dynamic_occupancy(world)
+
+    entities = (
+        set(world.transform)
+        & set(world.motion_state)
+    )
+
+    for entity in sorted(entities):
+        motion_state = world.motion_state[entity]
+        controller = motion_state["controller"]
+        transform = world.transform[entity]
+
+        proposal = world.movement_proposal.get(entity)
+        approval = world.movement_approval.get(entity)
+
+        if proposal is None or approval is None:
+            motion_state["last_delta"] = Vec2i(0, 0)
+            continue
+
+        influence_active = proposal.influence_active
+
+        if not approval.approved:
+            motion_state["last_delta"] = Vec2i(0, 0)
+            continue
+
+        start_cpos = proposal.start_cpos
+        delta = approval.delta
+
+        requested_cpos = approval.requested_cpos
+        if requested_cpos is None:
+            requested_cpos = start_cpos + proposal.final_delta
+
+        resolved_cpos = approval.resolved_cpos
+        if resolved_cpos is None:
+            resolved_cpos = start_cpos + delta
+
+        collision_result = approval.collision_result
+        movement_was_requested = vec_is_nonzero(proposal.final_delta)
+
+        if movement_was_requested:
+
+            if movement_collision_destroys(collision_result):
+                collision_cpos = resolved_cpos
+                collision_tile = tile_from_cpos(collision_cpos)
+
+                emit_movement_collision_event(
+                    world,
+                    "entity_destroyed_by_movement_collision",
+                    entity,
+                    collision_cpos,
+                    collision_tile,
+                    collision_result,
+                    controller,
+                    influence_active,
+                )
+
+                world.entities.destroy(entity)
+                continue
+
+            if movement_collision_blocks(collision_result):
+                transform.cpos = resolved_cpos
+
+                if transform.position_mode == "free" or influence_active:
+                    transform.tile = tile_from_cpos(transform.cpos)
+
+                mark_settle_after_influence_if_needed(
+                    transform,
+                    motion_state,
+                    influence_active,
+                )
+
+                motion_state["last_delta"] = transform.cpos - start_cpos
+
+                emit_movement_collision_event(
+                    world,
+                    "entity_movement_blocked",
+                    entity,
+                    transform.cpos,
+                    transform.tile,
+                    collision_result,
+                    controller,
+                    influence_active,
+                )
+
+                if controller is None:
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+                    continue
+
+                if controller_ages_on_block(controller):
+                    controller.advance()
+
+                    if finish_controller_after_block_if_needed(
+                            world,
+                            entity,
+                            controller,
+                    ):
+                        mark_dynamic_occupancy_dirty(world)
+                        rebuild_dynamic_occupancy(world)
+
+                        continue
+
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+
+                    continue
+
+                if controller_aborts_on_block(controller):
+                    if is_path_follow_controller(controller):
+                        abort_path_follow_controller(
+                            world,
+                            entity,
+                            motion_state,
+                        )
+                    else:
+                        clear_motion_controller(motion_state)
+                        request_settle_when_allowed(world, entity)
+                        start_requested_settle_if_allowed(world, entity)
+
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+                    continue
+
+                if controller_retries_on_block(controller):
+                    mark_dynamic_occupancy_dirty(world)
+                    rebuild_dynamic_occupancy(world)
+
+                    continue
+
+                raise ValueError(
+                    f"Unhandled controller block_response "
+                    f"{get_controller_block_response(controller)!r} "
+                    f"for controller {controller!r}"
+                )
+
+            transform.cpos = resolved_cpos
+
+            if isinstance(controller, PathFollowController):
+                update_path_follow_progress(
+                    world,
+                    entity,
+                    controller,
+                )
+
+            if transform.position_mode == "free" or influence_active:
+                transform.tile = tile_from_cpos(transform.cpos)
+
+            mark_settle_after_influence_if_needed(
+                transform,
+                motion_state,
+                influence_active,
+            )
+
+            motion_state["last_delta"] = transform.cpos - start_cpos
+
+            if path_follow_movement_was_modified(
+                    controller,
+                    requested_cpos,
+                    resolved_cpos,
+            ):
+                discard_pending_controller_advance(controller)
+
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
+                continue
+
+        else:
+            motion_state["last_delta"] = Vec2i(0, 0)
+
+            if controller is None:
+                settle_after_influence_if_needed(
+                    world,
+                    entity,
+                    transform,
+                    motion_state,
+                )
+
+                start_requested_settle_if_allowed(
+                    world,
+                    entity,
+                )
+
+        if controller is not None:
+            controller.advance()
+
+            if isinstance(controller, PathFollowController):
+                update_path_follow_progress(
+                    world,
+                    entity,
+                    controller,
+                )
+
+            if controller.finished():
+                if hasattr(controller, "end"):
+                    transform.cpos = controller.end
+                    transform.tile = tile_from_cpos(transform.cpos)
+
+                if is_path_follow_controller(controller):
+                    clear_move_target_after_path_finish_if_needed(
+                        world,
+                        entity,
+                    )
+
+                clear_motion_controller(motion_state)
+
+                request_settle_when_allowed(world, entity)
+                start_requested_settle_if_allowed(world, entity)
+
+        mark_dynamic_occupancy_dirty(world)
+        rebuild_dynamic_occupancy(world)
+
+
 def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
     motion_state.pop("controller_source", None)
     motion_state.pop("path_follow_progress", None)
+
+
+def vec_is_nonzero(vec: Vec2i) -> bool:
+    return vec.x != 0 or vec.y != 0
+
+
+def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
+    return a.x == b.x and a.y == b.y
+
+
+def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
+    return Vec2i(
+        start.x + delta.x * axis_distance // axis_abs_delta,
+        start.y + delta.y * axis_distance // axis_abs_delta,
+    )
+
+
+def corner_boundary_cpos(current_tile: Vec2i, step_x: int, step_y: int) -> Vec2i:
+    if step_x > 0:
+        boundary_x = (current_tile.x + 1) * TILE_UNITS
+    else:
+        boundary_x = current_tile.x * TILE_UNITS
+
+    if step_y > 0:
+        boundary_y = (current_tile.y + 1) * TILE_UNITS
+    else:
+        boundary_y = current_tile.y * TILE_UNITS
+
+    return Vec2i(boundary_x, boundary_y)
+
+
+def near_corner_crossing(
+    next_cross_x: int,
+    next_cross_y: int,
+    abs_dx: int,
+    abs_dy: int,
+) -> bool:
+    # left/right are the existing integer cross-multiply comparison.
+    left = next_cross_x * abs_dy
+    right = next_cross_y * abs_dx
+
+    # Scale tolerance into the same cross-multiplied space.
+    tolerance = CORNER_CROSSING_TOLERANCE_CPOS * max(abs_dx, abs_dy)
+
+    return abs(left - right) <= tolerance
+
+
+def safe_before_boundary_coord(boundary_coord: int, step: int) -> int:
+    if step > 0:
+        return boundary_coord - 1
+
+    if step < 0:
+        return boundary_coord
+
+    return boundary_coord
+
+
+def safe_before_x_cross(boundary_cpos: Vec2i, step_x: int) -> Vec2i:
+    return Vec2i(
+        safe_before_boundary_coord(boundary_cpos.x, step_x),
+        boundary_cpos.y,
+    )
+
+
+def safe_before_y_cross(boundary_cpos: Vec2i, step_y: int) -> Vec2i:
+    return Vec2i(
+        boundary_cpos.x,
+        safe_before_boundary_coord(boundary_cpos.y, step_y),
+    )
+
+
+def safe_before_corner_cross(boundary_cpos: Vec2i, step_x: int, step_y: int) -> Vec2i:
+    return Vec2i(
+        safe_before_boundary_coord(boundary_cpos.x, step_x),
+        safe_before_boundary_coord(boundary_cpos.y, step_y),
+    )
+
+
+def buffer_move_intent(world, entity, direction: Vec2i):
+    world.buffered_move_intent[entity] = {
+        "type": "direction",
+        "direction": direction,
+        "expires_tick": world.tick + MOVE_BUFFER_TICKS,
+    }
+
+
+def clear_buffered_move_intent(world, entity):
+    world.buffered_move_intent.pop(entity, None)
+
+
+def get_buffered_move_direction(world, entity):
+    buffered = world.buffered_move_intent.get(entity)
+
+    if buffered is None:
+        return None
+
+    if world.tick > buffered["expires_tick"]:
+        clear_buffered_move_intent(world, entity)
+        return None
+
+    if buffered["type"] != "direction":
+        return None
+
+    return buffered["direction"]
+
+
+def movement_start_suppressed_this_tick(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return False
+
+    return motion_state.get("suppress_move_start_tick") == world.tick
+
+
+def entity_can_start_voluntary_movement(world, entity):
+    active_action_tags = get_active_action_tags(world, entity)
+
+    return not tags_block_voluntary_movement(active_action_tags)
 
 
 def make_path_query_key(
@@ -614,16 +870,6 @@ def cpos_distance(a: Vec2i, b: Vec2i) -> int:
     return isqrt(cpos_distance_sq(a, b))
 
 
-def scale_vec_ratio(vec: Vec2i, numerator: int, denominator: int) -> Vec2i:
-    if denominator == 0:
-        raise ValueError("Cannot scale vector with denominator 0.")
-
-    return Vec2i(
-        vec.x * numerator // denominator,
-        vec.y * numerator // denominator,
-    )
-
-
 def clamp_vec_length_to_reference(vec: Vec2i, reference: Vec2i) -> Vec2i:
     reference_len_sq = cpos_distance_sq(
         Vec2i(0, 0),
@@ -653,19 +899,6 @@ def clamp_vec_length_to_reference(vec: Vec2i, reference: Vec2i) -> Vec2i:
     )
 
 
-def append_unique_nonzero_delta(candidates, seen, delta):
-    if not vec_is_nonzero(delta):
-        return
-
-    key = (delta.x, delta.y)
-
-    if key in seen:
-        return
-
-    seen.add(key)
-    candidates.append(delta)
-
-
 def get_path_follow_node_distance(controller, cpos):
     current_node = get_path_follow_current_node(controller)
 
@@ -673,259 +906,6 @@ def get_path_follow_node_distance(controller, cpos):
         return None
 
     return cpos_distance(cpos, current_node)
-
-
-def make_local_avoidance_score(
-    controller,
-    path_policy,
-    start_cpos,
-    resolved_cpos,
-    candidate_index,
-):
-    before_distance = get_path_follow_node_distance(
-        controller,
-        start_cpos,
-    )
-    after_distance = get_path_follow_node_distance(
-        controller,
-        resolved_cpos,
-    )
-
-    if before_distance is None or after_distance is None:
-        return (candidate_index,)
-
-    prefer_progress = path_policy[
-        "local_avoidance_prefer_progress"
-    ]
-
-    made_progress = after_distance < before_distance
-
-    if prefer_progress:
-        return (
-            0 if made_progress else 1,
-            after_distance,
-            candidate_index,
-        )
-
-    return (
-        candidate_index,
-        after_distance,
-    )
-
-
-def try_resolve_path_follow_local_avoidance(
-    world,
-    entity,
-    controller,
-    start_cpos,
-    delta,
-    original_collision_result,
-):
-    if not is_path_follow_controller(controller):
-        return None
-
-    if original_collision_result.blocker_collision_type != "dynamic":
-        return None
-
-    target = world.move_target.get(entity)
-
-    if target is None:
-        return None
-
-    path_policy = get_path_policy(world, target)
-
-    if not path_policy["local_avoidance_enabled"]:
-        return None
-
-    options = []
-
-    candidate_deltas = iter_local_avoidance_candidate_deltas(
-        entity,
-        delta,
-        path_policy,
-    )
-
-    for index, candidate_delta in enumerate(candidate_deltas):
-        candidate_result, candidate_cpos = resolve_static_tile_movement(
-            world,
-            entity,
-            start_cpos,
-            candidate_delta,
-        )
-
-        if not movement_collision_allows(candidate_result):
-            continue
-
-        if not local_avoidance_candidate_is_acceptable(
-            controller,
-            path_policy,
-            start_cpos,
-            candidate_cpos,
-        ):
-            continue
-
-        score = make_local_avoidance_score(
-            controller,
-            path_policy,
-            start_cpos,
-            candidate_cpos,
-            index,
-        )
-
-        options.append(
-            (
-                score,
-                candidate_result,
-                candidate_cpos,
-            )
-        )
-
-    if not options:
-        return None
-
-    options.sort(key=lambda item: item[0])
-
-    _, collision_result, resolved_cpos = options[0]
-
-    return collision_result, resolved_cpos
-
-
-def local_avoidance_candidate_is_acceptable(
-    controller,
-    path_policy,
-    start_cpos,
-    resolved_cpos,
-):
-    if resolved_cpos == start_cpos:
-        return False
-
-    before_distance = get_path_follow_node_distance(
-        controller,
-        start_cpos,
-    )
-    after_distance = get_path_follow_node_distance(
-        controller,
-        resolved_cpos,
-    )
-
-    if before_distance is None or after_distance is None:
-        return True
-
-    max_extra_distance = path_policy[
-        "local_avoidance_max_extra_node_distance_cpos"
-    ]
-
-    if after_distance > before_distance + max_extra_distance:
-        return False
-
-    if path_policy["local_avoidance_require_progress"]:
-        min_progress = path_policy[
-            "local_avoidance_min_progress_cpos"
-        ]
-
-        if after_distance > before_distance - min_progress:
-            return False
-
-    return True
-
-
-def iter_local_avoidance_candidate_deltas(entity, delta: Vec2i, path_policy):
-    candidates = []
-    seen = set()
-
-    abs_x = abs(delta.x)
-    abs_y = abs(delta.y)
-
-    x_only = Vec2i(delta.x, 0)
-    y_only = Vec2i(0, delta.y)
-
-    if abs_x > abs_y:
-        axis_candidates = (x_only, y_only)
-    elif abs_y > abs_x:
-        axis_candidates = (y_only, x_only)
-    else:
-        # Deterministic variation for exact diagonals.
-        if entity % 2 == 0:
-            axis_candidates = (x_only, y_only)
-        else:
-            axis_candidates = (y_only, x_only)
-
-    perpendicular_scale_num = path_policy[
-        "local_avoidance_perpendicular_scale_num"
-    ]
-    perpendicular_scale_den = path_policy[
-        "local_avoidance_perpendicular_scale_den"
-    ]
-
-    left_perp = scale_vec_ratio(
-        Vec2i(-delta.y, delta.x),
-        perpendicular_scale_num,
-        perpendicular_scale_den,
-    )
-    right_perp = scale_vec_ratio(
-        Vec2i(delta.y, -delta.x),
-        perpendicular_scale_num,
-        perpendicular_scale_den,
-    )
-
-    if entity % 2 == 0:
-        perpendicular_candidates = (left_perp, right_perp)
-    else:
-        perpendicular_candidates = (right_perp, left_perp)
-
-    forward_side_scale_num = path_policy[
-        "local_avoidance_forward_side_scale_num"
-    ]
-    forward_side_scale_den = path_policy[
-        "local_avoidance_forward_side_scale_den"
-    ]
-
-    forward_side_candidates = []
-
-    for perpendicular_delta in perpendicular_candidates:
-        scaled_perpendicular_delta = scale_vec_ratio(
-            perpendicular_delta,
-            forward_side_scale_num,
-            forward_side_scale_den,
-        )
-
-        forward_side_delta = clamp_vec_length_to_reference(
-            delta + scaled_perpendicular_delta,
-            delta,
-        )
-
-        append_unique_nonzero_delta(
-            forward_side_candidates,
-            set(),
-            forward_side_delta,
-        )
-
-    # Prefer moves that still have forward intent.
-    for candidate_delta in forward_side_candidates:
-        append_unique_nonzero_delta(
-            candidates,
-            seen,
-            candidate_delta,
-        )
-
-    # Then try axis-only candidates.
-    for candidate_delta in axis_candidates:
-        append_unique_nonzero_delta(
-            candidates,
-            seen,
-            candidate_delta,
-        )
-
-    # Finally try pure side movement.
-    for candidate_delta in perpendicular_candidates:
-        append_unique_nonzero_delta(
-            candidates,
-            seen,
-            candidate_delta,
-        )
-
-    return candidates
-
 
 
 def get_path_follow_current_node(controller):
@@ -3773,260 +3753,6 @@ def path_follow_movement_was_modified(
         return False
 
     return resolved_cpos != requested_cpos
-
-
-@profiled("movement_proposal_system")
-def movement_proposal_system(world):
-    world.clear_movement_planning_runtime()
-
-    rebuild_dynamic_occupancy(world)
-    clear_dynamic_movement_reservations(world)
-
-    entities = (
-        set(world.transform)
-        & set(world.motion_state)
-    )
-
-    for entity in sorted(entities):
-        proposal = build_movement_proposal(
-            world,
-            entity,
-        )
-
-        world.movement_proposal[entity] = proposal
-
-        approval = build_movement_admission_approval(
-            world,
-            proposal,
-        )
-
-        world.movement_approval[entity] = approval
-
-        if (
-            approval.approved
-            and movement_collision_allows(approval.collision_result)
-            and approval.placement_path
-        ):
-            add_entity_movement_reservations_for_origin_path(
-                world,
-                entity,
-                approval.placement_path,
-            )
-
-
-@profiled("movement_apply_system")
-def movement_apply_system(world):
-    rebuild_dynamic_occupancy(world)
-
-    entities = (
-        set(world.transform)
-        & set(world.motion_state)
-    )
-
-    for entity in sorted(entities):
-        motion_state = world.motion_state[entity]
-        controller = motion_state["controller"]
-        transform = world.transform[entity]
-
-        proposal = world.movement_proposal.get(entity)
-        approval = world.movement_approval.get(entity)
-
-        if proposal is None or approval is None:
-            motion_state["last_delta"] = Vec2i(0, 0)
-            continue
-
-        influence_active = proposal.influence_active
-
-        if not approval.approved:
-            motion_state["last_delta"] = Vec2i(0, 0)
-            continue
-
-        start_cpos = proposal.start_cpos
-        delta = approval.delta
-
-        requested_cpos = approval.requested_cpos
-        if requested_cpos is None:
-            requested_cpos = start_cpos + proposal.final_delta
-
-        resolved_cpos = approval.resolved_cpos
-        if resolved_cpos is None:
-            resolved_cpos = start_cpos + delta
-
-        collision_result = approval.collision_result
-        movement_was_requested = vec_is_nonzero(proposal.final_delta)
-
-        if movement_was_requested:
-
-            if movement_collision_destroys(collision_result):
-                collision_cpos = resolved_cpos
-                collision_tile = tile_from_cpos(collision_cpos)
-
-                emit_movement_collision_event(
-                    world,
-                    "entity_destroyed_by_movement_collision",
-                    entity,
-                    collision_cpos,
-                    collision_tile,
-                    collision_result,
-                    controller,
-                    influence_active,
-                )
-
-                world.entities.destroy(entity)
-                continue
-
-            if movement_collision_blocks(collision_result):
-                transform.cpos = resolved_cpos
-
-                if transform.position_mode == "free" or influence_active:
-                    transform.tile = tile_from_cpos(transform.cpos)
-
-                mark_settle_after_influence_if_needed(
-                    transform,
-                    motion_state,
-                    influence_active,
-                )
-
-                motion_state["last_delta"] = transform.cpos - start_cpos
-
-                emit_movement_collision_event(
-                    world,
-                    "entity_movement_blocked",
-                    entity,
-                    transform.cpos,
-                    transform.tile,
-                    collision_result,
-                    controller,
-                    influence_active,
-                )
-
-                if controller is None:
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
-                    continue
-
-                if controller_ages_on_block(controller):
-                    controller.advance()
-
-                    if finish_controller_after_block_if_needed(
-                            world,
-                            entity,
-                            controller,
-                    ):
-                        mark_dynamic_occupancy_dirty(world)
-                        rebuild_dynamic_occupancy(world)
-
-                        continue
-
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
-
-                    continue
-
-                if controller_aborts_on_block(controller):
-                    if is_path_follow_controller(controller):
-                        abort_path_follow_controller(
-                            world,
-                            entity,
-                            motion_state,
-                        )
-                    else:
-                        clear_motion_controller(motion_state)
-                        request_settle_when_allowed(world, entity)
-                        start_requested_settle_if_allowed(world, entity)
-
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
-                    continue
-
-                if controller_retries_on_block(controller):
-                    mark_dynamic_occupancy_dirty(world)
-                    rebuild_dynamic_occupancy(world)
-
-                    continue
-
-                raise ValueError(
-                    f"Unhandled controller block_response "
-                    f"{get_controller_block_response(controller)!r} "
-                    f"for controller {controller!r}"
-                )
-
-            transform.cpos = resolved_cpos
-
-            if isinstance(controller, PathFollowController):
-                update_path_follow_progress(
-                    world,
-                    entity,
-                    controller,
-                )
-
-            if transform.position_mode == "free" or influence_active:
-                transform.tile = tile_from_cpos(transform.cpos)
-
-            mark_settle_after_influence_if_needed(
-                transform,
-                motion_state,
-                influence_active,
-            )
-
-            motion_state["last_delta"] = transform.cpos - start_cpos
-
-            if path_follow_movement_was_modified(
-                    controller,
-                    requested_cpos,
-                    resolved_cpos,
-            ):
-                discard_pending_controller_advance(controller)
-
-                mark_dynamic_occupancy_dirty(world)
-                rebuild_dynamic_occupancy(world)
-
-                continue
-
-        else:
-            motion_state["last_delta"] = Vec2i(0, 0)
-
-            if controller is None:
-                settle_after_influence_if_needed(
-                    world,
-                    entity,
-                    transform,
-                    motion_state,
-                )
-
-                start_requested_settle_if_allowed(
-                    world,
-                    entity,
-                )
-
-        if controller is not None:
-            controller.advance()
-
-            if isinstance(controller, PathFollowController):
-                update_path_follow_progress(
-                    world,
-                    entity,
-                    controller,
-                )
-
-            if controller.finished():
-                if hasattr(controller, "end"):
-                    transform.cpos = controller.end
-                    transform.tile = tile_from_cpos(transform.cpos)
-
-                if is_path_follow_controller(controller):
-                    clear_move_target_after_path_finish_if_needed(
-                        world,
-                        entity,
-                    )
-
-                clear_motion_controller(motion_state)
-
-                request_settle_when_allowed(world, entity)
-                start_requested_settle_if_allowed(world, entity)
-
-        mark_dynamic_occupancy_dirty(world)
-        rebuild_dynamic_occupancy(world)
 
 
 def cancel_motion_by_tags_for_status(world, entity, motion_tags):

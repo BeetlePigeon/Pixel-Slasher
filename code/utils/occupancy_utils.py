@@ -91,7 +91,7 @@ def add_entity_movement_reservations_for_origin_path(world, eid, origin_tiles):
             origin_tile,
         )
 
-        
+
 def get_movement_wing_tiles_for_origin_tile(world, eid, origin_tile):
     center_tile = get_movement_center_tile_for_origin_tile(origin_tile)
 
@@ -208,100 +208,6 @@ def get_first_tile_entered_from_cpos(start_cpos, target_cpos):
     return current_tile + Vec2i(step_x, step_y)
 
 
-def get_controller_immediate_next_tile(current_cpos, controller):
-    if hasattr(controller, "end"):
-        return get_first_tile_entered_from_cpos(
-            current_cpos,
-            controller.end,
-        )
-
-    if hasattr(controller, "nodes") and hasattr(controller, "current_index"):
-        index = controller.current_index
-
-        while index < len(controller.nodes):
-            target_cpos = controller.nodes[index]
-
-            if target_cpos == current_cpos:
-                index += 1
-                continue
-
-            return get_first_tile_entered_from_cpos(
-                current_cpos,
-                target_cpos,
-            )
-
-    if hasattr(controller, "raw_direction"):
-        current_tile = tile_from_cpos(current_cpos)
-        dx = sign(controller.raw_direction.x)
-        dy = sign(controller.raw_direction.y)
-
-        if dx == 0 and dy == 0:
-            return None
-
-        return current_tile + Vec2i(dx, dy)
-
-    return None
-
-
-def get_entity_reserved_center_tile(world, eid):
-    if not space_occupier_blocks_movement(world, eid):
-        return None
-
-    transform = world.transform.get(eid)
-
-    if transform is None:
-        return None
-
-    motion_state = world.motion_state.get(eid)
-
-    if motion_state is None:
-        return None
-
-    controller = motion_state.get("controller")
-
-    if controller is None:
-        return None
-
-    current_tile = tile_from_cpos(transform.cpos)
-
-    next_tile = get_controller_immediate_next_tile(
-        transform.cpos,
-        controller,
-    )
-
-    if next_tile is None:
-        return None
-
-    if next_tile == current_tile:
-        return None
-
-    if abs(next_tile.x - current_tile.x) > 1:
-        return None
-
-    if abs(next_tile.y - current_tile.y) > 1:
-        return None
-
-    return next_tile
-
-
-def get_entity_reserved_body_tiles(world, eid):
-    reserved_center_tile = get_entity_reserved_center_tile(world, eid)
-
-    if reserved_center_tile is None:
-        return ()
-
-    return get_movement_body_tiles_for_origin_tile(
-        world,
-        eid,
-        reserved_center_tile,
-    )
-
-
-# Compatibility name.
-def get_entity_reserved_tiles(world, eid):
-    return get_entity_reserved_body_tiles(world, eid)
-
-
 @profiled("occupancy.rebuild")
 def rebuild_dynamic_occupancy(world):
     dynamic_center_occupancy = {}
@@ -334,22 +240,6 @@ def rebuild_dynamic_occupancy(world):
                 set(),
             ).add(eid)
 
-        reserved_center_tile = get_entity_reserved_center_tile(world, eid)
-
-        if reserved_center_tile is not None:
-            dynamic_reserved_centers.setdefault(
-                reserved_center_tile,
-                set(),
-            ).add(eid)
-
-            for reserved_body_tile in get_entity_reserved_body_tiles(
-                world,
-                eid,
-            ):
-                dynamic_reserved_bodies.setdefault(
-                    reserved_body_tile,
-                    set(),
-                ).add(eid)
 
     world.dynamic_center_occupancy = dynamic_center_occupancy
     world.dynamic_body_occupancy = dynamic_body_occupancy
