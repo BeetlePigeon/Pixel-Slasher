@@ -1,5 +1,11 @@
 from support import Vec2i
-from systems.movement_system import set_move_target, clear_move_target, buffer_move_intent, cancel_voluntary_movement
+from systems.movement_system import (
+    set_move_target,
+    clear_move_target,
+    buffer_move_intent,
+    cancel_voluntary_movement,
+    start_or_update_recenter_for_action,
+)
 
 
 def intent_system(world, intents):
@@ -25,6 +31,16 @@ def intent_system(world, intents):
                 cancel_voluntary_movement(
                     world,
                     entity,
+                )
+                continue
+
+            if intent["type"] == "recenter_for_action":
+                start_or_update_recenter_for_action(
+                    world,
+                    entity,
+                    intent["target_tile"],
+                    intent["target_cpos"],
+                    intent.get("owner_order_id"),
                 )
                 continue
 

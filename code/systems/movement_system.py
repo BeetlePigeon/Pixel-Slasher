@@ -706,6 +706,8 @@ def clear_motion_controller(motion_state):
     motion_state["controller"] = None
     motion_state["influence_mode"] = "normal"
     motion_state.pop("controller_source", None)
+    motion_state.pop("controller_owner_order_id", None)
+    motion_state.pop("recenter_for_action_target_tile", None)
     motion_state.pop("path_follow_progress", None)
 
 
@@ -2582,6 +2584,7 @@ def install_path_follow_controller(world, entity, target, nodes):
     )
 
     motion_state["controller_source"] = "move_target"
+    motion_state["controller_owner_order_id"] = target.get("owner_order_id")
 
     initialize_path_follow_progress(
         world,
@@ -2626,6 +2629,183 @@ def start_path_follow_controller(world, entity, target):
 def discard_pending_controller_advance(controller):
     if hasattr(controller, "_pending_index"):
         delattr(controller, "_pending_index")
+
+
+def same_order_path_follow_controller_active(
+    world,
+    entity,
+    owner_order_id,
+):
+    motion_state = world.motion_state.get(entity)
+    if motion_state is None:
+        return False
+
+    controller = motion_state.get("controller")
+    if not isinstance(controller, PathFollowController):
+        return False
+
+    if motion_state.get("controller_source") != "move_target":
+        return False
+
+    return motion_state.get("controller_owner_order_id") == owner_order_id
+
+
+def recenter_for_action_controller_active(
+    world,
+    entity,
+    target_tile,
+    owner_order_id,
+):
+    motion_state = world.motion_state.get(entity)
+    if motion_state is None:
+        return False
+
+    controller = motion_state.get("controller")
+    if controller is None:
+        return False
+
+    if motion_state.get("controller_source") != "recenter_for_action":
+        return False
+
+    if motion_state.get("controller_owner_order_id") != owner_order_id:
+        return False
+
+    return motion_state.get("recenter_for_action_target_tile") == target_tile
+
+
+def mark_recenter_for_action_controller(
+    motion_state,
+    target_tile,
+    owner_order_id,
+):
+    motion_state["controller_source"] = "recenter_for_action"
+    motion_state["controller_owner_order_id"] = owner_order_id
+    motion_state["recenter_for_action_target_tile"] = target_tile
+    motion_state.pop("path_follow_progress", None)
+
+
+def retarget_path_follow_controller_for_action_recenter(
+    world,
+    entity,
+    controller,
+    target_tile,
+    target_cpos,
+    owner_order_id,
+):
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    controller.nodes = [target_cpos]
+    controller.current_index = 0
+    controller.speed = get_locomotion_speed_cpos_per_tick(locomotion)
+    controller.created_tick = world.tick
+    controller.target_tile = target_tile
+
+    discard_pending_controller_advance(controller)
+
+    mark_recenter_for_action_controller(
+        motion_state,
+        target_tile,
+        owner_order_id,
+    )
+
+    clear_move_target(world, entity)
+    clear_buffered_move_intent(world, entity)
+    world.move_intent.pop(entity, None)
+
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+
+    return True
+
+
+def start_recenter_for_action_settle_controller(
+    world,
+    entity,
+    target_tile,
+    target_cpos,
+    owner_order_id,
+):
+    transform = world.transform.get(entity)
+    motion_state = world.motion_state.get(entity)
+    locomotion = world.locomotion.get(entity)
+
+    if transform is None or motion_state is None or locomotion is None:
+        return False
+
+    if is_at_cpos(transform.cpos, target_cpos):
+        return False
+
+    motion_state["controller"] = SettleToGridController(
+        start=transform.cpos,
+        end=target_cpos,
+        progress=0,
+        duration=3,
+    )
+    motion_state["influence_mode"] = "normal"
+
+    mark_recenter_for_action_controller(
+        motion_state,
+        target_tile,
+        owner_order_id,
+    )
+
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+
+    return True
+
+
+def start_or_update_recenter_for_action(
+    world,
+    entity,
+    target_tile,
+    target_cpos,
+    owner_order_id,
+):
+    clear_buffered_move_intent(world, entity)
+    world.move_intent.pop(entity, None)
+
+    if recenter_for_action_controller_active(
+        world,
+        entity,
+        target_tile,
+        owner_order_id,
+    ):
+        return True
+
+    motion_state = world.motion_state.get(entity)
+    if motion_state is None:
+        return False
+
+    controller = motion_state.get("controller")
+
+    if same_order_path_follow_controller_active(
+        world,
+        entity,
+        owner_order_id,
+    ):
+        return retarget_path_follow_controller_for_action_recenter(
+            world,
+            entity,
+            controller,
+            target_tile,
+            target_cpos,
+            owner_order_id,
+        )
+
+    clear_move_target(world, entity)
+
+    if controller is not None:
+        clear_motion_controller(motion_state)
+
+    return start_recenter_for_action_settle_controller(
+        world,
+        entity,
+        target_tile,
+        target_cpos,
+        owner_order_id,
+    )
 
 
 def path_follow_target_changed(controller, target):
