@@ -5,38 +5,6 @@ from utils.status_utils import (
 )
 
 
-def action_state_has_any_tags(action_state, tags):
-    action_tags = get_action_state_tags(action_state)
-
-    return not action_tags.isdisjoint(tags)
-
-
-def cancel_action_state(world, entity):
-    world.action_state.pop(entity, None)
-
-
-def tags_block_voluntary_movement(tags):
-    return not set(tags).isdisjoint(
-        MOVEMENT_CANCELING_ACTION_TAGS
-    )
-
-
-def action_state_blocks_voluntary_movement(action_state):
-    return tags_block_voluntary_movement(
-        action_state.get("tags", set())
-    )
-
-
-def start_action_state(world, entity, action_state):
-    world.action_state[entity] = action_state
-
-    if action_state_blocks_voluntary_movement(action_state):
-        # Imported here to avoid circular imports.
-        from .movement_system import cancel_voluntary_movement
-
-        cancel_voluntary_movement(world, entity)
-
-
 def action_state_system(world):
     expired_entities = []
 
@@ -93,6 +61,38 @@ def action_state_system(world):
 
     for entity in expired_entities:
         world.action_state.pop(entity, None)
+
+
+def action_state_has_any_tags(action_state, tags):
+    action_tags = get_action_state_tags(action_state)
+
+    return not action_tags.isdisjoint(tags)
+
+
+def cancel_action_state(world, entity):
+    world.action_state.pop(entity, None)
+
+
+def tags_block_voluntary_movement(tags):
+    return not set(tags).isdisjoint(
+        MOVEMENT_CANCELING_ACTION_TAGS
+    )
+
+
+def action_state_blocks_voluntary_movement(action_state):
+    return tags_block_voluntary_movement(
+        action_state.get("tags", set())
+    )
+
+
+def start_action_state(world, entity, action_state):
+    world.action_state[entity] = action_state
+
+    if action_state_blocks_voluntary_movement(action_state):
+        # Imported here to avoid circular imports.
+        from .movement_system import cancel_voluntary_movement
+
+        cancel_voluntary_movement(world, entity)
 
 
 def action_state_is_paused_by_status(world, entity, action_state):

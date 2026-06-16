@@ -5,6 +5,7 @@ from utils.soft_targeting_utils import (
     acquire_soft_target,
     soft_target_is_valid,
 )
+from skill_use_validator import skill_use_is_valid
 from utils.targeting_policy_utils import get_soft_targeting_profile
 from utils.action_order_utils import (
     action_order_actor_is_valid,
@@ -78,7 +79,7 @@ def process_action_order(world, intents, actor, order):
         return
 
     if order_type == "attack_in_place":
-        process_attack_in_place_order(
+        process_use_skill_in_place_order(
             world,
             intents,
             actor,
@@ -146,7 +147,7 @@ def process_move_to_position_order(world, intents, actor, order):
     )
 
 
-def process_attack_in_place_order(
+def process_use_skill_in_place_order(
     world,
     intents,
     actor,
@@ -186,7 +187,7 @@ def process_attack_in_place_order(
         return
 
     order.pop("soft_target", None)
-    append_attack_in_place_skill_intents(
+    append_use_skill_in_place_intent(
         world,
         intents,
         actor,
@@ -194,43 +195,57 @@ def process_attack_in_place_order(
     )
 
 
-def append_attack_in_place_skill_intents(
+def append_use_skill_in_place_intent(
     world,
     intents,
     actor,
     order,
 ):
+    if not skill_trigger_policy_allows_skill_intent(world, actor, order):
+        maybe_clear_completed_skill_order(world, actor, order)
+        return
+
+    intent = build_use_skill_in_place_intent(
+        world,
+        actor,
+        order,
+    )
+
+    validation = validate_order_skill_use(
+        world,
+        actor,
+        order,
+        intent,
+    )
+
+    if not validation.is_valid:
+        return
+
     intents.setdefault(actor, []).append(
         {
             "type": "stop_moving",
         }
     )
 
-    if actor_must_recenter_before_action(
-        world,
-        intents,
-        actor,
-        order,
+    if (
+        skill_requires_centered_start(validation.skill_def)
+        and actor_needs_recenter_for_action(world, actor)
     ):
-        return
-
-    if not should_emit_order_skill_intent(world, actor, order):
-        maybe_clear_completed_skill_order(world, actor, order)
-        return
-
-    intents.setdefault(actor, []).append(
-        build_order_air_skill_intent(
+        append_recenter_for_action_intent(
             world,
+            intents,
             actor,
             order,
         )
-    )
+        return
+
+    intents.setdefault(actor, []).append(intent)
 
     order["fired_once"] = True
     maybe_clear_completed_skill_order(world, actor, order)
 
 
-def build_order_air_skill_intent(world, actor, order):
+def build_use_skill_in_place_intent(world, actor, order):
     trigger_mode = get_skill_trigger_mode(
         order.get("skill_id"),
     )
@@ -241,7 +256,7 @@ def build_order_air_skill_intent(world, actor, order):
         intent_type = "skill_held"
     else:
         raise ValueError(
-            f"Unsupported attack-air skill trigger mode: {trigger_mode!r}"
+            f"Unsupported use-skill-in-place trigger mode: {trigger_mode!r}"
         )
 
     return {
@@ -252,7 +267,7 @@ def build_order_air_skill_intent(world, actor, order):
             actor,
             order,
         ),
-        "target_source": "air",
+        "target_source": "use_skill_in_place",
         "button": order.get("button"),
     }
 
@@ -304,26 +319,11 @@ def append_recenter_for_action_intent(
     )
 
 
-def actor_must_recenter_before_action(
-    world,
-    intents,
-    actor,
-    order,
-):
-    if actor_is_centered_for_action(
+def actor_needs_recenter_for_action(world, actor):
+    return not actor_is_centered_for_action(
         world,
         actor,
-    ):
-        return False
-
-    append_recenter_for_action_intent(
-        world,
-        intents,
-        actor,
-        order,
     )
-
-    return True
 
 
 def process_interact_with_entity_order(world, intents, actor, order):
@@ -348,12 +348,16 @@ def process_interact_with_entity_order(world, intents, actor, order):
         )
         return
 
-    if actor_must_recenter_before_action(
+    if actor_needs_recenter_for_action(
         world,
-        intents,
         actor,
-        order,
     ):
+        append_recenter_for_action_intent(
+            world,
+            intents,
+            actor,
+            order,
+        )
         return
 
     intents.setdefault(actor, []).append(
@@ -377,14 +381,34 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
         clear_action_order(world, actor)
         return
 
+    if not skill_trigger_policy_allows_skill_intent(world, actor, order):
+        maybe_clear_completed_skill_order(world, actor, order)
+        return
+
+    intent = build_order_skill_intent(
+        world,
+        actor,
+        order,
+    )
+
+    validation = validate_order_skill_use(
+        world,
+        actor,
+        order,
+        intent,
+    )
+
+    if not validation.is_valid:
+        return
+
     use_range_tiles = get_skill_use_range_tiles(skill_id)
 
     if use_range_tiles is not None:
         if not entities_are_within_tile_range(
-                world,
-                actor,
-                target,
-                use_range_tiles,
+            world,
+            actor,
+            target,
+            use_range_tiles,
         ):
             if not order.get("allow_approach", True):
                 return
@@ -399,25 +423,22 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
             )
             return
 
-    if actor_must_recenter_before_action(
-        world,
-        intents,
-        actor,
-        order,
-    ):
-        return
-
-    if not should_emit_order_skill_intent(world, actor, order):
-        maybe_clear_completed_skill_order(world, actor, order)
-        return
-
-    intents.setdefault(actor, []).append(
-        build_order_skill_intent(
+    if (
+        skill_requires_centered_start(validation.skill_def)
+        and actor_needs_recenter_for_action(
             world,
+            actor,
+        )
+    ):
+        append_recenter_for_action_intent(
+            world,
+            intents,
             actor,
             order,
         )
-    )
+        return
+
+    intents.setdefault(actor, []).append(intent)
 
     order["fired_once"] = True
     maybe_clear_completed_skill_order(world, actor, order)
@@ -575,28 +596,52 @@ def append_soft_target_skill_intents(
     order,
     target,
 ):
+    if not skill_trigger_policy_allows_skill_intent(world, actor, order):
+        maybe_clear_completed_skill_order(world, actor, order)
+        return
+
+    intent = build_soft_target_skill_intent(
+        world,
+        actor,
+        order,
+        target,
+    )
+
+    validation = validate_order_skill_use(
+        world,
+        actor,
+        order,
+        intent,
+    )
+
+    if not validation.is_valid:
+        return
+
     intents.setdefault(actor, []).append(
         {
             "type": "stop_moving",
         }
     )
 
-    if actor_must_recenter_before_action(
-        world,
-        intents,
-        actor,
-        order,
-    ):
-        return
-
-    intents.setdefault(actor, []).append(
-        build_soft_target_skill_intent(
+    if (
+        skill_requires_centered_start(validation.skill_def)
+        and actor_needs_recenter_for_action(
             world,
             actor,
-            order,
-            target,
         )
-    )
+    ):
+        append_recenter_for_action_intent(
+            world,
+            intents,
+            actor,
+            order,
+        )
+        return
+
+    intents.setdefault(actor, []).append(intent)
+
+    order["fired_once"] = True
+    maybe_clear_completed_skill_order(world, actor, order)
 
 
 def build_soft_target_skill_intent(
@@ -672,7 +717,7 @@ def get_order_mouse_target_cpos(world, actor, order):
     )
 
 
-def should_emit_order_skill_intent(world, actor, order):
+def skill_trigger_policy_allows_skill_intent(world, actor, order):
     skill_id = order.get("skill_id")
     trigger_mode = get_skill_trigger_mode(skill_id)
     fired_once = order.get("fired_once", False)
@@ -1093,3 +1138,30 @@ def mark_action_input_invalidated(world, actor, order):
     raise NotImplementedError(
         f"Action order input kind not implemented: {input_kind!r}"
     )
+
+
+def validate_order_skill_use(world, actor, order, intent):
+    validation = skill_use_is_valid(
+        world,
+        actor,
+        intent["slot"],
+        intent,
+    )
+
+    if validation.is_valid:
+        return validation
+
+    maybe_clear_invalid_skill_order(world, actor, order)
+    return validation
+
+
+def maybe_clear_invalid_skill_order(world, actor, order):
+    trigger_mode = get_skill_trigger_mode(order.get("skill_id"))
+
+    if trigger_mode == "press":
+        order["fired_once"] = True
+        maybe_clear_completed_skill_order(world, actor, order)
+
+
+def skill_requires_centered_start(skill_def):
+    return skill_def.get("requires_centered_start", True)
