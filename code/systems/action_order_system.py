@@ -186,7 +186,7 @@ def process_attack_in_place_order(
         return
 
     order.pop("soft_target", None)
-    append_attack_air_skill_intents(
+    append_attack_in_place_skill_intents(
         world,
         intents,
         actor,
@@ -194,7 +194,7 @@ def process_attack_in_place_order(
     )
 
 
-def append_attack_air_skill_intents(
+def append_attack_in_place_skill_intents(
     world,
     intents,
     actor,
@@ -205,6 +205,14 @@ def append_attack_air_skill_intents(
             "type": "stop_moving",
         }
     )
+
+    if actor_must_recenter_before_action(
+        world,
+        intents,
+        actor,
+        order,
+    ):
+        return
 
     if not should_emit_order_skill_intent(world, actor, order):
         maybe_clear_completed_skill_order(world, actor, order)
@@ -258,9 +266,70 @@ def get_order_mouse_pos(world, actor, order):
     )
 
 
+def get_actor_current_tile_and_center(world, actor):
+    actor_tile = tile_from_cpos(
+        world.transform[actor].cpos,
+    )
+
+    return actor_tile, tile_center(actor_tile)
+
+
+def actor_is_centered_for_action(world, actor):
+    _, actor_center_cpos = get_actor_current_tile_and_center(
+        world,
+        actor,
+    )
+
+    return world.transform[actor].cpos == actor_center_cpos
+
+
+def append_recenter_for_action_intent(
+    world,
+    intents,
+    actor,
+    order,
+):
+    actor_tile, actor_center_cpos = get_actor_current_tile_and_center(
+        world,
+        actor,
+    )
+
+    intents.setdefault(actor, []).append(
+        {
+            "type": "recenter_for_action",
+            "target_tile": actor_tile,
+            "target_cpos": actor_center_cpos,
+            "owner_order_id": order["order_id"],
+        }
+    )
+
+
+def actor_must_recenter_before_action(
+    world,
+    intents,
+    actor,
+    order,
+):
+    if actor_is_centered_for_action(
+        world,
+        actor,
+    ):
+        return False
+
+    append_recenter_for_action_intent(
+        world,
+        intents,
+        actor,
+        order,
+    )
+
+    return True
+
+
 def process_interact_with_entity_order(world, intents, actor, order):
     target = order["target"]
     skill_id = order.get("skill_id")
+
     interact_range_tiles = get_skill_interact_range_tiles(skill_id)
 
     if not entities_are_within_tile_range(
@@ -277,6 +346,14 @@ def process_interact_with_entity_order(world, intents, actor, order):
             interact_range_tiles,
             order["order_id"],
         )
+        return
+
+    if actor_must_recenter_before_action(
+        world,
+        intents,
+        actor,
+        order,
+    ):
         return
 
     intents.setdefault(actor, []).append(
@@ -321,6 +398,14 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
                 order["order_id"],
             )
             return
+
+    if actor_must_recenter_before_action(
+        world,
+        intents,
+        actor,
+        order,
+    ):
+        return
 
     if not should_emit_order_skill_intent(world, actor, order):
         maybe_clear_completed_skill_order(world, actor, order)
@@ -495,6 +580,14 @@ def append_soft_target_skill_intents(
             "type": "stop_moving",
         }
     )
+
+    if actor_must_recenter_before_action(
+        world,
+        intents,
+        actor,
+        order,
+    ):
+        return
 
     intents.setdefault(actor, []).append(
         build_soft_target_skill_intent(
