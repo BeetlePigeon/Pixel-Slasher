@@ -275,7 +275,7 @@ def movement_arbiter_system(world):
     for entity in sorted(entities):
         motion_state = world.motion_state[entity]
 
-        if clear_stale_order_owned_move_target(world, entity):
+        if clear_stale_order_owned_movement(world, entity):
             mark_dynamic_occupancy_dirty(world)
             rebuild_dynamic_occupancy(world)
             continue
@@ -1860,15 +1860,13 @@ def cancel_move_target_for_directional_input(world, entity):
     clear_failed_path_queries_for_entity(world, entity)
 
 
-def move_target_owner_is_current(world, entity):
-    target = world.move_target.get(entity)
-    if target is None:
-        return True
+ORDER_OWNED_CONTROLLER_SOURCES = {
+    "move_target",
+    "recenter_for_action",
+}
 
-    owner_order_id = target.get("owner_order_id")
 
-    # Legacy/direct movement target with no owner is allowed for now.
-    # After migration, these should disappear.
+def order_owner_is_current(world, entity, owner_order_id):
     if owner_order_id is None:
         return True
 
@@ -1879,24 +1877,59 @@ def move_target_owner_is_current(world, entity):
     return order.get("order_id") == owner_order_id
 
 
-def clear_stale_order_owned_move_target(world, entity):
-    if move_target_owner_is_current(world, entity):
-        return False
+def move_target_owner_is_current(world, entity):
+    target = world.move_target.get(entity)
 
-    clear_move_target(world, entity)
+    if target is None:
+        return True
 
+    return order_owner_is_current(
+        world,
+        entity,
+        target.get("owner_order_id"),
+    )
+
+
+def active_order_owned_controller_is_current(world, entity):
     motion_state = world.motion_state.get(entity)
-    if motion_state is not None:
-        controller = motion_state.get("controller")
-        if (
-            isinstance(controller, PathFollowController)
-            and motion_state.get("controller_source") == "move_target"
-        ):
+
+    if motion_state is None:
+        return True
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return True
+
+    controller_source = motion_state.get("controller_source")
+
+    if controller_source not in ORDER_OWNED_CONTROLLER_SOURCES:
+        return True
+
+    return order_owner_is_current(
+        world,
+        entity,
+        motion_state.get("controller_owner_order_id"),
+    )
+
+
+def clear_stale_order_owned_movement(world, entity):
+    cleared = False
+
+    if not move_target_owner_is_current(world, entity):
+        clear_move_target(world, entity)
+        cleared = True
+
+    if not active_order_owned_controller_is_current(world, entity):
+        motion_state = world.motion_state.get(entity)
+
+        if motion_state is not None:
             clear_motion_controller(motion_state)
             request_settle_when_allowed(world, entity)
             start_requested_settle_if_allowed(world, entity)
+            cleared = True
 
-    return True
+    return cleared
 
 
 def mark_settle_after_influence_if_needed(

@@ -1,11 +1,12 @@
 from skill_registry import SKILL_DEFS
+from utils.occupancy_utils import get_entity_movement_body_tiles
 from utils.tile_vec_utils import (
     chebyshev_tile_distance,
     tile_from_cpos,
 )
 
 
-DEFAULT_INTERACT_RANGE_TILES = 1
+DEFAULT_INTERACT_RANGE_TILES = 2
 
 
 def clear_action_order(world, actor):
@@ -96,20 +97,53 @@ def get_skill_interact_range_tiles(skill_id):
     )
 
 
+def get_entity_skill_range_tiles(world, entity):
+    movement_body_tiles = get_entity_movement_body_tiles(world, entity)
+
+    if movement_body_tiles:
+        return movement_body_tiles
+
+    transform = world.transform.get(entity)
+
+    if transform is None:
+        return ()
+
+    return (
+        tile_from_cpos(transform.cpos),
+    )
+
+
+def tile_is_within_range_of_tiles(tile, target_tiles, range_tiles):
+    return any(
+        chebyshev_tile_distance(tile, target_tile) <= range_tiles
+        for target_tile in target_tiles
+    )
+
+
+def min_distance_to_tiles(tile, target_tiles):
+    return min(
+        chebyshev_tile_distance(tile, target_tile)
+        for target_tile in target_tiles
+    )
+
+
 def entities_are_within_tile_range(world, actor, target, range_tiles):
     actor_tile = tile_from_cpos(
         world.transform[actor].cpos,
     )
-    target_tile = tile_from_cpos(
-        world.transform[target].cpos,
+
+    target_tiles = get_entity_skill_range_tiles(
+        world,
+        target,
     )
 
-    return (
-        chebyshev_tile_distance(
-            actor_tile,
-            target_tile,
-        )
-        <= range_tiles
+    if not target_tiles:
+        return False
+
+    return tile_is_within_range_of_tiles(
+        actor_tile,
+        target_tiles,
+        range_tiles,
     )
 
 

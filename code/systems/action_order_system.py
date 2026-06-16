@@ -12,9 +12,12 @@ from utils.action_order_utils import (
     action_order_target_is_valid,
     clear_action_order,
     entities_are_within_tile_range,
+    get_entity_skill_range_tiles,
     get_skill_interact_range_tiles,
     get_skill_trigger_mode,
     get_skill_use_range_tiles,
+    min_distance_to_tiles,
+    tile_is_within_range_of_tiles,
 )
 from utils.tile_vec_utils import (
     tile_from_cpos,
@@ -845,51 +848,70 @@ def find_entity_approach_tile(
     actor_tile = tile_from_cpos(
         world.transform[actor].cpos,
     )
-    target_tile = tile_from_cpos(
+
+    target_center_tile = tile_from_cpos(
         world.transform[target].cpos,
     )
 
-    if chebyshev_tile_distance(
+    target_tiles = get_entity_skill_range_tiles(
+        world,
+        target,
+    )
+
+    if not target_tiles:
+        return None
+
+    if tile_is_within_range_of_tiles(
         actor_tile,
-        target_tile,
-    ) <= desired_range_tiles:
+        target_tiles,
+        desired_range_tiles,
+    ):
         return actor_tile
 
     candidates = []
 
-    for candidate_tile in iter_tiles_within_range(
-        target_tile,
-        desired_range_tiles,
-    ):
-        if (
-            desired_range_tiles > 0
-            and candidate_tile == target_tile
+    for target_tile in target_tiles:
+        for candidate_tile in iter_tiles_within_range(
+            target_tile,
+            desired_range_tiles,
         ):
-            continue
+            if candidate_tile in target_tiles:
+                continue
 
-        if not is_tile_valid_for_entity_placement(
-            world,
-            candidate_tile,
-            entity=actor,
-            include_dynamic=True,
-        ):
-            continue
-
-        candidates.append(
-            (
-                chebyshev_tile_distance(
-                    actor_tile,
-                    candidate_tile,
-                ),
-                chebyshev_tile_distance(
-                    candidate_tile,
-                    target_tile,
-                ),
-                candidate_tile.y,
-                candidate_tile.x,
+            if not tile_is_within_range_of_tiles(
                 candidate_tile,
+                target_tiles,
+                desired_range_tiles,
+            ):
+                continue
+
+            if not is_tile_valid_for_entity_placement(
+                world,
+                candidate_tile,
+                entity=actor,
+                include_dynamic=True,
+            ):
+                continue
+
+            candidates.append(
+                (
+                    chebyshev_tile_distance(
+                        actor_tile,
+                        candidate_tile,
+                    ),
+                    chebyshev_tile_distance(
+                        candidate_tile,
+                        target_center_tile,
+                    ),
+                    min_distance_to_tiles(
+                        candidate_tile,
+                        target_tiles,
+                    ),
+                    candidate_tile.y,
+                    candidate_tile.x,
+                    candidate_tile,
+                )
             )
-        )
 
     if not candidates:
         return None
