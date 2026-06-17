@@ -243,7 +243,7 @@ class World:
         self.movement_proposal.clear()
         self.movement_approval.clear()
         self.debug_enemy_movement.clear()
-        
+
 
     def remove_entity(self, eid):
         self.untrack_area_entity(eid)
@@ -564,6 +564,7 @@ class World:
             prev_cpos=cpos,
             position_mode="grid",
         )
+        self.facing[eid] = Vec2i(1, 0)
         self.movement_collision[eid] = {
             "static_tiles": "slide",
             "dynamic_blockers": "slide",
@@ -637,9 +638,11 @@ class World:
         self.combat_attack[eid] = {
             "range_tiles": 2,
         }
-        # Reuse player art for now. Replace later with enemy/dummy art.
+
         dummy_image = self.game.assets.images["player"]
 
+        self.skills[(eid, 0)] = "debug_slash"
+        
         self.sprite[eid] = {
             "image": dummy_image,
             "anchor": "bottom_center",

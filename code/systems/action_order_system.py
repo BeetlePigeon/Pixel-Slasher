@@ -795,6 +795,9 @@ def order_input_is_held(world, actor, order):
         keyboard_actions = world.keyboard_action_state.get(actor, {})
         return key in keyboard_actions
 
+    if input_kind == "ai":
+        return False
+
     raise NotImplementedError(
         f"Action order input kind not implemented: {input_kind!r}"
     )
