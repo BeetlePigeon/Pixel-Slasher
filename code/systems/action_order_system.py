@@ -22,6 +22,7 @@ from utils.action_order_utils import (
 from utils.tile_vec_utils import (
     tile_from_cpos,
     chebyshev_tile_distance,
+    manhattan_tile_distance,
     tile_center,
 )
 
@@ -903,6 +904,10 @@ def find_entity_approach_tile(
                         candidate_tile,
                     ),
                     chebyshev_tile_distance(
+                        candidate_tile,
+                        target_center_tile,
+                    ),
+                    manhattan_tile_distance(
                         candidate_tile,
                         target_center_tile,
                     ),

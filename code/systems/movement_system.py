@@ -550,7 +550,6 @@ def movement_apply_system(world):
 
             if movement_collision_blocks(collision_result):
                 transform.cpos = resolved_cpos
-
                 if transform.position_mode == "free" or influence_active:
                     transform.tile = tile_from_cpos(transform.cpos)
 
@@ -572,6 +571,7 @@ def movement_apply_system(world):
                     controller,
                     influence_active,
                 )
+
 
                 if controller is None:
                     mark_dynamic_occupancy_dirty(world)
