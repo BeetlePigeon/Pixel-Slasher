@@ -1,4 +1,8 @@
-from utils.action_order_utils import set_action_order
+from utils.action_order_utils import (
+    entities_are_within_tile_range,
+    get_skill_use_range_tiles,
+    set_action_order,
+)
 from ai.ai_queries import (
     entity_is_valid_target,
     get_player_if_detectable,
@@ -7,6 +11,7 @@ from ai.ai_queries import (
 
 DEBUG_DEFAULT_IMAGE_KEY = "enemy_normal"
 DEBUG_IN_RANGE_IMAGE_KEY = "enemy_angry"
+DEBUG_USING_SKILL_IMAGE_KEY = "enemy_attack"
 AI_DEBUG_SLASH_SLOT = 0
 AI_DEBUG_SLASH_SKILL_ID = "debug_slash"
 
@@ -19,6 +24,12 @@ def think(context):
 
     if entity in world.action_order:
         agent["state"] = "executing_action_order"
+
+        set_debug_engagement_sprite(
+            world,
+            entity,
+            agent.get("target_entity"),
+        )
         return []
 
     detect_radius_tiles = params.get("detect_radius_tiles")
@@ -50,6 +61,12 @@ def think(context):
             in_attack_range=False,
             attack_position_tile=None,
         )
+
+        set_debug_engagement_sprite(
+            world,
+            entity,
+            None,
+        )
         return []
 
     agent["target_entity"] = target
@@ -59,6 +76,12 @@ def think(context):
         target_entity=target,
         in_attack_range=None,
         attack_position_tile=None,
+    )
+
+    set_debug_engagement_sprite(
+        world,
+        entity,
+        target,
     )
 
     set_action_order(
@@ -83,24 +106,83 @@ def set_melee_pawn_debug_info(
     agent["debug_attack_position_tile"] = attack_position_tile
 
 
-def set_debug_engagement_sprite(world, entity, in_range):
+def set_debug_engagement_sprite(world, entity, target):
     sprite = world.sprite.get(entity)
-
     if sprite is None:
         return
 
-    image_key = (
-        DEBUG_IN_RANGE_IMAGE_KEY
-        if in_range
-        else DEBUG_DEFAULT_IMAGE_KEY
+    visual_state = get_debug_engagement_visual_state(
+        world,
+        entity,
+        target,
     )
 
+    image_key = get_debug_engagement_image_key(visual_state)
     image = world.game.assets.images.get(image_key)
 
     if image is None:
         return
 
     sprite["image"] = image
+
+
+def get_debug_engagement_visual_state(world, entity, target):
+    if not entity_is_valid_target(
+        world,
+        entity,
+        target,
+    ):
+        return "not_in_range"
+
+    if not entity_is_in_debug_slash_range(
+        world,
+        entity,
+        target,
+    ):
+        return "not_in_range"
+
+    if entity_is_using_debug_slash(
+        world,
+        entity,
+    ):
+        return "using_skill"
+
+    return "in_range"
+
+
+def get_debug_engagement_image_key(visual_state):
+    if visual_state == "using_skill":
+        return DEBUG_USING_SKILL_IMAGE_KEY
+
+    if visual_state == "in_range":
+        return DEBUG_IN_RANGE_IMAGE_KEY
+
+    return DEBUG_DEFAULT_IMAGE_KEY
+
+
+def entity_is_in_debug_slash_range(world, entity, target):
+    use_range_tiles = get_skill_use_range_tiles(
+        AI_DEBUG_SLASH_SKILL_ID,
+    )
+
+    if use_range_tiles is None:
+        return False
+
+    return entities_are_within_tile_range(
+        world,
+        entity,
+        target,
+        use_range_tiles,
+    )
+
+
+def entity_is_using_debug_slash(world, entity):
+    action_state = world.action_state.get(entity)
+
+    if action_state is None:
+        return False
+
+    return action_state.get("skill_id") == AI_DEBUG_SLASH_SKILL_ID
 
 
 def build_debug_slash_player_order(world, entity, target):

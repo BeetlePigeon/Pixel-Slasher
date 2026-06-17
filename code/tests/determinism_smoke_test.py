@@ -169,7 +169,6 @@ def build_world_snapshot(world):
         "hittable",
         "movement_collision",
         "locomotion",
-        "placement_blocker",
         "influence_emitter",
         "influence_receiver",
         "influence_delta",

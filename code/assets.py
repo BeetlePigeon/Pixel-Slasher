@@ -20,6 +20,7 @@ class Assets:
         # Enemies
         self.images["enemy_normal"] = self.load_image("enemies", "enemy_normal.png")
         self.images["enemy_angry"] = self.load_image("enemies", "enemy_angry.png")
+        self.images["enemy_attack"] = self.load_image("enemies", "enemy_attack.png")
 
         # Projectiles
         self.images["fireball"] = self.load_image("projectiles", "fireball.png")

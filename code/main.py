@@ -5,7 +5,7 @@
 # K: Move Diag
 # I: Print Profiler Rows
 # P: Pause
-# O: Single Tick Step
+# O: Tick Step
 # B: Stun Player
 # N: Freeze Player
 # H: Make Enemy Damage Player

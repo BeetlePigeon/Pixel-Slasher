@@ -172,36 +172,9 @@ def tile_has_static_collision(world, tile: Vec2i) -> bool:
     return (tile.x, tile.y) in world.static_collision_tiles
 
 
-def tile_has_placement_blocker(world, tile: Vec2i, ignore_entity=None) -> bool:
-    placement_blockers = getattr(world, "placement_blocker", set())
-
-    for entity in placement_blockers:
-        if entity == ignore_entity:
-            continue
-
-        transform = world.transform.get(entity)
-
-        if transform is None:
-            continue
-
-        if transform.tile == tile:
-            return True
-
-    return False
-
-
 def tile_is_valid_for_placement(world, tile: Vec2i, ignore_entity=None) -> bool:
     if tile_has_static_collision(world, tile):
         return False
-
-    if tile_has_placement_blocker(
-        world,
-        tile,
-        ignore_entity=ignore_entity,
-    ):
-        print("this guy's gonna get hit!")
-#        return False
-
     return True
 
 

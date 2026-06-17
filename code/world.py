@@ -64,7 +64,6 @@ class World:
         self.skills = {}
         self.active_skill = {}
         self.skill_cooldown = {}
-        self.placement_blocker = set()
         self.resolved_skill_intents = []
         self.sprite = {}
         self.animation = {}
@@ -253,8 +252,6 @@ class World:
 
         for snapshot_map in self.iter_entity_snapshot_maps():
             snapshot_map.pop(eid, None)
-
-        self.placement_blocker.discard(eid)
 
         # Skills and cooldowns are keyed by tuples such as:
         #   (entity_id, slot)
@@ -513,8 +510,6 @@ class World:
             "can_move_8way": True,
         }
 
-        self.placement_blocker.add(eid)
-
         for slot, skill_id in self.player_state["skills"].items():
             if skill_id is not None:
                 self.skills[(eid, slot)] = skill_id
@@ -601,7 +596,7 @@ class World:
             "state": "idle",
             "target_entity": None,
 
-            "think_interval_ticks": 10,
+            "think_interval_ticks": 1,
             "next_think_tick": self.tick + (eid % 6),
 
             "params": {
@@ -642,7 +637,7 @@ class World:
         dummy_image = self.game.assets.images["player"]
 
         self.skills[(eid, 0)] = "debug_slash"
-        
+
         self.sprite[eid] = {
             "image": dummy_image,
             "anchor": "bottom_center",
@@ -656,8 +651,6 @@ class World:
             "frame": 0,
             "timer": 0,
         }
-
-        self.placement_blocker.add(eid)
 
         self.track_area_entity(eid)
 
