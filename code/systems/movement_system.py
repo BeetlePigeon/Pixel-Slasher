@@ -3995,6 +3995,56 @@ def try_build_direct_movement_approval(proposal: MovementProposal, world):
     )
 
 
+def try_build_directional_center_finish_approval(
+    world,
+    proposal: MovementProposal,
+    direct_rejection: MovementPathCheckResult,
+):
+    if not isinstance(proposal.controller, DirectionalMoveController):
+        return None
+
+    if not proposal.admission_policy.allows_finish_current_tile:
+        return None
+
+    current_tile = tile_from_cpos(proposal.start_cpos)
+    current_center = tile_center(current_tile)
+
+    center_delta = current_center - proposal.start_cpos
+
+    if not vec_is_nonzero(center_delta):
+        return None
+
+    center_delta = clamp_vec_length_to_reference(
+        center_delta,
+        proposal.final_delta,
+    )
+
+    if not vec_is_nonzero(center_delta):
+        return None
+
+    center_check = check_normal_movement_delta_path(
+        world,
+        proposal.entity,
+        proposal.start_cpos,
+        center_delta,
+    )
+
+    if not movement_collision_allows(center_check.collision_result):
+        return None
+
+    return MovementApproval(
+        entity=proposal.entity,
+        approved=True,
+        delta=center_delta,
+        resolution_kind="blocked_directional_center_finish",
+        collision_result=MOVEMENT_COLLISION_ALLOW,
+        requested_collision_result=direct_rejection.collision_result,
+        placement_path=tuple(center_check.placement_path),
+        requested_cpos=proposal.start_cpos + proposal.final_delta,
+        resolved_cpos=proposal.start_cpos + center_delta,
+    )
+
+
 def try_build_slide_approval(
     world,
     proposal: MovementProposal,
@@ -4150,6 +4200,15 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
 
     if slide_approval is not None:
         return slide_approval
+
+    center_finish_approval = try_build_directional_center_finish_approval(
+        world,
+        proposal,
+        direct_rejection,
+    )
+
+    if center_finish_approval is not None:
+        return center_finish_approval
 
     clipped_to_center_approval = try_build_clipped_to_center_approval(
         proposal,
