@@ -479,7 +479,7 @@ class World:
             # Default/fallback ratio.
             "slide_min_tangent_ratio": (1, 2),
             # Direct grid movement: WASD / buffered WASD.
-            "grid_slide_min_tangent_ratio": (1, 2),
+            "grid_slide_min_tangent_ratio": (1, 100),
             # Traditional click-to-move target movement.
             "mouse_slide_min_tangent_ratio": (2, 3),
             "corner_cutting": "allow",
@@ -624,7 +624,7 @@ class World:
                 "type": "rect",
                 "anchor": "bottom_center",
                 "offset": (0, -4),
-                "size": (36, 52),
+                "size": (36, 26),
             },
         }
         self.combat_body[eid] = {

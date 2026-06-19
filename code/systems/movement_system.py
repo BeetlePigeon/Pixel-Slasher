@@ -99,6 +99,7 @@ class MovementApproval:
     delta: Vec2i
     resolution_kind: str
     collision_result: MovementCollisionResult = MOVEMENT_COLLISION_ALLOW
+    requested_collision_result: MovementCollisionResult = MOVEMENT_COLLISION_ALLOW
     placement_path: tuple = ()
     requested_cpos: Optional[Vec2i] = None
     resolved_cpos: Optional[Vec2i] = None
@@ -136,6 +137,10 @@ def movement_collision_blocks(collision_result):
 
 def movement_collision_slides(collision_result):
     return collision_result.slides_movement
+
+
+def movement_collision_can_attempt_static_slide(collision_result):
+    return collision_result.blocker_collision_type == "static"
 
 
 def movement_collision_destroys(collision_result):
@@ -441,6 +446,26 @@ def movement_proposal_system(world):
             proposal,
         )
 
+        if entity == world.player:
+            print(
+                f"[player_move] tick={world.tick} "
+                f"start={proposal.start_cpos} "
+                f"tile={tile_from_cpos(proposal.start_cpos)} "
+                f"base_delta={proposal.base_delta} "
+                f"influence_delta={proposal.influence_delta} "
+                f"final_delta={proposal.final_delta} "
+                f"approval={approval.resolution_kind} "
+                f"approved_delta={approval.delta} "
+                f"requested_cpos={approval.requested_cpos} "
+                f"resolved_cpos={approval.resolved_cpos} "
+                f"collision={approval.collision_result.collision_result} "
+                f"blocker_type={approval.collision_result.blocker_collision_type} "
+                f"blocked_tile={approval.collision_result.blocked_tile} "
+                f"requested_collision={approval.requested_collision_result.collision_result} "
+                f"requested_blocker_type={approval.requested_collision_result.blocker_collision_type} "
+                f"requested_blocked_tile={approval.requested_collision_result.blocked_tile}"
+            )
+
         world.movement_approval[entity] = approval
 
         record_debug_enemy_movement_info(
@@ -717,6 +742,138 @@ def vec_is_nonzero(vec: Vec2i) -> bool:
 
 def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
     return a.x == b.x and a.y == b.y
+
+
+def same_tile_delta_stays_on_pre_center_half(
+    start_cpos: Vec2i,
+    delta: Vec2i,
+) -> bool:
+    if not vec_is_nonzero(delta):
+        return True
+
+    current_tile = tile_from_cpos(start_cpos)
+    current_center = tile_center(current_tile)
+    end_cpos = start_cpos + delta
+
+    start_offset = start_cpos - current_center
+    end_offset = end_cpos - current_center
+
+    start_projection = start_offset.x * delta.x + start_offset.y * delta.y
+    end_projection = end_offset.x * delta.x + end_offset.y * delta.y
+
+    return start_projection <= 0 and end_projection <= 0
+
+
+def same_tile_delta_lands_on_blocked_side_for_axis(
+    start_cpos: Vec2i,
+    delta: Vec2i,
+    axis: str,
+) -> bool:
+    if not vec_is_nonzero(delta):
+        return False
+
+    current_tile = tile_from_cpos(start_cpos)
+    current_center = tile_center(current_tile)
+    end_cpos = start_cpos + delta
+
+    if axis == "x":
+        step = sign(delta.x)
+        if step == 0:
+            return False
+
+        return (end_cpos.x - current_center.x) * step > 0
+
+    if axis == "y":
+        step = sign(delta.y)
+        if step == 0:
+            return False
+
+        return (end_cpos.y - current_center.y) * step > 0
+
+    raise ValueError(f"Unknown movement axis {axis!r}")
+
+
+def check_same_tile_blocked_axis_components(
+    world,
+    entity,
+    current_tile: Vec2i,
+    start_cpos: Vec2i,
+    delta: Vec2i,
+    step_axis: str,
+):
+    axis_order = []
+
+    if step_axis == "x":
+        axis_order = ["x", "y"]
+    elif step_axis == "y":
+        axis_order = ["y", "x"]
+    else:
+        axis_order = ["x", "y"]
+
+    for axis in axis_order:
+        if axis == "x":
+            if delta.x == 0:
+                continue
+
+            if not same_tile_delta_lands_on_blocked_side_for_axis(
+                start_cpos,
+                delta,
+                "x",
+            ):
+                continue
+
+            placement_path = []
+            tile = Vec2i(
+                current_tile.x + sign(delta.x),
+                current_tile.y,
+            )
+            collision_result = check_axis_movement_placement(
+                world,
+                entity,
+                placement_path,
+                tile,
+            )
+
+            if not movement_collision_allows(collision_result):
+                return MovementPathCheckResult(
+                    collision_result=collision_result,
+                    placement_path=tuple(placement_path),
+                )
+
+            continue
+
+        if axis == "y":
+            if delta.y == 0:
+                continue
+
+            if not same_tile_delta_lands_on_blocked_side_for_axis(
+                start_cpos,
+                delta,
+                "y",
+            ):
+                continue
+
+            placement_path = []
+            tile = Vec2i(
+                current_tile.x,
+                current_tile.y + sign(delta.y),
+            )
+            collision_result = check_axis_movement_placement(
+                world,
+                entity,
+                placement_path,
+                tile,
+            )
+
+            if not movement_collision_allows(collision_result):
+                return MovementPathCheckResult(
+                    collision_result=collision_result,
+                    placement_path=tuple(placement_path),
+                )
+
+            continue
+
+    return None
 
 
 def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
@@ -1018,6 +1175,33 @@ def clamp_vec_length_to_reference(vec: Vec2i, reference: Vec2i) -> Vec2i:
         vec.x * reference_len // vec_len,
         vec.y * reference_len // vec_len,
     )
+
+
+def cpos_vector_length(vec: Vec2i) -> int:
+    return cpos_distance(Vec2i(0, 0), vec)
+
+
+def get_remaining_movement_budget(reference_delta: Vec2i, spent_delta: Vec2i) -> int:
+    remaining = (
+        cpos_vector_length(reference_delta)
+        - cpos_vector_length(spent_delta)
+    )
+    if remaining <= 0:
+        return 0
+    return remaining
+
+
+def build_axis_delta_from_budget(axis: str, direction_sign: int, budget: int) -> Vec2i:
+    if budget <= 0 or direction_sign == 0:
+        return Vec2i(0, 0)
+
+    if axis == "x":
+        return Vec2i(direction_sign * budget, 0)
+
+    if axis == "y":
+        return Vec2i(0, direction_sign * budget)
+
+    raise ValueError(f"Unknown movement axis {axis!r}")
 
 
 def get_path_follow_node_distance(controller, cpos):
@@ -3117,6 +3301,8 @@ def check_same_tile_extrapolated_movement_path(
     world,
     entity,
     current_tile: Vec2i,
+    start_cpos: Vec2i,
+    delta: Vec2i,
     step_x: int,
     step_y: int,
     next_cross_x,
@@ -3132,6 +3318,18 @@ def check_same_tile_extrapolated_movement_path(
         abs_dx,
         abs_dy,
     )
+
+    blocked_axis_result = check_same_tile_blocked_axis_components(
+        world,
+        entity,
+        current_tile,
+        start_cpos,
+        delta,
+        step_axis,
+    )
+
+    if blocked_axis_result is not None:
+        return blocked_axis_result
 
     if step_axis == "x":
         tile = Vec2i(
@@ -3163,6 +3361,18 @@ def check_same_tile_extrapolated_movement_path(
             current_tile,
             step_x,
             step_y,
+        )
+
+    if (
+        not movement_collision_allows(collision_result)
+        and same_tile_delta_stays_on_pre_center_half(
+            start_cpos,
+            delta,
+        )
+    ):
+        return MovementPathCheckResult(
+            collision_result=MOVEMENT_COLLISION_ALLOW,
+            placement_path=(),
         )
 
     return MovementPathCheckResult(
@@ -3206,6 +3416,8 @@ def check_normal_movement_delta_path(
             world,
             entity,
             current_tile,
+            start_cpos,
+            delta,
             step_x,
             step_y,
             next_cross_x,
@@ -3297,6 +3509,7 @@ def make_allowed_movement_approval(
     delta: Vec2i,
     resolution_kind: str,
     placement_path=(),
+    requested_collision_result=MOVEMENT_COLLISION_ALLOW,
 ):
     return MovementApproval(
         entity=proposal.entity,
@@ -3304,6 +3517,7 @@ def make_allowed_movement_approval(
         delta=delta,
         resolution_kind=resolution_kind,
         collision_result=MOVEMENT_COLLISION_ALLOW,
+        requested_collision_result=requested_collision_result,
         placement_path=placement_path,
         requested_cpos=proposal.start_cpos + proposal.final_delta,
         resolved_cpos=proposal.start_cpos + delta,
@@ -3322,6 +3536,7 @@ def make_blocked_movement_approval(
         delta=Vec2i(0, 0),
         resolution_kind=resolution_kind,
         collision_result=collision_result,
+        requested_collision_result=collision_result,
         placement_path=placement_path,
         requested_cpos=proposal.start_cpos + proposal.final_delta,
         resolved_cpos=proposal.start_cpos,
@@ -3345,6 +3560,60 @@ def build_explicit_centering_approval(proposal: MovementProposal):
     )
 
 
+def get_blocked_axis_from_collision(
+    start_cpos: Vec2i,
+    collision_result: MovementCollisionResult,
+):
+    blocked_tile = collision_result.blocked_tile
+    if blocked_tile is None:
+        return None
+
+    current_tile = tile_from_cpos(start_cpos)
+    dx = blocked_tile.x - current_tile.x
+    dy = blocked_tile.y - current_tile.y
+
+    if dx != 0 and dy == 0:
+        return "x"
+
+    if dy != 0 and dx == 0:
+        return "y"
+
+    return None
+
+
+def build_blocked_axis_center_delta(
+    start_cpos: Vec2i,
+    reference_delta: Vec2i,
+    blocked_axis: str,
+) -> Vec2i:
+    if not vec_is_nonzero(reference_delta):
+        return Vec2i(0, 0)
+
+    current_tile = tile_from_cpos(start_cpos)
+    current_center = tile_center(current_tile)
+
+    if blocked_axis == "x":
+        to_center = Vec2i(
+            current_center.x - start_cpos.x,
+            0,
+        )
+    elif blocked_axis == "y":
+        to_center = Vec2i(
+            0,
+            current_center.y - start_cpos.y,
+        )
+    else:
+        return Vec2i(0, 0)
+
+    if not vec_is_nonzero(to_center):
+        return Vec2i(0, 0)
+
+    return clamp_vec_length_to_reference(
+        to_center,
+        reference_delta,
+    )
+
+
 def build_finish_current_tile_delta(start_cpos: Vec2i, reference_delta: Vec2i):
     if not vec_is_nonzero(reference_delta):
         return Vec2i(0, 0)
@@ -3362,7 +3631,7 @@ def build_finish_current_tile_delta(start_cpos: Vec2i, reference_delta: Vec2i):
     )
 
 
-def try_build_finish_current_tile_approval(
+def try_build_clipped_to_center_approval(
     proposal: MovementProposal,
     rejection_result: MovementCollisionResult,
 ):
@@ -3372,19 +3641,29 @@ def try_build_finish_current_tile_approval(
     if movement_collision_destroys(rejection_result):
         return None
 
-    finish_delta = build_finish_current_tile_delta(
+    blocked_axis = get_blocked_axis_from_collision(
         proposal.start_cpos,
-        proposal.final_delta,
+        rejection_result,
     )
 
-    if not vec_is_nonzero(finish_delta):
+    if blocked_axis is None:
+        return None
+
+    center_delta = build_blocked_axis_center_delta(
+        proposal.start_cpos,
+        proposal.final_delta,
+        blocked_axis,
+    )
+
+    if not vec_is_nonzero(center_delta):
         return None
 
     return make_allowed_movement_approval(
         proposal,
-        finish_delta,
-        "finish_current_tile",
+        center_delta,
+        "clipped_to_blocked_axis_center",
         placement_path=(),
+        requested_collision_result=rejection_result,
     )
 
 
@@ -3417,7 +3696,7 @@ def try_build_static_slide_approval(
 ):
     collision_result = direct_rejection.collision_result
 
-    if not movement_collision_slides(collision_result):
+    if not movement_collision_can_attempt_static_slide(collision_result):
         return None
 
     if collision_result.blocker_collision_type != "static":
@@ -3429,18 +3708,46 @@ def try_build_static_slide_approval(
         proposal.entity,
     )
 
+    center_delta = build_finish_current_tile_delta(
+        proposal.start_cpos,
+        requested_delta,
+    )
+
+    slide_start_cpos = proposal.start_cpos + center_delta
+    remaining_budget = get_remaining_movement_budget(
+        requested_delta,
+        center_delta,
+    )
+
+    if remaining_budget <= 0:
+        if not vec_is_nonzero(center_delta):
+            return None
+
+        return make_allowed_movement_approval(
+            proposal,
+            center_delta,
+            "clipped_to_center",
+            placement_path=(),
+            requested_collision_result=collision_result,
+        )
+
     options = []
 
     if requested_delta.x != 0:
-        x_delta = Vec2i(requested_delta.x, 0)
         tangent = requested_delta.x
         normal = requested_delta.y
 
         if passes_slide_threshold(tangent, normal, ratio):
+            x_delta = build_axis_delta_from_budget(
+                "x",
+                sign(requested_delta.x),
+                remaining_budget,
+            )
+
             x_check = check_normal_movement_delta_path(
                 world,
                 proposal.entity,
-                proposal.start_cpos,
+                slide_start_cpos,
                 x_delta,
             )
 
@@ -3449,21 +3756,26 @@ def try_build_static_slide_approval(
                     (
                         -abs(tangent),
                         "x",
-                        x_delta,
+                        center_delta + x_delta,
                         x_check.placement_path,
                     )
                 )
 
     if requested_delta.y != 0:
-        y_delta = Vec2i(0, requested_delta.y)
         tangent = requested_delta.y
         normal = requested_delta.x
 
         if passes_slide_threshold(tangent, normal, ratio):
+            y_delta = build_axis_delta_from_budget(
+                "y",
+                sign(requested_delta.y),
+                remaining_budget,
+            )
+
             y_check = check_normal_movement_delta_path(
                 world,
                 proposal.entity,
-                proposal.start_cpos,
+                slide_start_cpos,
                 y_delta,
             )
 
@@ -3472,12 +3784,21 @@ def try_build_static_slide_approval(
                     (
                         -abs(tangent),
                         "y",
-                        y_delta,
+                        center_delta + y_delta,
                         y_check.placement_path,
                     )
                 )
 
     if not options:
+        if vec_is_nonzero(center_delta):
+            return make_allowed_movement_approval(
+                proposal,
+                center_delta,
+                "clipped_to_center",
+                placement_path=(),
+                requested_collision_result=collision_result,
+            )
+
         return None
 
     options.sort(
@@ -3487,13 +3808,18 @@ def try_build_static_slide_approval(
         )
     )
 
-    _, _, slide_delta, placement_path = options[0]
+    _, _, resolved_delta, placement_path = options[0]
+
+    resolution_kind = "static_slide"
+    if vec_is_nonzero(center_delta):
+        resolution_kind = "center_then_static_slide"
 
     return make_allowed_movement_approval(
         proposal,
-        slide_delta,
-        "static_slide",
+        resolved_delta,
+        resolution_kind,
         placement_path=placement_path,
+        requested_collision_result=collision_result,
     )
 
 
@@ -3531,13 +3857,13 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
     if static_slide_approval is not None:
         return static_slide_approval
 
-    finish_current_tile_approval = try_build_finish_current_tile_approval(
+    clipped_to_center_approval = try_build_clipped_to_center_approval(
         proposal,
         direct_rejection.collision_result,
     )
 
-    if finish_current_tile_approval is not None:
-        return finish_current_tile_approval
+    if clipped_to_center_approval is not None:
+        return clipped_to_center_approval
 
     return make_blocked_movement_approval(
         proposal,
@@ -3636,6 +3962,14 @@ def build_debug_enemy_movement_info(world, proposal, approval):
         "blocker_collision_type": approval.collision_result.blocker_collision_type,
         "blocked_tile": approval.collision_result.blocked_tile,
         "blocker_entity": approval.collision_result.blocker_entity,
+        "requested_collision_result": (
+            approval.requested_collision_result.collision_result
+        ),
+        "requested_blocker_collision_type": (
+            approval.requested_collision_result.blocker_collision_type
+        ),
+        "requested_blocked_tile": approval.requested_collision_result.blocked_tile,
+        "requested_blocker_entity": approval.requested_collision_result.blocker_entity,
         "placement_path": approval.placement_path,
         **move_target_info,
         **path_info,
