@@ -2716,10 +2716,6 @@ def start_directional_movement_controller(
     )
 
 
-def is_directional_move_controller(controller):
-    return isinstance(controller, DirectionalMoveController)
-
-
 def start_directional_continuous_controller(
     world,
     entity,
@@ -3163,33 +3159,6 @@ def build_movement_proposal(world, entity):
 def append_unique_movement_placement(path, tile):
     if tile not in path:
         path.append(tile)
-
-
-def get_initial_movement_crossing_distances(
-    current_tile: Vec2i,
-    start_cpos: Vec2i,
-    step_x: int,
-    step_y: int,
-):
-    if step_x > 0:
-        next_x_boundary = (current_tile.x + 1) * TILE_UNITS
-        next_cross_x = next_x_boundary - start_cpos.x
-    elif step_x < 0:
-        next_x_boundary = current_tile.x * TILE_UNITS
-        next_cross_x = start_cpos.x - next_x_boundary
-    else:
-        next_cross_x = None
-
-    if step_y > 0:
-        next_y_boundary = (current_tile.y + 1) * TILE_UNITS
-        next_cross_y = next_y_boundary - start_cpos.y
-    elif step_y < 0:
-        next_y_boundary = current_tile.y * TILE_UNITS
-        next_cross_y = start_cpos.y - next_y_boundary
-    else:
-        next_cross_y = None
-
-    return next_cross_x, next_cross_y
 
 
 def get_next_movement_crossing_axis(
@@ -3778,23 +3747,6 @@ def build_blocked_axis_center_delta(
         )
     else:
         return Vec2i(0, 0)
-
-    if not vec_is_nonzero(to_center):
-        return Vec2i(0, 0)
-
-    return clamp_vec_length_to_reference(
-        to_center,
-        reference_delta,
-    )
-
-
-def build_finish_current_tile_delta(start_cpos: Vec2i, reference_delta: Vec2i):
-    if not vec_is_nonzero(reference_delta):
-        return Vec2i(0, 0)
-
-    current_tile = tile_from_cpos(start_cpos)
-    current_center = tile_center(current_tile)
-    to_center = current_center - start_cpos
 
     if not vec_is_nonzero(to_center):
         return Vec2i(0, 0)

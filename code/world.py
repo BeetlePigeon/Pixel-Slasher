@@ -479,7 +479,7 @@ class World:
             # Default/fallback ratio.
             "slide_min_tangent_ratio": (1, 2),
             # Direct grid movement: WASD / buffered WASD.
-            "grid_slide_min_tangent_ratio": (1, 100),
+            "grid_slide_min_tangent_ratio": (1, 2),
             # Traditional click-to-move target movement.
             "mouse_slide_min_tangent_ratio": (2, 3),
             "corner_cutting": "allow",

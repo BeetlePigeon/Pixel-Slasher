@@ -45,18 +45,32 @@ def scale_normalized_dir(direction: Vec2i, distance: int) -> Vec2i:
     )
 
 
+def div_round_nearest(numerator: int, denominator: int) -> int:
+    if numerator >= 0:
+        return (numerator + denominator // 2) // denominator
+
+    return -((-numerator + denominator // 2) // denominator)
+
+
 def normalize_vector_to_dir_scale(vector: Vec2i):
     if vector.x == 0 and vector.y == 0:
         return None
 
-    length = math.isqrt(vector.x * vector.x + vector.y * vector.y)
+    length_sq = vector.x * vector.x + vector.y * vector.y
 
-    if length == 0:
+    if length_sq == 0:
         return None
 
+    length_fp = math.isqrt(length_sq * DIR_SCALE * DIR_SCALE)
+
+    if length_fp == 0:
+        return None
+
+    scale = DIR_SCALE * DIR_SCALE
+
     return Vec2i(
-        vector.x * DIR_SCALE // length,
-        vector.y * DIR_SCALE // length,
+        div_round_nearest(vector.x * scale, length_fp),
+        div_round_nearest(vector.y * scale, length_fp),
     )
 
 
