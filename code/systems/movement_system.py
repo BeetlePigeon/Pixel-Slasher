@@ -143,8 +143,8 @@ def movement_collision_slides(collision_result):
     return collision_result.slides_movement
 
 
-def movement_collision_can_attempt_static_slide(collision_result):
-    return collision_result.blocker_collision_type == "static"
+def movement_collision_can_attempt_slide(collision_result):
+    return movement_collision_slides(collision_result)
 
 
 def movement_collision_destroys(collision_result):
@@ -3995,14 +3995,14 @@ def try_build_direct_movement_approval(proposal: MovementProposal, world):
     )
 
 
-def try_build_static_slide_approval(
+def try_build_slide_approval(
     world,
     proposal: MovementProposal,
     direct_rejection: MovementPathCheckResult,
 ):
     collision_result = direct_rejection.collision_result
 
-    if not movement_collision_can_attempt_static_slide(collision_result):
+    if not movement_collision_can_attempt_slide(collision_result):
         return None
 
     if collision_result.blocker_collision_type != "static":
@@ -4107,9 +4107,9 @@ def try_build_static_slide_approval(
 
     resolved_delta = center_delta + slide_delta
 
-    resolution_kind = "static_slide"
+    resolution_kind = "slide"
     if vec_is_nonzero(center_delta):
-        resolution_kind = "blocked_axis_center_then_static_slide"
+        resolution_kind = "blocked_axis_center_then_slide"
 
     return make_allowed_movement_approval(
         proposal,
@@ -4145,14 +4145,14 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
         direct_rejection.collision_result,
     )
 
-    static_slide_approval = try_build_static_slide_approval(
+    slide_approval = try_build_slide_approval(
         world,
         proposal,
         direct_rejection,
     )
 
-    if static_slide_approval is not None:
-        return static_slide_approval
+    if slide_approval is not None:
+        return slide_approval
 
     clipped_to_center_approval = try_build_clipped_to_center_approval(
         proposal,
