@@ -99,7 +99,7 @@ BASE_CLICK_MOVE_PATH_POLICY = {
     # Pathfinding still sees static collision globally, but may also
     # see current dynamic blockers near the path start.
     "path_local_dynamic_blockers_enabled": True,
-    "path_local_dynamic_blocker_radius_tiles": 8,
+    "path_local_dynamic_blocker_radius_tiles": 80,
     "path_local_dynamic_blocker_max_entities": 30,
 
     # Current occupied bodies may be considered.

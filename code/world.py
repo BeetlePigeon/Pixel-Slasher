@@ -565,7 +565,7 @@ class World:
             "dynamic_blockers": "slide",
 
             "slide_min_tangent_ratio": (1, 2),
-            "corner_cutting": "strict",
+            "corner_cutting": "allow",
         }
         self.space_occupier[eid] = {
             "blocks_movement": True,

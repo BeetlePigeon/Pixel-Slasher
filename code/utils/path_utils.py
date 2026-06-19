@@ -378,6 +378,7 @@ def step_is_navigable_for_entity(
     current_tile: Vec2i,
     direction: Vec2i,
     nav_cache=None,
+    edge_is_allowed=None,
 ) -> bool:
     next_tile = current_tile + direction
 
@@ -401,6 +402,10 @@ def step_is_navigable_for_entity(
     ):
         return False
 
+    if edge_is_allowed is not None:
+        if not edge_is_allowed(current_tile, next_tile):
+            return False
+
     return True
 
 
@@ -410,6 +415,7 @@ def iter_path_neighbors(
     tile: Vec2i,
     can_move_8way: bool,
     nav_cache=None,
+    edge_is_allowed=None,
 ):
     directions = CHEBY_DIRS if can_move_8way else CARDINAL_DIRS
 
@@ -426,11 +432,11 @@ def iter_path_neighbors(
                 tile,
                 direction,
                 nav_cache=nav_cache,
+                edge_is_allowed=edge_is_allowed,
             ):
                 continue
 
             accepted += 1
-
             yield tile + direction
 
     finally:
@@ -491,6 +497,7 @@ def find_static_tile_path(
     search_budget: PathSearchBudget,
     max_path_length,
     nav_cache=None,
+    edge_is_allowed=None,
 ):
     expansions = 0
 
@@ -590,6 +597,7 @@ def find_static_tile_path(
             current_tile,
             can_move_8way,
             nav_cache=nav_cache,
+            edge_is_allowed=edge_is_allowed,
         ):
             new_cost = current_cost + 1
 
@@ -721,6 +729,7 @@ def find_static_tile_path_to_target(
     max_path_length,
     target_snap_radius: int,
     dynamic_blocker_context=None,
+    edge_is_allowed=None,
 ):
     record_path_request_source(
         world,
@@ -770,6 +779,7 @@ def find_static_tile_path_to_target(
                 search_budget=search_budget,
                 max_path_length=max_path_length,
                 nav_cache=nav_cache,
+                edge_is_allowed=edge_is_allowed,
             )
 
             if path is not None:
@@ -815,6 +825,7 @@ def path_segment_clear(
     end_tile: Vec2i,
     nav_cache=None,
     dynamic_blocker_context=None,
+    edge_is_allowed=None,
 ) -> bool:
     owns_cache = False
 
@@ -845,6 +856,10 @@ def path_segment_clear(
             ):
                 return False
 
+        if edge_is_allowed is not None:
+            if not edge_is_allowed(start_tile, end_tile):
+                return False
+
         return True
 
     finally:
@@ -857,7 +872,14 @@ def path_segment_clear(
 
 
 @profiled("path.smooth")
-def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles, dynamic_blocker_context=None):
+def smooth_static_tile_path(
+    world,
+    entity,
+    start_tile: Vec2i,
+    path_tiles,
+    dynamic_blocker_context=None,
+    edge_is_allowed=None,
+):
     if not path_tiles:
         return []
 
@@ -869,20 +891,25 @@ def smooth_static_tile_path(world, entity, start_tile: Vec2i, path_tiles, dynami
 
     try:
         full_path = [start_tile] + list(path_tiles)
-
         smoothed = []
+
         anchor_index = 0
 
         while anchor_index < len(full_path) - 1:
             farthest_index = anchor_index + 1
 
-            for test_index in range(len(full_path) - 1, anchor_index, -1):
+            for test_index in range(
+                len(full_path) - 1,
+                anchor_index,
+                -1,
+            ):
                 if path_segment_clear(
                     world,
                     entity,
                     full_path[anchor_index],
                     full_path[test_index],
                     nav_cache=nav_cache,
+                    edge_is_allowed=edge_is_allowed,
                 ):
                     farthest_index = test_index
                     break
