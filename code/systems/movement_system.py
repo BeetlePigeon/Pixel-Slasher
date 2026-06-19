@@ -869,7 +869,7 @@ def check_blocked_axis_components_for_segment(
     if not vec_is_nonzero(segment_delta):
         return None
 
-    return check_same_tile_blocked_axis_components(
+    result = check_same_tile_blocked_axis_components(
         world,
         entity,
         current_tile,
@@ -877,6 +877,8 @@ def check_blocked_axis_components_for_segment(
         segment_delta,
         step_axis,
     )
+
+    return result
 
 
 def axis_cross_position(start: Vec2i, delta: Vec2i, axis_distance: int, axis_abs_delta: int) -> Vec2i:
@@ -3529,7 +3531,13 @@ def check_normal_movement_delta_path(
                 )
 
             current_tile = next_tile
-            segment_start_cpos = boundary_cpos
+            if step_x > 0:
+                segment_start_cpos = boundary_cpos
+            else:
+                segment_start_cpos = Vec2i(
+                    boundary_cpos.x - 1,
+                    boundary_cpos.y,
+                )
             next_cross_x += TILE_UNITS
             continue
 
@@ -3576,7 +3584,13 @@ def check_normal_movement_delta_path(
                 )
 
             current_tile = next_tile
-            segment_start_cpos = boundary_cpos
+            if step_y > 0:
+                segment_start_cpos = boundary_cpos
+            else:
+                segment_start_cpos = Vec2i(
+                    boundary_cpos.x,
+                    boundary_cpos.y - 1,
+                )
             next_cross_y += TILE_UNITS
             continue
 
@@ -3619,7 +3633,10 @@ def check_normal_movement_delta_path(
             )
 
         current_tile = next_tile
-        segment_start_cpos = boundary_cpos
+        segment_start_cpos = Vec2i(
+            boundary_cpos.x if step_x > 0 else boundary_cpos.x - 1,
+            boundary_cpos.y if step_y > 0 else boundary_cpos.y - 1,
+        )
         next_cross_x += TILE_UNITS
         next_cross_y += TILE_UNITS
 
