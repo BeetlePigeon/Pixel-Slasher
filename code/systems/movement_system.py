@@ -4005,9 +4005,6 @@ def try_build_slide_approval(
     if not movement_collision_can_attempt_slide(collision_result):
         return None
 
-    if collision_result.blocker_collision_type != "static":
-        return None
-
     blocked_axis = get_blocked_axis_from_collision(
         proposal.start_cpos,
         collision_result,
