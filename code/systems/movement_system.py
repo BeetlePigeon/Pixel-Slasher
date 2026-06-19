@@ -42,7 +42,7 @@ from utils.path_utils import (
 
 CORNER_CROSSING_TOLERANCE_CPOS = 32
 
-DEBUG_PATH_RUNTIME_EDGE_CHECK = True
+DEBUG_PATH_RUNTIME_EDGE_CHECK = False
 DEBUG_PATH_RUNTIME_EDGE_PLAYER_ONLY = True
 
 PATH_FOLLOW_STALL_LOCAL = "local_stalled"
@@ -558,27 +558,6 @@ def movement_apply_system(world):
                 continue
 
             if movement_collision_blocks(collision_result):
-                if entity != getattr(world, "player", None):
-                    print(
-                        f"[enemy_move_blocked] tick={world.tick} entity={entity} "
-                        f"controller={type(controller).__name__ if controller is not None else None} "
-                        f"start_cpos={proposal.start_cpos} "
-                        f"start_tile={tile_from_cpos(proposal.start_cpos)} "
-                        f"base_delta={proposal.base_delta} "
-                        f"final_delta={proposal.final_delta} "
-                        f"approved_delta={approval.delta} "
-                        f"resolution={approval.resolution_kind} "
-                        f"collision={approval.collision_result.collision_result} "
-                        f"blocker_type={approval.collision_result.blocker_collision_type} "
-                        f"blocked_tile={approval.collision_result.blocked_tile} "
-                        f"blocker_entity={approval.collision_result.blocker_entity} "
-                        f"requested_collision={approval.requested_collision_result.collision_result} "
-                        f"requested_blocker_type={approval.requested_collision_result.blocker_collision_type} "
-                        f"requested_blocked_tile={approval.requested_collision_result.blocked_tile} "
-                        f"requested_blocker_entity={approval.requested_collision_result.blocker_entity} "
-                        f"placement_path={approval.placement_path}"
-                    )
-
                 transform.cpos = resolved_cpos
                 if transform.position_mode == "free" or influence_active:
                     transform.tile = tile_from_cpos(transform.cpos)
@@ -674,32 +653,6 @@ def movement_apply_system(world):
 
             motion_state["last_delta"] = transform.cpos - start_cpos
 
-            if (
-                    isinstance(controller, PathFollowController)
-                    and entity != getattr(world, "player", None)
-                    and path_follow_movement_was_modified(
-                controller,
-                requested_cpos,
-                resolved_cpos,
-            )
-            ):
-                print(
-                    f"[enemy_path_modified] tick={world.tick} entity={entity} "
-                    f"start_cpos={proposal.start_cpos} "
-                    f"start_tile={tile_from_cpos(proposal.start_cpos)} "
-                    f"base_delta={proposal.base_delta} "
-                    f"final_delta={proposal.final_delta} "
-                    f"approved_delta={approval.delta} "
-                    f"requested_cpos={requested_cpos} "
-                    f"resolved_cpos={resolved_cpos} "
-                    f"resolution={approval.resolution_kind} "
-                    f"requested_collision={approval.requested_collision_result.collision_result} "
-                    f"requested_blocker_type={approval.requested_collision_result.blocker_collision_type} "
-                    f"requested_blocked_tile={approval.requested_collision_result.blocked_tile} "
-                    f"requested_blocker_entity={approval.requested_collision_result.blocker_entity} "
-                    f"placement_path={approval.placement_path}"
-                )
-                
             if path_follow_movement_was_modified(
                     controller,
                     requested_cpos,
@@ -824,6 +777,91 @@ def same_tile_delta_lands_on_blocked_side_for_axis(
     raise ValueError(f"Unknown movement axis {axis!r}")
 
 
+def diagonal_approach_can_ignore_side_axis_guards(
+    world,
+    entity,
+    current_tile: Vec2i,
+    delta: Vec2i,
+) -> bool:
+    if delta.x == 0 or delta.y == 0:
+        return False
+
+    step_x = sign(delta.x)
+    step_y = sign(delta.y)
+
+    if step_x == 0 or step_y == 0:
+        return False
+
+    movement_collision = world.movement_collision.get(entity)
+
+    if movement_collision is None:
+        return False
+
+    corner_policy = movement_collision.get("corner_cutting")
+
+    if corner_policy is None:
+        return False
+
+    side_x_tile = Vec2i(
+        current_tile.x + step_x,
+        current_tile.y,
+    )
+
+    side_y_tile = Vec2i(
+        current_tile.x,
+        current_tile.y + step_y,
+    )
+
+    diagonal_tile = Vec2i(
+        current_tile.x + step_x,
+        current_tile.y + step_y,
+    )
+
+    diagonal_path = []
+    diagonal_collision = check_axis_movement_placement(
+        world,
+        entity,
+        diagonal_path,
+        diagonal_tile,
+    )
+
+    if not movement_collision_allows(diagonal_collision):
+        return False
+
+    if corner_policy == "allow":
+        return True
+
+    side_x_path = []
+    side_x_collision = check_axis_movement_placement(
+        world,
+        entity,
+        side_x_path,
+        side_x_tile,
+    )
+
+    side_x_allowed = movement_collision_allows(side_x_collision)
+
+    side_y_path = []
+    side_y_collision = check_axis_movement_placement(
+        world,
+        entity,
+        side_y_path,
+        side_y_tile,
+    )
+
+    side_y_allowed = movement_collision_allows(side_y_collision)
+
+    if corner_policy == "strict":
+        return side_x_allowed and side_y_allowed
+
+    if corner_policy == "allow_if_one_side_open":
+        return side_x_allowed or side_y_allowed
+
+    raise ValueError(
+        f"Unknown corner_cutting policy: {corner_policy!r}"
+    )
+
+
 def check_same_tile_blocked_axis_components(
     world,
     entity,
@@ -841,6 +879,14 @@ def check_same_tile_blocked_axis_components(
     else:
         axis_order = ["x", "y"]
 
+    if diagonal_approach_can_ignore_side_axis_guards(
+        world,
+        entity,
+        current_tile,
+        delta,
+    ):
+        return None
+
     for axis in axis_order:
         if axis == "x":
             if delta.x == 0:
@@ -854,10 +900,12 @@ def check_same_tile_blocked_axis_components(
                 continue
 
             placement_path = []
+
             tile = Vec2i(
                 current_tile.x + sign(delta.x),
                 current_tile.y,
             )
+
             collision_result = check_axis_movement_placement(
                 world,
                 entity,
@@ -885,10 +933,12 @@ def check_same_tile_blocked_axis_components(
                 continue
 
             placement_path = []
+
             tile = Vec2i(
                 current_tile.x,
                 current_tile.y + sign(delta.y),
             )
+
             collision_result = check_axis_movement_placement(
                 world,
                 entity,
@@ -2064,14 +2114,6 @@ def set_move_target(
     if target_cpos is None:
         target_cpos = tile_center(target_tile)
 
-    if entity == getattr(world, "player", None):
-        print(
-            f"[set_move_target] tick={world.tick} entity={entity} "
-            f"target_tile={target_tile} target_cpos={target_cpos} "
-            f"path_policy={path_policy} owner_order_id={owner_order_id} "
-            f"existing={world.move_target.get(entity)}"
-        )
-
     existing_target = world.move_target.get(entity)
     owner_changed = (
             existing_target is not None
@@ -2100,13 +2142,6 @@ def set_move_target(
 
 def clear_move_target(world, entity):
     old_target = world.move_target.pop(entity, None)
-
-    if entity == getattr(world, "player", None) and old_target is not None:
-        print(
-            f"[clear_move_target] tick={world.tick} entity={entity} "
-            f"old_target={old_target}"
-        )
-
     clear_path_build_state(world, entity)
 
 
@@ -2913,15 +2948,6 @@ def start_path_follow_controller(world, entity, target):
         target,
     )
 
-    if entity != getattr(world, "player", None):
-        print(
-            f"[enemy_path_start] tick={world.tick} entity={entity} "
-            f"target={target} nodes={nodes} "
-            f"current_tile={tile_from_cpos(world.transform[entity].cpos)} "
-            f"current_cpos={world.transform[entity].cpos} "
-            f"corner_policy={world.movement_collision.get(entity, {}).get('corner_cutting')}"
-        )
-
     if nodes is None:
         if path_policy["clear_target_on_path_fail"]:
             clear_move_target(world, entity)
@@ -3277,92 +3303,6 @@ def path_runtime_edge_is_clean(proposal, approval) -> bool:
         and resolved_cpos == expected_cpos
         and movement_collision_allows(approval.collision_result)
         and movement_collision_allows(approval.requested_collision_result)
-    )
-
-
-def debug_path_runtime_edges_for_tile_path(
-    world,
-    entity,
-    label: str,
-    start_tile: Vec2i,
-    path_tiles,
-):
-    if not should_debug_path_runtime_edges(world, entity):
-        return
-
-    full_path = [start_tile] + list(path_tiles)
-
-    if len(full_path) < 2:
-        print(
-            f"[path_edge_runtime_empty] tick={world.tick} entity={entity} "
-            f"label={label} start={start_tile} path={path_tiles}"
-        )
-        return
-
-    checked = 0
-    bad = 0
-
-    for index in range(len(full_path) - 1):
-        from_tile = full_path[index]
-        to_tile = full_path[index + 1]
-
-        start_cpos = tile_center(from_tile)
-        end_cpos = tile_center(to_tile)
-
-        proposal = build_path_runtime_edge_probe_proposal(
-            world,
-            entity,
-            start_cpos,
-            end_cpos,
-        )
-
-        approval = build_movement_admission_approval(
-            world,
-            proposal,
-        )
-
-        checked += 1
-
-        if path_runtime_edge_is_clean(proposal, approval):
-            continue
-
-        bad += 1
-
-        requested_cpos = approval.requested_cpos
-
-        if requested_cpos is None:
-            requested_cpos = proposal.start_cpos + proposal.final_delta
-
-        resolved_cpos = approval.resolved_cpos
-
-        if resolved_cpos is None:
-            resolved_cpos = proposal.start_cpos + approval.delta
-
-        print(
-            f"[path_edge_runtime_mismatch] tick={world.tick} entity={entity} "
-            f"label={label} edge_index={index} "
-            f"from_tile={from_tile} to_tile={to_tile} "
-            f"start_cpos={start_cpos} end_cpos={end_cpos} "
-            f"delta={proposal.final_delta} "
-            f"approved={approval.approved} "
-            f"approved_delta={approval.delta} "
-            f"resolution={approval.resolution_kind} "
-            f"collision={approval.collision_result.collision_result} "
-            f"blocker_type={approval.collision_result.blocker_collision_type} "
-            f"blocked_tile={approval.collision_result.blocked_tile} "
-            f"requested_collision={approval.requested_collision_result.collision_result} "
-            f"requested_blocker_type={approval.requested_collision_result.blocker_collision_type} "
-            f"requested_blocked_tile={approval.requested_collision_result.blocked_tile} "
-            f"requested_cpos={requested_cpos} "
-            f"resolved_cpos={resolved_cpos} "
-            f"placement_path={approval.placement_path} "
-            f"full_path={full_path}"
-        )
-
-    print(
-        f"[path_edge_runtime_summary] tick={world.tick} entity={entity} "
-        f"label={label} start={start_tile} "
-        f"edges_checked={checked} bad_edges={bad}"
     )
 
 
@@ -4717,6 +4657,117 @@ def make_path_runtime_clean_edge_filter(world, entity):
     return edge_is_allowed
 
 
+def is_path_follow_controller(controller):
+    return isinstance(controller, PathFollowController)
+
+
+def finish_controller_after_block_if_needed(world, entity, controller):
+    if controller is None:
+        return False
+
+    if not controller.finished():
+        return False
+
+    motion_state = world.motion_state[entity]
+    transform = world.transform[entity]
+
+    if hasattr(controller, "end"):
+        transform.cpos = controller.end
+
+    transform.tile = tile_from_cpos(transform.cpos)
+
+    clear_motion_controller(motion_state)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+    return True
+
+
+def get_controller_block_response(controller):
+    return getattr(controller, "block_response")
+
+
+def controller_ages_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_AGE
+
+
+def controller_aborts_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_ABORT
+
+
+def controller_retries_on_block(controller):
+    return get_controller_block_response(controller) == BLOCK_RESPONSE_RETRY
+
+
+def get_navigation_start_tile(world, entity):
+    transform = world.transform[entity]
+
+    return tile_from_cpos(transform.cpos)
+
+
+def path_follow_movement_was_modified(
+    controller,
+    requested_cpos,
+    resolved_cpos,
+):
+    if not is_path_follow_controller(controller):
+        return False
+
+    return resolved_cpos != requested_cpos
+
+
+def cancel_motion_by_tags_for_status(world, entity, motion_tags):
+    if not motion_tags:
+        return False
+
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return False
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return False
+
+    motion_tag = get_motion_controller_tag(controller)
+
+    if motion_tag not in motion_tags:
+        return False
+
+    clear_motion_controller(motion_state)
+    motion_state["last_delta"] = Vec2i(0, 0)
+
+    request_settle_when_allowed(world, entity)
+    start_requested_settle_if_allowed(world, entity)
+
+    return True
+
+
+def get_active_motion_tag(world, entity):
+    motion_state = world.motion_state.get(entity)
+
+    if motion_state is None:
+        return None
+
+    controller = motion_state.get("controller")
+
+    if controller is None:
+        return None
+
+    return getattr(controller, "motion_tag", None)
+
+
+def get_motion_controller_tag(controller):
+    if controller is None:
+        return None
+
+    return getattr(controller, "motion_tag", None)
+
+
+
+
 def print_entity_movement_diagnostics(world, entity):
     if entity is None:
         print("[move_diag] no entity")
@@ -4904,110 +4955,89 @@ def print_entity_movement_diagnostics(world, entity):
     print("")
 
 
-def is_path_follow_controller(controller):
-    return isinstance(controller, PathFollowController)
 
 
-def finish_controller_after_block_if_needed(world, entity, controller):
-    if controller is None:
-        return False
-
-    if not controller.finished():
-        return False
-
-    motion_state = world.motion_state[entity]
-    transform = world.transform[entity]
-
-    if hasattr(controller, "end"):
-        transform.cpos = controller.end
-
-    transform.tile = tile_from_cpos(transform.cpos)
-
-    clear_motion_controller(motion_state)
-
-    request_settle_when_allowed(world, entity)
-    start_requested_settle_if_allowed(world, entity)
-
-    return True
-
-
-def get_controller_block_response(controller):
-    return getattr(controller, "block_response")
-
-
-def controller_ages_on_block(controller):
-    return get_controller_block_response(controller) == BLOCK_RESPONSE_AGE
-
-
-def controller_aborts_on_block(controller):
-    return get_controller_block_response(controller) == BLOCK_RESPONSE_ABORT
-
-
-def controller_retries_on_block(controller):
-    return get_controller_block_response(controller) == BLOCK_RESPONSE_RETRY
-
-
-def get_navigation_start_tile(world, entity):
-    transform = world.transform[entity]
-
-    return tile_from_cpos(transform.cpos)
-
-
-def path_follow_movement_was_modified(
-    controller,
-    requested_cpos,
-    resolved_cpos,
+def debug_path_runtime_edges_for_tile_path(
+    world,
+    entity,
+    label: str,
+    start_tile: Vec2i,
+    path_tiles,
 ):
-    if not is_path_follow_controller(controller):
-        return False
+    if not should_debug_path_runtime_edges(world, entity):
+        return
 
-    return resolved_cpos != requested_cpos
+    full_path = [start_tile] + list(path_tiles)
 
+    if len(full_path) < 2:
+        print(
+            f"[path_edge_runtime_empty] tick={world.tick} entity={entity} "
+            f"label={label} start={start_tile} path={path_tiles}"
+        )
+        return
 
-def cancel_motion_by_tags_for_status(world, entity, motion_tags):
-    if not motion_tags:
-        return False
+    checked = 0
+    bad = 0
 
-    motion_state = world.motion_state.get(entity)
+    for index in range(len(full_path) - 1):
+        from_tile = full_path[index]
+        to_tile = full_path[index + 1]
 
-    if motion_state is None:
-        return False
+        start_cpos = tile_center(from_tile)
+        end_cpos = tile_center(to_tile)
 
-    controller = motion_state.get("controller")
+        proposal = build_path_runtime_edge_probe_proposal(
+            world,
+            entity,
+            start_cpos,
+            end_cpos,
+        )
 
-    if controller is None:
-        return False
+        approval = build_movement_admission_approval(
+            world,
+            proposal,
+        )
 
-    motion_tag = get_motion_controller_tag(controller)
+        checked += 1
 
-    if motion_tag not in motion_tags:
-        return False
+        if path_runtime_edge_is_clean(proposal, approval):
+            continue
 
-    clear_motion_controller(motion_state)
-    motion_state["last_delta"] = Vec2i(0, 0)
+        bad += 1
 
-    request_settle_when_allowed(world, entity)
-    start_requested_settle_if_allowed(world, entity)
+        requested_cpos = approval.requested_cpos
 
-    return True
+        if requested_cpos is None:
+            requested_cpos = proposal.start_cpos + proposal.final_delta
 
+        resolved_cpos = approval.resolved_cpos
 
-def get_active_motion_tag(world, entity):
-    motion_state = world.motion_state.get(entity)
+        if resolved_cpos is None:
+            resolved_cpos = proposal.start_cpos + approval.delta
 
-    if motion_state is None:
-        return None
+        print(
+            f"[path_edge_runtime_mismatch] tick={world.tick} entity={entity} "
+            f"label={label} edge_index={index} "
+            f"from_tile={from_tile} to_tile={to_tile} "
+            f"start_cpos={start_cpos} end_cpos={end_cpos} "
+            f"delta={proposal.final_delta} "
+            f"approved={approval.approved} "
+            f"approved_delta={approval.delta} "
+            f"resolution={approval.resolution_kind} "
+            f"collision={approval.collision_result.collision_result} "
+            f"blocker_type={approval.collision_result.blocker_collision_type} "
+            f"blocked_tile={approval.collision_result.blocked_tile} "
+            f"requested_collision={approval.requested_collision_result.collision_result} "
+            f"requested_blocker_type={approval.requested_collision_result.blocker_collision_type} "
+            f"requested_blocked_tile={approval.requested_collision_result.blocked_tile} "
+            f"requested_cpos={requested_cpos} "
+            f"resolved_cpos={resolved_cpos} "
+            f"placement_path={approval.placement_path} "
+            f"full_path={full_path}"
+        )
 
-    controller = motion_state.get("controller")
-
-    if controller is None:
-        return None
-
-    return getattr(controller, "motion_tag", None)
-
-
-def get_motion_controller_tag(controller):
-    if controller is None:
-        return None
-
-    return getattr(controller, "motion_tag", None)
+    print(
+        f"[path_edge_runtime_summary] tick={world.tick} entity={entity} "
+        f"label={label} start={start_tile} "
+        f"edges_checked={checked} bad_edges={bad}"
+    )
