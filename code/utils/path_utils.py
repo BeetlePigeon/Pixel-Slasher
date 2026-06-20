@@ -487,6 +487,43 @@ def record_path_find_result(
     )
 
 
+def path_straightness_tiebreak(
+    start_tile: Vec2i,
+    goal_tile: Vec2i,
+    tile: Vec2i,
+):
+    goal_dx = goal_tile.x - start_tile.x
+    goal_dy = goal_tile.y - start_tile.y
+
+    tile_dx = tile.x - start_tile.x
+    tile_dy = tile.y - start_tile.y
+
+    # Integer cross product magnitude. Lower means closer to the direct
+    # line from start to goal.
+    line_deviation = abs(
+        tile_dx * goal_dy
+        - tile_dy * goal_dx
+    )
+
+    # Lower means closer to the goal in ordinary grid distance.
+    manhattan_to_goal = manhattan_tile_distance(
+        tile,
+        goal_tile,
+    )
+
+    # Lower means closer to the goal in the actual 8-way path metric.
+    chebyshev_to_goal = chebyshev_tile_distance(
+        tile,
+        goal_tile,
+    )
+
+    return (
+        line_deviation,
+        manhattan_to_goal,
+        chebyshev_to_goal,
+    )
+
+
 @profiled("path.find")
 def find_static_tile_path(
     world,
@@ -536,10 +573,19 @@ def find_static_tile_path(
     frontier = []
     push_counter = 0
 
+    start_straightness = path_straightness_tiebreak(
+        start_tile,
+        goal_tile,
+        start_tile,
+    )
+
     heapq.heappush(
         frontier,
         (
             chebyshev_tile_distance(start_tile, goal_tile),
+            start_straightness[0],
+            start_straightness[1],
+            start_straightness[2],
             0,
             start_tile.y,
             start_tile.x,
@@ -554,7 +600,7 @@ def find_static_tile_path(
     }
 
     while frontier:
-        _, current_cost, _, _, _, current_tile = heapq.heappop(frontier)
+        _, _, _, _, current_cost, _, _, _, current_tile = heapq.heappop(frontier)
 
         if not search_budget.consume():
             record_path_find_result(
@@ -614,12 +660,21 @@ def find_static_tile_path(
 
             priority = new_cost + heuristic
 
+            straightness = path_straightness_tiebreak(
+                start_tile,
+                goal_tile,
+                neighbor,
+            )
+
             push_counter += 1
 
             heapq.heappush(
                 frontier,
                 (
                     priority,
+                    straightness[0],
+                    straightness[1],
+                    straightness[2],
                     new_cost,
                     neighbor.y,
                     neighbor.x,
