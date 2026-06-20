@@ -1,4 +1,9 @@
 from support import Vec2i
+from policies import PATH_POLICIES
+from utils.path_utils import (
+    build_local_dynamic_blocker_context,
+    find_static_tile_path_to_target,
+)
 from utils.placement_utils import is_tile_valid_for_entity_placement
 from utils.camera_utils import internal_screen_to_world_cpos
 from utils.soft_targeting_utils import (
@@ -843,6 +848,44 @@ def append_approach_entity_intent(
     )
 
 
+def actor_can_reach_approach_tile(
+    world,
+    actor,
+    actor_tile,
+    approach_tile,
+):
+    path_policy_name = get_approach_path_policy(world, actor)
+    path_policy = PATH_POLICIES[path_policy_name]
+
+    if path_policy["path_local_dynamic_blockers_enabled"]:
+        dynamic_blocker_context = build_local_dynamic_blocker_context(
+            world,
+            actor,
+            actor_tile,
+            radius_tiles=path_policy["path_local_dynamic_blocker_radius_tiles"],
+            max_entities=path_policy["path_local_dynamic_blocker_max_entities"],
+            include_moving=path_policy["path_local_dynamic_blocker_include_moving"],
+            include_reservations=path_policy["path_local_dynamic_blocker_include_reservations"],
+        )
+    else:
+        dynamic_blocker_context = None
+
+    path_tiles = find_static_tile_path_to_target(
+        world,
+        entity=actor,
+        start_tile=actor_tile,
+        target_tile=approach_tile,
+        can_move_8way=world.locomotion[actor].get("can_move_8way", True),
+        max_expansions=path_policy["max_expansions"],
+        max_path_length=path_policy["max_path_length"],
+        target_snap_radius=0,
+        dynamic_blocker_context=dynamic_blocker_context,
+        edge_is_allowed=None,
+    )
+
+    return path_tiles is not None
+
+
 def find_entity_approach_tile(
     world,
     actor,
@@ -925,7 +968,21 @@ def find_entity_approach_tile(
         return None
 
     candidates.sort()
-    return candidates[0][-1]
+
+    for candidate in candidates:
+        candidate_tile = candidate[-1]
+
+        if not actor_can_reach_approach_tile(
+            world,
+            actor,
+            actor_tile,
+            candidate_tile,
+        ):
+            continue
+
+        return candidate_tile
+
+    return None
 
 
 def find_entity_best_effort_approach_tile(
