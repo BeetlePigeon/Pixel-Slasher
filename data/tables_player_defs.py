@@ -5,7 +5,7 @@ DEFAULT_PLAYER_STATE = {
     },
 
     "skills": {
-        0: "debug_slash",        # L click
+        0: "move_command",        # L click
         1: "teleport",
         2: "burst_projectile",
         3: "magnet_orb",
@@ -17,5 +17,7 @@ DEFAULT_PLAYER_STATE = {
         9: "homing_missiles",     # R click
         10: "dash",     # spacebar
         11: "debug_channel_projectile",
+        "LMB": "move_command",      # Modern LMB
+        "RMB": "dash"               # Modern RMB
     },
 }

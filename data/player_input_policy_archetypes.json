@@ -89,6 +89,36 @@
           "soft_targeting": "disabled"
         }
       }
+    },
+    "move_command": {
+      "left_click": {
+        "normal": {
+          "interactable": "interact_or_approach",
+          "enemy": "approach_only",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "interact_or_approach",
+          "enemy": "approach_only",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        }
+      },
+      "skill_button": {
+        "normal": {
+          "interactable": "interact_or_approach",
+          "enemy": "approach_only",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        },
+        "shift": {
+          "interactable": "interact_or_approach",
+          "enemy": "approach_only",
+          "no_target": "move_to_position",
+          "soft_targeting": "disabled"
+        }
+      }
     }
   },
 
@@ -113,7 +143,10 @@
     },
     "hard_target_if_in_range_else_no_target": {
       "mode": "hard_target_if_in_range_else_no_target"
-    }
+    },
+    "approach_only": {
+      "mode": "approach_only"
+}
   },
 
   "no_target": {

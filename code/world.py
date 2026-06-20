@@ -506,7 +506,7 @@ class World:
         }
 
         self.locomotion[eid] = {
-            "speed_cpos_per_tick": 910,
+            "speed_cpos_per_tick": 410,
             "can_move_8way": True,
         }
 

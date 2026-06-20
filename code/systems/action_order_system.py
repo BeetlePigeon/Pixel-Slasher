@@ -96,8 +96,13 @@ def process_action_order(world, intents, actor, order):
         )
         return
 
-    # Kept temporarily so older local debug captures do not crash.
-    if order_type == "captured_hard_target":
+    if order_type == "approach_entity_only":
+        process_approach_entity_only_order(
+            world,
+            intents,
+            actor,
+            order,
+        )
         return
 
     raise NotImplementedError(
@@ -375,6 +380,37 @@ def process_interact_with_entity_order(world, intents, actor, order):
             "target": target,
             "skill_id": skill_id,
             "button": order.get("button"),
+        }
+    )
+
+    clear_action_order(world, actor)
+
+
+def process_approach_entity_only_order(world, intents, actor, order):
+    target = order["target"]
+    skill_id = order.get("skill_id")
+
+    approach_range_tiles = get_skill_interact_range_tiles(skill_id)
+
+    if not entities_are_within_tile_range(
+        world,
+        actor,
+        target,
+        approach_range_tiles,
+    ):
+        append_approach_entity_intent(
+            world,
+            intents,
+            actor,
+            target,
+            approach_range_tiles,
+            order["order_id"],
+        )
+        return
+
+    intents.setdefault(actor, []).append(
+        {
+            "type": "stop_moving",
         }
     )
 

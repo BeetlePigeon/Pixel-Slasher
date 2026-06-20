@@ -22,6 +22,10 @@ from utils.skill_utils import (
 from motion_controllers import DashController
 
 
+def execute_command_only(world, caster, context):
+    return False
+
+
 def execute_projectile(world, caster, context):
     params = context["params"]
 
@@ -405,6 +409,8 @@ def execute_placed_effect(world, caster, context):
 
 
 HANDLERS = {
+    "execute_command_only": execute_command_only,
+
     "execute_cast_skill": execute_cast_skill,
     "execute_channel_skill": execute_channel_skill,
     "execute_projectile": execute_projectile,

@@ -1,0 +1,20 @@
+{
+  "id": "move_command",
+  "name": "Move Command",
+  "cooldown_ticks": 0,
+  "trigger_mode": "held_repeat",
+  "blocked_by_motion_tags": [],
+  "blocked_by_action_tags": [],
+  "cancels_action_tags": [],
+  "required_components": ["transform"],
+  "required_params": [],
+  "allowed_param_values": {},
+  "aim": null,
+  "cast": null,
+  "channel": null,
+  "params": {
+    "interact_range_tiles": 1
+  },
+  "handler": "execute_command_only",
+  "player_input_policy": "move_command"
+}

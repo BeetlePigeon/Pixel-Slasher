@@ -432,11 +432,8 @@ class StateGameplay(State):
                 return self.get_skill_button_input_context(input_state)
 
         if control_scheme == "modern":
-            if button == 1:
-                return "modern_left"
-
-            if button == 3:
-                return "modern_right"
+            if button in {1, 3}:
+                return self.get_skill_button_input_context(input_state)
 
         return None
 
@@ -761,6 +758,7 @@ class StateGameplay(State):
             "hard_target_approach",
             "hard_target_no_approach",
             "interact_or_approach",
+            "approach_only",
         }:
             return True
 
@@ -828,6 +826,26 @@ class StateGameplay(State):
             }
 
         if target_kind == "enemy":
+            mode = get_input_context_hard_target_mode(
+                skill_id,
+                input_context,
+                target_kind,
+            )
+
+            if mode == "approach_only":
+                return {
+                    "type": "approach_entity_only",
+                    "actor": actor,
+                    "target": target,
+                    "target_kind": target_kind,
+                    "skill_id": skill_id,
+                    "slot": slot,
+                    "button": button,
+                    "input_kind": "mouse",
+                    "target_lock": "hard",
+                    "created_tick": world.tick,
+                }
+
             return {
                 "type": "use_skill_on_entity",
                 "actor": actor,
@@ -845,11 +863,6 @@ class StateGameplay(State):
                     target_kind,
                 ),
             }
-
-        raise ValueError(
-            f"Unsupported hard target kind: {target_kind!r}"
-        )
-
 
     def get_bound_skill_id_for_keyboard_action(self, actor, key):
         slot = KEY_TO_SKILL_SLOT.get(key)
