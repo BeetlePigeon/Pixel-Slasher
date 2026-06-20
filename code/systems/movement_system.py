@@ -4045,6 +4045,57 @@ def try_build_directional_center_finish_approval(
     )
 
 
+def try_build_path_follow_current_node_finish_approval(
+    world,
+    proposal: MovementProposal,
+    direct_rejection: MovementPathCheckResult,
+):
+    controller = proposal.controller
+
+    if not isinstance(controller, PathFollowController):
+        return None
+
+    current_node = get_path_follow_current_node(controller)
+
+    if current_node is None:
+        return None
+
+    node_delta = current_node - proposal.start_cpos
+
+    if not vec_is_nonzero(node_delta):
+        return None
+
+    node_distance = cpos_vector_length(node_delta)
+    request_budget = cpos_vector_length(proposal.final_delta)
+
+    if node_distance > request_budget:
+        return None
+
+    node_check = check_normal_movement_delta_path(
+        world,
+        proposal.entity,
+        proposal.start_cpos,
+        node_delta,
+    )
+
+    if not movement_collision_allows(node_check.collision_result):
+        return None
+
+    controller._pending_index = controller.current_index + 1
+
+    return MovementApproval(
+        entity=proposal.entity,
+        approved=True,
+        delta=node_delta,
+        resolution_kind="path_follow_current_node_finish",
+        collision_result=MOVEMENT_COLLISION_ALLOW,
+        requested_collision_result=direct_rejection.collision_result,
+        placement_path=tuple(node_check.placement_path),
+        requested_cpos=proposal.start_cpos + node_delta,
+        resolved_cpos=proposal.start_cpos + node_delta,
+    )
+
+
 def try_build_slide_approval(
     world,
     proposal: MovementProposal,
@@ -4192,6 +4243,15 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
         direct_rejection.collision_result,
     )
 
+    path_node_finish_approval = try_build_path_follow_current_node_finish_approval(
+        world,
+        proposal,
+        direct_rejection,
+    )
+
+    if path_node_finish_approval is not None:
+        return path_node_finish_approval
+
     slide_approval = try_build_slide_approval(
         world,
         proposal,
@@ -4200,7 +4260,6 @@ def build_movement_admission_approval(world, proposal: MovementProposal):
 
     if slide_approval is not None:
         return slide_approval
-
     center_finish_approval = try_build_directional_center_finish_approval(
         world,
         proposal,
