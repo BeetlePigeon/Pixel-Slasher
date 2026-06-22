@@ -1,6 +1,7 @@
 from support import Vec2i
 from systems.movement_system import (
     set_move_target,
+    set_chase_entity_target,
     clear_move_target,
     buffer_move_intent,
     cancel_voluntary_movement,
@@ -48,6 +49,16 @@ def intent_system(world, intents):
                 clear_move_target(
                     world,
                     entity,
+                )
+                continue
+
+            if intent["type"] == "chase_entity":
+                set_chase_entity_target(
+                    world,
+                    entity,
+                    intent["target"],
+                    intent["desired_range_tiles"],
+                    owner_order_id=intent.get("owner_order_id"),
                 )
                 continue
 

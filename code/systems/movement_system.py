@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import Optional
 from utils.placement_utils import is_static_movement_placement_blocked
 from utils.perf_profiler import profiled, record_counter_for_world
+from utils.action_order_utils import (
+    entities_are_within_tile_range,
+    get_entity_skill_range_tiles,
+    min_distance_to_tiles,
+)
 from utils.occupancy_utils import (
     clear_dynamic_movement_reservations,
     add_entity_movement_reservations_for_origin_path,
@@ -24,12 +29,14 @@ from motion_controllers import (
     GridMoveController,
     SettleToGridController,
     PathFollowController,
+    ChaseEntityController,
     DirectionalMoveController,
 )
 from utils.tile_vec_utils import (
     sign,
     tile_center,
     tile_from_cpos,
+    chebyshev_tile_distance,
     normalize_vector_to_dir_scale,
 )
 from utils.path_utils import (
@@ -40,6 +47,12 @@ from utils.path_utils import (
 )
 
 
+ORDER_OWNED_CONTROLLER_SOURCES = {
+    "move_target",
+    "recenter_for_action",
+    "chase_entity",
+}
+
 CORNER_CROSSING_TOLERANCE_CPOS = 32
 
 DEBUG_PATH_RUNTIME_EDGE_CHECK = False
@@ -48,6 +61,13 @@ DEBUG_PATH_RUNTIME_EDGE_PLAYER_ONLY = True
 PATH_FOLLOW_STALL_LOCAL = "local_stalled"
 PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT = "path_progress_timed_out"
 PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
+
+CHASE_DIRECT_LOOKAHEAD_TILES = 6
+CHASE_REPLAN_INTERVAL_TICKS = 3
+CHASE_WAYPOINT_MAX_AGE_TICKS = 12
+CHASE_STATIC_SIDE_PREFERENCE_TICKS = 12
+CHASE_DYNAMIC_RETRY_TICKS = 3
+CHASE_TARGET_TELEPORT_TILES = 4
 
 
 @dataclass(frozen=True)
@@ -172,6 +192,27 @@ def record_collision_result_counter(world, prefix, collision_result):
         )
 
 
+def record_chase_controller_block(world, entity, controller, collision_result):
+    if not isinstance(controller, ChaseEntityController):
+        return
+
+    controller.last_blocked_tick = world.tick
+    controller.last_blocker_collision_type = collision_result.blocker_collision_type
+
+    if collision_result.blocker_collision_type == "dynamic":
+        controller.dynamic_retry_after_tick = (
+            world.tick + CHASE_DYNAMIC_RETRY_TICKS
+        )
+
+    if collision_result.blocker_collision_type == "static":
+        if controller.side_preference == 0:
+            controller.side_preference = 1 if entity % 2 == 0 else -1
+
+        controller.side_preference_until_tick = (
+            world.tick + CHASE_STATIC_SIDE_PREFERENCE_TICKS
+        )
+
+
 def record_movement_approval_counters(world, approval):
     record_counter_for_world(
         world,
@@ -269,12 +310,22 @@ def movement_arbiter_system(world):
         )
     }
 
+    active_chase_entities = {
+        entity
+        for entity, motion_state in world.motion_state.items()
+        if isinstance(
+            motion_state.get("controller"),
+            ChaseEntityController,
+        )
+    }
+
     entities = (
         (
             set(world.move_intent)
             | set(world.buffered_move_intent)
             | set(world.move_target)
             | active_directional_entities
+            | active_chase_entities
         )
         & set(world.transform)
         & set(world.motion_state)
@@ -356,6 +407,26 @@ def movement_arbiter_system(world):
 
             continue
 
+        if isinstance(controller, ChaseEntityController):
+            if entity in world.move_intent:
+                cancel_move_target_for_directional_input(world, entity)
+                clear_motion_controller(motion_state)
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+                request_settle_when_allowed(world, entity)
+                start_requested_settle_if_allowed(world, entity)
+                continue
+
+            if refresh_chase_entity_controller_if_needed(
+                    world,
+                    entity,
+                    controller,
+            ):
+                mark_dynamic_occupancy_dirty(world)
+                rebuild_dynamic_occupancy(world)
+
+            continue
+
         if movement_start_suppressed_this_tick(world, entity):
             continue
 
@@ -391,14 +462,24 @@ def movement_arbiter_system(world):
         if entity in world.move_target:
             target = world.move_target[entity]
 
-            if start_path_follow_controller(
-                world,
-                entity,
-                target,
-            ):
+            if target["type"] == "chase_entity":
+                start_chase_entity_controller(
+                    world,
+                    entity,
+                    target,
+                )
                 continue
 
-            continue
+            if target["type"] == "target_tile":
+                if start_path_follow_controller(
+                        world,
+                        entity,
+                        target,
+                ):
+                    continue
+                continue
+
+            raise ValueError(f"Unknown move_target type: {target['type']!r}")
 
         # Buffered directional movement is useful for tile/node stepping,
         # but should not drive continuous movement after input release.
@@ -581,6 +662,12 @@ def movement_apply_system(world):
                     influence_active,
                 )
 
+                record_chase_controller_block(
+                    world,
+                    entity,
+                    controller,
+                    collision_result,
+                )
 
                 if controller is None:
                     mark_dynamic_occupancy_dirty(world)
@@ -641,6 +728,10 @@ def movement_apply_system(world):
                     entity,
                     controller,
                 )
+
+            if isinstance(controller, ChaseEntityController):
+                if world.tick >= controller.side_preference_until_tick:
+                    controller.side_preference = 0
 
             if transform.position_mode == "free" or influence_active:
                 transform.tile = tile_from_cpos(transform.cpos)
@@ -2140,6 +2231,35 @@ def set_move_target(
     }
 
 
+def set_chase_entity_target(
+    world,
+    entity,
+    target_entity,
+    desired_range_tiles,
+    owner_order_id=None,
+):
+    existing_target = world.move_target.get(entity)
+    owner_changed = (
+        existing_target is not None
+        and existing_target.get("owner_order_id") != owner_order_id
+    )
+
+    if existing_target is None or owner_changed:
+        created_tick = world.tick
+    else:
+        created_tick = existing_target.get("created_tick", world.tick)
+
+    world.move_target[entity] = {
+        "type": "chase_entity",
+        "target_entity": target_entity,
+        "desired_range_tiles": desired_range_tiles,
+        "owner_order_id": owner_order_id,
+        "created_tick": created_tick,
+    }
+
+    clear_path_build_state(world, entity)
+
+
 def clear_move_target(world, entity):
     old_target = world.move_target.pop(entity, None)
     clear_path_build_state(world, entity)
@@ -2148,12 +2268,6 @@ def clear_move_target(world, entity):
 def cancel_move_target_for_directional_input(world, entity):
     clear_move_target(world, entity)
     clear_failed_path_queries_for_entity(world, entity)
-
-
-ORDER_OWNED_CONTROLLER_SOURCES = {
-    "move_target",
-    "recenter_for_action",
-}
 
 
 def order_owner_is_current(world, entity, owner_order_id):
@@ -2966,6 +3080,446 @@ def start_path_follow_controller(world, entity, target):
         target,
         nodes,
     )
+
+
+def start_chase_entity_controller(world, entity, target):
+    waypoints, target_tile, goal_tile = build_chase_waypoints(
+        world,
+        entity,
+        target,
+        force_replan=True,
+    )
+
+    if not waypoints:
+        return False
+
+    locomotion = world.locomotion[entity]
+    motion_state = world.motion_state[entity]
+
+    controller = ChaseEntityController(
+        target_entity=target["target_entity"],
+        desired_range_tiles=target["desired_range_tiles"],
+        waypoints=waypoints,
+        current_index=0,
+        speed=get_locomotion_speed_cpos_per_tick(locomotion),
+        created_tick=target.get("created_tick", world.tick),
+        cached_target_tile=target_tile,
+        cached_goal_tile=goal_tile,
+        last_replan_tick=world.tick,
+        waypoint_created_tick=world.tick,
+    )
+
+    motion_state["controller"] = controller
+    motion_state["controller_source"] = "chase_entity"
+    motion_state["controller_owner_order_id"] = target.get("owner_order_id")
+
+    if entity in world.facing and goal_tile is not None:
+        actor_tile = tile_from_cpos(world.transform[entity].cpos)
+        world.facing[entity] = Vec2i(
+            sign(goal_tile.x - actor_tile.x),
+            sign(goal_tile.y - actor_tile.y),
+        )
+
+    rebuild_dynamic_occupancy(world)
+    return True
+
+
+def refresh_chase_entity_controller_if_needed(world, entity, controller):
+    target = world.move_target.get(entity)
+    if target is None or target.get("type") != "chase_entity":
+        clear_motion_controller(world.motion_state[entity])
+        request_settle_when_allowed(world, entity)
+        start_requested_settle_if_allowed(world, entity)
+        return True
+
+    if chase_target_is_missing(world, controller):
+        clear_move_target(world, entity)
+        clear_motion_controller(world.motion_state[entity])
+        request_settle_when_allowed(world, entity)
+        start_requested_settle_if_allowed(world, entity)
+        return True
+
+    if entities_are_within_tile_range(
+        world,
+        entity,
+        controller.target_entity,
+        controller.desired_range_tiles,
+    ):
+        clear_motion_controller(world.motion_state[entity])
+        request_settle_when_allowed(world, entity)
+        start_requested_settle_if_allowed(world, entity)
+        return True
+
+    if not chase_controller_needs_replan(world, entity, controller):
+        return False
+
+    waypoints, target_tile, goal_tile = build_chase_waypoints(
+        world,
+        entity,
+        target,
+        force_replan=False,
+    )
+
+    if not waypoints:
+        controller.waypoints = []
+        controller.current_index = 0
+        controller.last_replan_tick = world.tick
+        controller.waypoint_created_tick = world.tick
+        discard_pending_controller_advance(controller)
+        return True
+
+    locomotion = world.locomotion[entity]
+    controller.waypoints = waypoints
+    controller.current_index = 0
+    controller.speed = get_locomotion_speed_cpos_per_tick(locomotion)
+    controller.cached_target_tile = target_tile
+    controller.cached_goal_tile = goal_tile
+    controller.last_replan_tick = world.tick
+    controller.waypoint_created_tick = world.tick
+    discard_pending_controller_advance(controller)
+
+    if entity in world.facing and goal_tile is not None:
+        actor_tile = tile_from_cpos(world.transform[entity].cpos)
+        world.facing[entity] = Vec2i(
+            sign(goal_tile.x - actor_tile.x),
+            sign(goal_tile.y - actor_tile.y),
+        )
+
+    return True
+
+
+def chase_target_is_missing(world, controller):
+    return controller.target_entity not in world.transform
+
+
+def chase_controller_needs_replan(world, entity, controller):
+    if controller.finished():
+        return True
+
+    if not controller.waypoints:
+        return True
+
+    if (
+        controller.last_blocker_collision_type == "dynamic"
+        and world.tick < controller.dynamic_retry_after_tick
+    ):
+        return False
+
+    if world.tick - controller.waypoint_created_tick >= CHASE_WAYPOINT_MAX_AGE_TICKS:
+        return True
+
+    if controller.last_blocked_tick >= controller.last_replan_tick:
+        return True
+
+    if world.tick - controller.last_replan_tick < CHASE_REPLAN_INTERVAL_TICKS:
+        return False
+
+    actor_tile = tile_from_cpos(world.transform[entity].cpos)
+    target_tile = tile_from_cpos(world.transform[controller.target_entity].cpos)
+
+    if target_tile_changed_sharply(
+        controller.cached_target_tile,
+        target_tile,
+    ):
+        return True
+
+    goal_tile = choose_chase_goal_tile(
+        world,
+        entity,
+        controller.target_entity,
+    )
+    if goal_tile is None:
+        return False
+
+    waypoint = get_chase_current_waypoint(controller)
+    if waypoint is None:
+        return True
+
+    waypoint_tile = tile_from_cpos(waypoint)
+    return not chase_waypoint_still_improves_goal(
+        actor_tile,
+        waypoint_tile,
+        goal_tile,
+    )
+
+
+def chase_waypoint_still_improves_goal(actor_tile, waypoint_tile, goal_tile):
+    actor_distance = chebyshev_tile_distance(actor_tile, goal_tile)
+    waypoint_distance = chebyshev_tile_distance(waypoint_tile, goal_tile)
+    return waypoint_distance < actor_distance
+
+
+def build_chase_waypoints(world, entity, target, force_replan):
+    target_entity = target["target_entity"]
+    desired_range_tiles = target["desired_range_tiles"]
+
+    if target_entity not in world.transform:
+        return [], None, None
+
+    if entities_are_within_tile_range(
+        world,
+        entity,
+        target_entity,
+        desired_range_tiles,
+    ):
+        return [], None, None
+
+    target_tile = tile_from_cpos(world.transform[target_entity].cpos)
+    goal_tile = choose_chase_goal_tile(
+        world,
+        entity,
+        target_entity,
+    )
+
+    if goal_tile is None:
+        return [], target_tile, None
+
+    direct_tile = choose_direct_chase_waypoint_tile(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+    )
+
+    if direct_tile is not None:
+        return [tile_center(direct_tile)], target_tile, goal_tile
+
+    local_tile = choose_local_chase_waypoint_tile(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+    )
+
+    if local_tile is not None:
+        return [tile_center(local_tile)], target_tile, goal_tile
+
+    return [], target_tile, goal_tile
+
+
+def choose_chase_goal_tile(world, entity, target_entity):
+    actor_tile = tile_from_cpos(world.transform[entity].cpos)
+    target_tiles = get_entity_skill_range_tiles(
+        world,
+        target_entity,
+    )
+
+    if not target_tiles:
+        return None
+
+    candidates = []
+    for target_tile in target_tiles:
+        candidates.append(
+            (
+                chebyshev_tile_distance(actor_tile, target_tile),
+                target_tile.y,
+                target_tile.x,
+                target_tile,
+            )
+        )
+
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def choose_direct_chase_waypoint_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+):
+    actor_cpos = world.transform[entity].cpos
+    actor_tile = tile_from_cpos(actor_cpos)
+
+    best_tile = None
+
+    for candidate_tile in iter_direct_chase_tiles(
+        actor_tile,
+        goal_tile,
+        CHASE_DIRECT_LOOKAHEAD_TILES,
+    ):
+        if candidate_tile == actor_tile:
+            continue
+
+        if chebyshev_tile_distance(candidate_tile, goal_tile) <= desired_range_tiles:
+            # Stop at the range boundary instead of moving into the target.
+            best_tile = candidate_tile
+            break
+
+        if not chase_candidate_tile_is_reachable(
+            world,
+            entity,
+            actor_cpos,
+            candidate_tile,
+        ):
+            break
+
+        best_tile = candidate_tile
+
+    return best_tile
+
+
+def choose_local_chase_waypoint_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+):
+    actor_cpos = world.transform[entity].cpos
+    actor_tile = tile_from_cpos(actor_cpos)
+    current_distance = chebyshev_tile_distance(actor_tile, goal_tile)
+
+    candidates = []
+
+    for candidate_tile in iter_local_chase_candidate_tiles(
+        entity,
+        actor_tile,
+        goal_tile,
+    ):
+        if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
+            continue
+
+        if not chase_candidate_tile_is_reachable(
+            world,
+            entity,
+            actor_cpos,
+            candidate_tile,
+        ):
+            continue
+
+        candidate_distance = chebyshev_tile_distance(candidate_tile, goal_tile)
+
+        candidates.append(
+            (
+                candidate_distance,
+                candidate_tile.y,
+                candidate_tile.x,
+                candidate_tile,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def chase_candidate_tile_is_reachable(
+    world,
+    entity,
+    actor_cpos,
+    candidate_tile,
+):
+    candidate_cpos = tile_center(candidate_tile)
+    delta = candidate_cpos - actor_cpos
+
+    collision_result, resolved_cpos = trace_static_tile_path(
+        world,
+        entity,
+        actor_cpos,
+        delta,
+    )
+
+    return (
+        movement_collision_allows(collision_result)
+        and resolved_cpos == candidate_cpos
+    )
+
+
+def iter_direct_chase_tiles(start_tile, goal_tile, max_tiles):
+    dx = goal_tile.x - start_tile.x
+    dy = goal_tile.y - start_tile.y
+
+    steps = max(abs(dx), abs(dy))
+    if steps == 0:
+        return
+
+    steps = min(steps, max_tiles)
+
+    previous = start_tile
+    for step_index in range(1, steps + 1):
+        x = start_tile.x + signed_round_div(dx * step_index, steps)
+        y = start_tile.y + signed_round_div(dy * step_index, steps)
+        tile = Vec2i(x, y)
+
+        if tile == previous:
+            continue
+
+        previous = tile
+        yield tile
+
+
+def signed_round_div(numerator, denominator):
+    if numerator < 0:
+        return -((-numerator + denominator // 2) // denominator)
+    return (numerator + denominator // 2) // denominator
+
+
+def iter_local_chase_candidate_tiles(entity, actor_tile, goal_tile):
+    dx = sign(goal_tile.x - actor_tile.x)
+    dy = sign(goal_tile.y - actor_tile.y)
+
+    directions = []
+    seen = set()
+
+    def add(direction):
+        if direction.x == 0 and direction.y == 0:
+            return
+        key = (direction.x, direction.y)
+        if key in seen:
+            return
+        seen.add(key)
+        directions.append(direction)
+
+    # Direct / axial progress first.
+    add(Vec2i(dx, dy))
+    add(Vec2i(dx, 0))
+    add(Vec2i(0, dy))
+
+    # Deterministic side probes.
+    if dx != 0 and dy != 0:
+        if entity % 2 == 0:
+            add(Vec2i(dx, -dy))
+            add(Vec2i(-dx, dy))
+        else:
+            add(Vec2i(-dx, dy))
+            add(Vec2i(dx, -dy))
+    else:
+        if dx != 0:
+            if entity % 2 == 0:
+                add(Vec2i(dx, 1))
+                add(Vec2i(dx, -1))
+            else:
+                add(Vec2i(dx, -1))
+                add(Vec2i(dx, 1))
+
+        if dy != 0:
+            if entity % 2 == 0:
+                add(Vec2i(1, dy))
+                add(Vec2i(-1, dy))
+            else:
+                add(Vec2i(-1, dy))
+                add(Vec2i(1, dy))
+
+    for direction in directions:
+        yield actor_tile + direction
+
+
+def target_tile_changed_sharply(old_tile, new_tile):
+    if old_tile is None:
+        return False
+
+    return (
+        chebyshev_tile_distance(old_tile, new_tile)
+        >= CHASE_TARGET_TELEPORT_TILES
+    )
+
+
+def get_chase_current_waypoint(controller):
+    if controller.current_index >= len(controller.waypoints):
+        return None
+    return controller.waypoints[controller.current_index]
 
 
 def discard_pending_controller_advance(controller):

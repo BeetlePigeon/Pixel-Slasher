@@ -450,12 +450,23 @@ def process_use_skill_on_entity_order(world, intents, actor, order):
 
     if use_range_tiles is not None:
         if not entities_are_within_tile_range(
-            world,
-            actor,
-            target,
-            use_range_tiles,
+                world,
+                actor,
+                target,
+                use_range_tiles,
         ):
             if not order.get("allow_approach", True):
+                return
+
+            if actor_should_use_chase_entity_movement(world, actor, order):
+                append_chase_entity_intent(
+                    world,
+                    intents,
+                    actor,
+                    target,
+                    use_range_tiles,
+                    order["order_id"],
+                )
                 return
 
             append_approach_entity_intent(
@@ -842,6 +853,30 @@ def order_input_is_held(world, actor, order):
 
     raise NotImplementedError(
         f"Action order input kind not implemented: {input_kind!r}"
+    )
+
+
+def actor_should_use_chase_entity_movement(world, actor, order):
+    if actor == getattr(world, "player", None):
+        return False
+    return order.get("input_kind") == "ai"
+
+
+def append_chase_entity_intent(
+    world,
+    intents,
+    actor,
+    target,
+    desired_range_tiles,
+    owner_order_id,
+):
+    intents.setdefault(actor, []).append(
+        {
+            "type": "chase_entity",
+            "target": target,
+            "desired_range_tiles": desired_range_tiles,
+            "owner_order_id": owner_order_id,
+        }
     )
 
 

@@ -1,6 +1,7 @@
 import math
 from dataclasses import dataclass
 from support import Vec2i
+from typing import Optional
 from utils.tile_vec_utils import (
     scale_normalized_dir,
     normalize_vector_to_dir_scale,
@@ -69,6 +70,72 @@ class PathFollowController:
 
     def finished(self) -> bool:
         return self.current_index >= len(self.nodes)
+
+
+@dataclass
+class ChaseEntityController:
+    target_entity: int
+    desired_range_tiles: int
+    waypoints: list
+    current_index: int
+    speed: int
+    created_tick: int
+    cached_target_tile: Optional[Vec2i] = None
+    cached_goal_tile: Optional[Vec2i] = None
+    last_replan_tick: int = 0
+    waypoint_created_tick: int = 0
+    last_blocked_tick: int = -1
+    last_blocker_collision_type: Optional[str] = None
+    side_preference: int = 0
+    side_preference_until_tick: int = 0
+    dynamic_retry_after_tick: int = 0
+    block_response: str = BLOCK_RESPONSE_RETRY
+
+    motion_tag = "chase_entity"
+
+    def sample_delta_from(self, current_cpos: Vec2i) -> Vec2i:
+        remaining_distance = self.speed
+        next_cpos = current_cpos
+        next_index = self.current_index
+
+        while remaining_distance > 0 and next_index < len(self.waypoints):
+            target_cpos = self.waypoints[next_index]
+            to_target = target_cpos - next_cpos
+
+            distance = math.isqrt(
+                to_target.x * to_target.x
+                + to_target.y * to_target.y
+            )
+
+            if distance == 0:
+                next_index += 1
+                continue
+
+            if distance <= remaining_distance:
+                next_cpos = target_cpos
+                remaining_distance -= distance
+                next_index += 1
+                continue
+
+            step = scale_normalized_dir(
+                normalize_vector_to_dir_scale(to_target),
+                remaining_distance,
+            )
+            next_cpos = next_cpos + step
+            remaining_distance = 0
+
+        self._pending_index = next_index
+        return next_cpos - current_cpos
+
+    def advance(self):
+        self.current_index = getattr(
+            self,
+            "_pending_index",
+            self.current_index,
+        )
+
+    def finished(self) -> bool:
+        return self.current_index >= len(self.waypoints)
 
 
 @dataclass

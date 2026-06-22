@@ -64,7 +64,7 @@
   "channel": null,
 
   "params": {
-    "use_range_tiles": 20,
+    "use_range_tiles": 2,
     "interact_range_tiles": 1,
     "debug_highlight_ticks": 12,
     "debug_highlight_color": "yellow",
