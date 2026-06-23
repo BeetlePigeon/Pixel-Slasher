@@ -3342,8 +3342,15 @@ def choose_direct_chase_waypoint_tile(
             continue
 
         if chebyshev_tile_distance(candidate_tile, goal_tile) <= desired_range_tiles:
-            # Stop at the range boundary instead of moving into the target.
-            best_tile = candidate_tile
+            # Stop at the range boundary instead of moving into the target,
+            # but only commit the waypoint if that tile center was validated.
+            if chase_candidate_tile_is_reachable(
+                world,
+                entity,
+                actor_cpos,
+                candidate_tile,
+            ):
+                best_tile = candidate_tile
             break
 
         if not chase_candidate_tile_is_reachable(
