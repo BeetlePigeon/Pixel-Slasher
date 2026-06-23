@@ -63,11 +63,12 @@ PATH_FOLLOW_STALL_PATH_PROGRESS_TIMEOUT = "path_progress_timed_out"
 PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
 
 CHASE_DIRECT_LOOKAHEAD_TILES = 6
-CHASE_REPLAN_INTERVAL_TICKS = 3
+CHASE_REPLAN_INTERVAL_TICKS = 30
 CHASE_WAYPOINT_MAX_AGE_TICKS = 12
-CHASE_STATIC_SIDE_PREFERENCE_TICKS = 12
-CHASE_DYNAMIC_RETRY_TICKS = 3
+CHASE_STATIC_SIDE_PREFERENCE_TICKS = 10
+CHASE_DYNAMIC_RETRY_TICKS = 30
 CHASE_TARGET_TELEPORT_TILES = 4
+CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS = 3
 
 
 @dataclass(frozen=True)
@@ -198,6 +199,8 @@ def record_chase_controller_block(world, entity, controller, collision_result):
 
     controller.last_blocked_tick = world.tick
     controller.last_blocker_collision_type = collision_result.blocker_collision_type
+    controller.last_blocked_tile = collision_result.blocked_tile
+    controller.last_blocker_entity = collision_result.blocker_entity
 
     if collision_result.blocker_collision_type == "dynamic":
         controller.dynamic_retry_after_tick = (
@@ -3312,6 +3315,33 @@ def chase_tile_tiebreak_for_entity(entity, tile):
     return -tile.y, -tile.x
 
 
+def chase_recent_blocked_tile_is_active(world, controller):
+    if controller is None:
+        return False
+
+    if controller.last_blocked_tile is None:
+        return False
+
+    if controller.last_blocked_tick < 0:
+        return False
+
+    return (
+        world.tick - controller.last_blocked_tick
+        <= CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS
+    )
+
+
+def chase_candidate_is_recently_blocked_tile(
+    world,
+    controller,
+    candidate_tile,
+):
+    if not chase_recent_blocked_tile_is_active(world, controller):
+        return False
+
+    return candidate_tile == controller.last_blocked_tile
+
+
 def get_chase_local_side_preference(world, entity, controller):
     fallback_side = 1 if entity % 2 == 0 else -1
 
@@ -3432,11 +3462,18 @@ def choose_local_chase_waypoint_tile(
         if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
             continue
 
+        if chase_candidate_is_recently_blocked_tile(
+            world,
+            controller,
+            candidate_tile,
+        ):
+            continue
+
         if not chase_candidate_tile_is_reachable(
-                world,
-                entity,
-                actor_cpos,
-                candidate_tile,
+            world,
+            entity,
+            actor_cpos,
+            candidate_tile,
         ):
             continue
 

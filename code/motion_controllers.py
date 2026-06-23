@@ -86,6 +86,8 @@ class ChaseEntityController:
     waypoint_created_tick: int = 0
     last_blocked_tick: int = -1
     last_blocker_collision_type: Optional[str] = None
+    last_blocked_tile: Optional[Vec2i] = None
+    last_blocker_entity: Optional[int] = None
     side_preference: int = 0
     side_preference_until_tick: int = 0
     dynamic_retry_after_tick: int = 0
