@@ -70,6 +70,17 @@ CHASE_DYNAMIC_RETRY_TICKS = 30
 CHASE_TARGET_TELEPORT_TILES = 4
 CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS = 3
 
+CHASE_LOCAL_AVOIDANCE_DEFAULT = "default"
+CHASE_LOCAL_AVOIDANCE_STATIC = "static"
+CHASE_LOCAL_AVOIDANCE_DYNAMIC = "dynamic"
+
+CHASE_BLOCKAGE_UNKNOWN = "unknown"
+CHASE_BLOCKAGE_STATIC = "static"
+CHASE_BLOCKAGE_MOVING_DYNAMIC = "moving_dynamic"
+CHASE_BLOCKAGE_STALLED_DYNAMIC = "stalled_dynamic"
+CHASE_BLOCKAGE_ENGAGED_DYNAMIC = "engaged_dynamic"
+
+CHASE_STALLED_BLOCKER_TICKS = 6  ## Threshold ticks to recognize this dynamic blocker is not just passing through, it's stuck
 
 @dataclass(frozen=True)
 class MovementCollisionResult:
@@ -193,14 +204,138 @@ def record_collision_result_counter(world, prefix, collision_result):
         )
 
 
+def classify_chase_blockage(world, entity, controller, collision_result):
+    if not isinstance(controller, ChaseEntityController):
+        return CHASE_BLOCKAGE_UNKNOWN
+
+    if collision_result.blocker_collision_type == "static":
+        return CHASE_BLOCKAGE_STATIC
+
+    if collision_result.blocker_collision_type != "dynamic":
+        return CHASE_BLOCKAGE_UNKNOWN
+
+    blocker_entity = collision_result.blocker_entity
+    if blocker_entity is None:
+        return CHASE_BLOCKAGE_MOVING_DYNAMIC
+
+    if blocker_is_engaged_with_chase_target(
+        world,
+        blocker_entity,
+        controller,
+    ):
+        return CHASE_BLOCKAGE_ENGAGED_DYNAMIC
+
+    if blocker_is_stalled_dynamic_obstacle(
+        world,
+        blocker_entity,
+    ):
+        return CHASE_BLOCKAGE_STALLED_DYNAMIC
+
+    return CHASE_BLOCKAGE_MOVING_DYNAMIC
+
+
+def blocker_is_engaged_with_chase_target(
+    world,
+    blocker_entity,
+    controller,
+):
+    target_entity = controller.target_entity
+    if target_entity not in world.transform:
+        return False
+
+    if blocker_entity not in world.transform:
+        return False
+
+    if not entities_are_within_tile_range(
+        world,
+        blocker_entity,
+        target_entity,
+        controller.desired_range_tiles,
+    ):
+        return False
+
+    return blocker_is_targeting_entity(
+        world,
+        blocker_entity,
+        target_entity,
+    )
+
+
+def blocker_is_targeting_entity(world, blocker_entity, target_entity):
+    order = world.action_order.get(blocker_entity)
+    if order is not None and order.get("target") == target_entity:
+        return True
+
+    ai_agent = world.ai_agent.get(blocker_entity)
+    if ai_agent is not None and ai_agent.get("target_entity") == target_entity:
+        return True
+
+    return False
+
+
+def blocker_is_stalled_dynamic_obstacle(world, blocker_entity):
+    motion_state = world.motion_state.get(blocker_entity)
+    if motion_state is None:
+        return False
+
+    if blocker_moved_last_tick(motion_state):
+        return False
+
+    if blocker_has_active_movement_goal(world, blocker_entity, motion_state):
+        return True
+
+    return False
+
+
+def blocker_moved_last_tick(motion_state):
+    last_delta = motion_state.get("last_delta")
+    if last_delta is None:
+        return False
+
+    return last_delta.x != 0 or last_delta.y != 0
+
+
+def blocker_has_active_movement_goal(world, blocker_entity, motion_state):
+    if motion_state.get("controller") is not None:
+        return True
+
+    if blocker_entity in world.move_target:
+        return True
+
+    if blocker_entity in world.move_intent:
+        return True
+
+    if blocker_entity in world.buffered_move_intent:
+        return True
+
+    order = world.action_order.get(blocker_entity)
+    if order is not None:
+        return True
+
+    return False
+
+
 def record_chase_controller_block(world, entity, controller, collision_result):
     if not isinstance(controller, ChaseEntityController):
         return
+
+    blockage_type = classify_chase_blockage(
+        world,
+        entity,
+        controller,
+        collision_result,
+    )
 
     controller.last_blocked_tick = world.tick
     controller.last_blocker_collision_type = collision_result.blocker_collision_type
     controller.last_blocked_tile = collision_result.blocked_tile
     controller.last_blocker_entity = collision_result.blocker_entity
+    controller.last_chase_blockage_type = blockage_type
+
+    record_counter_for_world(
+        world,
+        f"chase.blockage.{blockage_type}",
+    )
 
     if collision_result.blocker_collision_type == "dynamic":
         controller.dynamic_retry_after_tick = (
@@ -3342,6 +3477,28 @@ def chase_candidate_is_recently_blocked_tile(
     return candidate_tile == controller.last_blocked_tile
 
 
+def get_chase_local_avoidance_mode(world, controller):
+    if controller is None:
+        return CHASE_LOCAL_AVOIDANCE_DEFAULT
+
+    if (
+        controller.last_blocker_collision_type == "static"
+        and controller.side_preference != 0
+        and world.tick < controller.side_preference_until_tick
+    ):
+        return CHASE_LOCAL_AVOIDANCE_STATIC
+
+    if (
+        controller.last_blocker_collision_type == "dynamic"
+        and controller.last_blocked_tick >= 0
+        and world.tick - controller.last_blocked_tick
+        <= CHASE_DYNAMIC_RETRY_TICKS
+    ):
+        return CHASE_LOCAL_AVOIDANCE_DYNAMIC
+
+    return CHASE_LOCAL_AVOIDANCE_DEFAULT
+
+
 def get_chase_local_side_preference(world, entity, controller):
     fallback_side = 1 if entity % 2 == 0 else -1
 
@@ -3438,27 +3595,49 @@ def choose_local_chase_waypoint_tile(
     desired_range_tiles,
     controller=None,
 ):
+    mode = get_chase_local_avoidance_mode(world, controller)
+
+    if mode == CHASE_LOCAL_AVOIDANCE_STATIC:
+        return choose_static_chase_avoidance_tile(
+            world,
+            entity,
+            goal_tile,
+            desired_range_tiles,
+            controller=controller,
+        )
+
+    if mode == CHASE_LOCAL_AVOIDANCE_DYNAMIC:
+        return choose_dynamic_chase_avoidance_tile(
+            world,
+            entity,
+            goal_tile,
+            desired_range_tiles,
+            controller=controller,
+        )
+
+    return choose_default_chase_avoidance_tile(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+    )
+
+
+def choose_chase_avoidance_tile_from_candidates(
+    world,
+    entity,
+    goal_tile,
+    candidate_tiles,
+    controller=None,
+):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
     current_distance = chebyshev_tile_distance(actor_tile, goal_tile)
-    candidates = []
-    side_preference, side_preference_is_active = (
-        get_chase_local_side_preference(
-            world,
-            entity,
-            controller,
-        )
-    )
 
-    for candidate_order, candidate_tile in enumerate(
-        iter_local_chase_candidate_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-            prefer_side_before_axes=side_preference_is_active,
-        )
-    ):
+    candidates = []
+
+    for candidate_order, candidate_tile in enumerate(candidate_tiles):
         if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
             continue
 
@@ -3477,7 +3656,10 @@ def choose_local_chase_waypoint_tile(
         ):
             continue
 
-        candidate_distance = chebyshev_tile_distance(candidate_tile, goal_tile)
+        candidate_distance = chebyshev_tile_distance(
+            candidate_tile,
+            goal_tile,
+        )
 
         candidates.append(
             (
@@ -3492,6 +3674,35 @@ def choose_local_chase_waypoint_tile(
 
     candidates.sort()
     return candidates[0][-1]
+
+
+def choose_default_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    actor_tile = tile_from_cpos(world.transform[entity].cpos)
+
+    side_preference, _ = get_chase_local_side_preference(
+        world,
+        entity,
+        controller,
+    )
+
+    return choose_chase_avoidance_tile_from_candidates(
+        world,
+        entity,
+        goal_tile,
+        iter_default_chase_avoidance_tiles(
+            entity,
+            actor_tile,
+            goal_tile,
+            side_preference=side_preference,
+        ),
+        controller=controller,
+    )
 
 
 def chase_candidate_tile_is_reachable(
@@ -3545,12 +3756,12 @@ def signed_round_div(numerator, denominator):
     return (numerator + denominator // 2) // denominator
 
 
-def iter_local_chase_candidate_tiles(
+def make_ordered_chase_direction_list(
     entity,
     actor_tile,
     goal_tile,
     side_preference=None,
-    prefer_side_before_axes=False,
+    order_mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
 ):
     dx = sign(goal_tile.x - actor_tile.x)
     dy = sign(goal_tile.y - actor_tile.y)
@@ -3601,23 +3812,91 @@ def iter_local_chase_candidate_tiles(
         Vec2i(0, dy),
     )
 
-    # Direct progress remains first. If it became open again, take it.
-    add(Vec2i(dx, dy))
+    direct_direction = Vec2i(dx, dy)
 
-    if prefer_side_before_axes:
+    if order_mode == CHASE_LOCAL_AVOIDANCE_STATIC:
+        # Static obstacles are stable. If direct is blocked, commit to a
+        # remembered side before trying axis-only shuffling.
+        add(direct_direction)
+
         for direction in side_directions:
             add(direction)
 
         for direction in axis_directions:
             add(direction)
-    else:
+
+        return directions
+
+    if order_mode == CHASE_LOCAL_AVOIDANCE_DYNAMIC:
+        # Dynamic blockers may vacate soon. Try direct/axis progress first,
+        # then one cheap side probe. Do not overcommit to wall-like detours.
+        add(direct_direction)
+
         for direction in axis_directions:
             add(direction)
 
         for direction in side_directions:
             add(direction)
 
-    for direction in directions:
+        return directions
+
+    # Default fallback: old behavior, parity split but no static commitment.
+    add(direct_direction)
+
+    for direction in axis_directions:
+        add(direction)
+
+    for direction in side_directions:
+        add(direction)
+
+    return directions
+
+
+def iter_default_chase_avoidance_tiles(
+    entity,
+    actor_tile,
+    goal_tile,
+    side_preference=None,
+):
+    for direction in make_ordered_chase_direction_list(
+        entity,
+        actor_tile,
+        goal_tile,
+        side_preference=side_preference,
+        order_mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+    ):
+        yield actor_tile + direction
+
+
+def iter_static_chase_avoidance_tiles(
+    entity,
+    actor_tile,
+    goal_tile,
+    side_preference=None,
+):
+    for direction in make_ordered_chase_direction_list(
+        entity,
+        actor_tile,
+        goal_tile,
+        side_preference=side_preference,
+        order_mode=CHASE_LOCAL_AVOIDANCE_STATIC,
+    ):
+        yield actor_tile + direction
+
+
+def iter_dynamic_chase_avoidance_tiles(
+    entity,
+    actor_tile,
+    goal_tile,
+    side_preference=None,
+):
+    for direction in make_ordered_chase_direction_list(
+        entity,
+        actor_tile,
+        goal_tile,
+        side_preference=side_preference,
+        order_mode=CHASE_LOCAL_AVOIDANCE_DYNAMIC,
+    ):
         yield actor_tile + direction
 
 

@@ -62,6 +62,11 @@ COUNTER_NAMES = (
     "movement.proposal.direct_rejected.static",
     "movement.proposal.rejected.direct",
     "movement.proposal.reserved_path",
+    "chase.blockage.static",
+    "chase.blockage.moving_dynamic",
+    "chase.blockage.stalled_dynamic",
+    "chase.blockage.engaged_dynamic",
+    "chase.blockage.unknown",
 )
 
 
@@ -142,9 +147,9 @@ def parse_args():
     )
     parser.add_argument("--enemies", type=int, default=60)
     parser.add_argument("--radius", type=int, default=16)
-    parser.add_argument("--warmup-ticks", type=int, default=60)
+    parser.add_argument("--warmup-ticks", type=int, default=0)
     parser.add_argument("--measure-ticks", type=int, default=600)
-    parser.add_argument("--commit-label", default="d15a16f")
+    parser.add_argument("--commit-label", default="latest")
     parser.add_argument(
         "--player-tile",
         default=f"{DEFAULT_PLAYER_TILE.x},{DEFAULT_PLAYER_TILE.y}",
