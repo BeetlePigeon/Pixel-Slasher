@@ -1,6 +1,5 @@
 import argparse
 import copy
-import math
 import os
 import sys
 from pathlib import Path
@@ -19,37 +18,29 @@ sys.path.insert(0, str(CODE_DIR))
 
 
 import pygame
-
+from world import World
+from support import Vec2i
 from constants import INTERNAL_RES, SIM_DT
 from entity import EntityManager
 from gamestate import StateGameplay
 from inputhandler import InputState
-from motion_controllers import ChaseEntityController, PathFollowController
 from settings_manager import DEFAULT_SETTINGS
 from skill_handlers import HANDLERS
 from skill_registry import SKILL_DEFS
-from support import Vec2i
-from utils.action_order_utils import (
-    get_entity_skill_range_tiles,
-    min_distance_to_tiles,
-)
-from utils.occupancy_utils import (
-    is_tile_static_blocked,
-    mark_dynamic_occupancy_dirty,
-    rebuild_dynamic_occupancy,
-)
 from utils.perf_profiler import PerfProfiler
 from utils.skill_utils import validate_skill_defs
-from utils.tile_vec_utils import (
-    chebyshev_tile_distance,
-    tile_center,
-    tile_from_cpos,
+from dev_tools.chase_stress_scenarios import (
+    CHASE_STRESS_RADIAL_OPEN_COLLAPSE,
+    DEFAULT_CHASE_STRESS_PLAYER_TILE,
+    configure_radial_open_collapse,
+    get_chase_stress_enemies,
+    summarize_chase_stress_state,
 )
-from world import World
+from motion_controllers import ChaseEntityController, PathFollowController
 
 
-DEFAULT_SCENARIO = "chase_stress_radial_open_collapse"
-DEFAULT_PLAYER_TILE = Vec2i(19, 19)
+DEFAULT_SCENARIO = CHASE_STRESS_RADIAL_OPEN_COLLAPSE
+DEFAULT_PLAYER_TILE = DEFAULT_CHASE_STRESS_PLAYER_TILE
 
 PROFILE_NAMES = (
     "sim.tick",
@@ -153,7 +144,7 @@ def parse_args():
     parser.add_argument("--radius", type=int, default=16)
     parser.add_argument("--warmup-ticks", type=int, default=60)
     parser.add_argument("--measure-ticks", type=int, default=600)
-    parser.add_argument("--commit-label", default="878ff2f")
+    parser.add_argument("--commit-label", default="9f22277")
     parser.add_argument(
         "--player-tile",
         default=f"{DEFAULT_PLAYER_TILE.x},{DEFAULT_PLAYER_TILE.y}",
@@ -170,160 +161,6 @@ def parse_tile(value):
         raise argparse.ArgumentTypeError(
             f"Expected tile as x,y, got {value!r}"
         ) from error
-
-
-def clear_non_player_entities(world):
-    for entity in sorted(set(world.transform)):
-        if entity == world.player:
-            continue
-        world.remove_entity(entity)
-        world.entities.dead.discard(entity)
-
-    world.events.clear()
-    world.move_intent.clear()
-    world.buffered_move_intent.clear()
-    world.move_target.clear()
-    world.intent.clear()
-    world.action_order.clear()
-    world.resolved_skill_intents.clear()
-    world.damage_requests.clear()
-    world.heal_requests.clear()
-    world.interact_request.clear()
-    world.clear_movement_planning_runtime()
-
-    mark_dynamic_occupancy_dirty(world)
-    rebuild_dynamic_occupancy(world)
-
-
-def set_entity_tile(world, entity, tile):
-    cpos = tile_center(tile)
-    transform = world.transform[entity]
-    transform.tile = tile
-    transform.cpos = cpos
-    transform.prev_cpos = cpos
-    transform.position_mode = "grid"
-
-
-def configure_player(world, player_tile):
-    set_entity_tile(world, world.player, player_tile)
-
-    motion_state = world.motion_state.get(world.player)
-    if motion_state is not None:
-        motion_state["controller"] = None
-        motion_state["last_delta"] = Vec2i(0, 0)
-        motion_state["influence_mode"] = "normal"
-
-    world.move_intent.pop(world.player, None)
-    world.buffered_move_intent.pop(world.player, None)
-    world.move_target.pop(world.player, None)
-    world.action_order.pop(world.player, None)
-
-    world.focus_camera_on_player()
-
-
-def build_square_ring_tiles(center_tile, radius):
-    tiles = []
-
-    left = center_tile.x - radius
-    right = center_tile.x + radius
-    top = center_tile.y - radius
-    bottom = center_tile.y + radius
-
-    for x in range(left, right + 1):
-        tiles.append(Vec2i(x, top))
-
-    for y in range(top + 1, bottom + 1):
-        tiles.append(Vec2i(right, y))
-
-    for x in range(right - 1, left - 1, -1):
-        tiles.append(Vec2i(x, bottom))
-
-    for y in range(bottom - 1, top, -1):
-        tiles.append(Vec2i(left, y))
-
-    return tiles
-
-
-def candidate_ring_tiles(center_tile, radius):
-    # Build a square Chebyshev ring, then rotate the starting point so the
-    # selected enemies collapse from all sides rather than from one edge first.
-    tiles = build_square_ring_tiles(center_tile, radius)
-    if not tiles:
-        return []
-
-    offset = len(tiles) // 8
-    return tiles[offset:] + tiles[:offset]
-
-
-def tile_conflicts_with_selected(tile, selected_tiles):
-    # plus5 actors can be dense, but this avoids immediate center/body overlap
-    # at spawn time and keeps the starting ring readable.
-    return any(
-        chebyshev_tile_distance(tile, selected_tile) < 2
-        for selected_tile in selected_tiles
-    )
-
-
-def choose_ring_spawn_tiles(world, center_tile, radius, enemy_count):
-    ring_tiles = candidate_ring_tiles(center_tile, radius)
-    if not ring_tiles:
-        raise RuntimeError("No ring tiles generated.")
-
-    selected = []
-    attempts = 0
-    cursor = 0
-
-    while len(selected) < enemy_count and attempts < len(ring_tiles) * 4:
-        tile = ring_tiles[cursor % len(ring_tiles)]
-        cursor += max(1, len(ring_tiles) // max(1, enemy_count))
-        attempts += 1
-
-        if is_tile_static_blocked(world, tile):
-            continue
-
-        if tile_conflicts_with_selected(tile, selected):
-            continue
-
-        selected.append(tile)
-
-    if len(selected) < enemy_count:
-        raise RuntimeError(
-            f"Only placed {len(selected)} enemies on radius {radius}; "
-            f"requested {enemy_count}. Increase --radius or lower --enemies."
-        )
-
-    return selected
-
-
-def configure_radial_open_collapse(world, enemy_count, radius, player_tile):
-    world.load_area("destacker_arena", "default")
-
-    clear_non_player_entities(world)
-    configure_player(world, player_tile)
-
-    enemy_tiles = choose_ring_spawn_tiles(
-        world,
-        center_tile=player_tile,
-        radius=radius,
-        enemy_count=enemy_count,
-    )
-
-    enemies = []
-    for index, tile in enumerate(enemy_tiles):
-        enemy = world.spawn_training_dummy(tile)
-
-        # Keep benchmark AI responsive and make start times deterministic
-        # but not identical.
-        world.ai_agent[enemy]["think_interval_ticks"] = 1
-        world.ai_agent[enemy]["next_think_tick"] = world.tick + (index % 6)
-        world.ai_agent[enemy]["target_entity"] = None
-
-        enemies.append(enemy)
-
-    mark_dynamic_occupancy_dirty(world)
-    rebuild_dynamic_occupancy(world)
-
-    return enemies
 
 
 def run_one_tick(game):
@@ -343,60 +180,79 @@ def reset_profiler(game, history_frames):
     game.perf_profiler = PerfProfiler(history_frames=history_frames)
 
 
-def get_enemies(world):
-    return tuple(
-        sorted(
-            entity
-            for entity in world.ai_agent
-            if entity in world.transform
+class ChaseStressStats:
+    def __init__(self):
+        self.ticks = 0
+        self.total_chase_controllers = 0
+        self.peak_chase_controllers = 0
+        self.total_path_follow_controllers = 0
+        self.peak_path_follow_controllers = 0
+        self.ticks_with_path_follow = 0
+
+    def sample(self, world):
+        chase_count = 0
+        path_follow_count = 0
+
+        for motion_state in world.motion_state.values():
+            controller = motion_state.get("controller")
+
+            if isinstance(controller, ChaseEntityController):
+                chase_count += 1
+
+            if isinstance(controller, PathFollowController):
+                path_follow_count += 1
+
+        self.ticks += 1
+        self.total_chase_controllers += chase_count
+        self.peak_chase_controllers = max(
+            self.peak_chase_controllers,
+            chase_count,
         )
-    )
+
+        self.total_path_follow_controllers += path_follow_count
+        self.peak_path_follow_controllers = max(
+            self.peak_path_follow_controllers,
+            path_follow_count,
+        )
+
+        if path_follow_count > 0:
+            self.ticks_with_path_follow += 1
+
+    def summary(self):
+        if self.ticks == 0:
+            return {
+                "avg_active_chase_controllers": 0.0,
+                "peak_active_chase_controllers": 0,
+                "avg_active_path_follow_controllers": 0.0,
+                "peak_active_path_follow_controllers": 0,
+                "ticks_with_path_follow_controllers": 0,
+            }
+
+        return {
+            "avg_active_chase_controllers": (
+                self.total_chase_controllers / self.ticks
+            ),
+            "peak_active_chase_controllers": self.peak_chase_controllers,
+            "avg_active_path_follow_controllers": (
+                self.total_path_follow_controllers / self.ticks
+            ),
+            "peak_active_path_follow_controllers": (
+                self.peak_path_follow_controllers
+            ),
+            "ticks_with_path_follow_controllers": (
+                self.ticks_with_path_follow
+            ),
+        }
 
 
-def summarize_chase_state(world):
-    enemies = get_enemies(world)
-    player = world.player
-    player_tiles = get_entity_skill_range_tiles(world, player)
-
-    chase_controller_count = 0
-    path_follow_controller_count = 0
-    in_range_count = 0
-    distances = []
-
-    for enemy in enemies:
-        motion_state = world.motion_state.get(enemy, {})
-        controller = motion_state.get("controller")
-
-        if isinstance(controller, ChaseEntityController):
-            chase_controller_count += 1
-
-        if isinstance(controller, PathFollowController):
-            path_follow_controller_count += 1
-
-        enemy_tile = tile_from_cpos(world.transform[enemy].cpos)
-
-        if player_tiles:
-            distance = min_distance_to_tiles(enemy_tile, player_tiles)
-            distances.append(distance)
-
-            if distance <= 1:
-                in_range_count += 1
-
-    avg_distance = (
-        sum(distances) / len(distances)
-        if distances
-        else 0.0
-    )
-    max_distance = max(distances) if distances else 0
-
-    return {
-        "enemy_count": len(enemies),
-        "active_chase_controllers": chase_controller_count,
-        "active_path_follow_controllers": path_follow_controller_count,
-        "enemies_within_1_tile_of_player_body": in_range_count,
-        "avg_distance_to_player_body": avg_distance,
-        "max_distance_to_player_body": max_distance,
-    }
+def print_chase_controller_stats(summary):
+    print()
+    print("chase_controller_stats:")
+    for key, value in summary.items():
+        if isinstance(value, float):
+            print(f"{key}: {value:.3f}")
+        else:
+            print(f"{key}: {value}")
 
 
 def print_profile_rows(profiler):
@@ -493,14 +349,20 @@ def run_benchmark(args):
         history_frames=max(args.measure_ticks, 1),
     )
 
-    run_ticks(game, args.measure_ticks)
+    stats = ChaseStressStats()
 
-    summary = summarize_chase_state(game.world)
+    for _ in range(args.measure_ticks):
+        run_one_tick(game)
+        stats.sample(game.world)
+
+
+    summary = summarize_chase_stress_state(game.world)
+    controller_summary = stats.summary()
 
     print(f"scenario: {args.scenario}")
     print(f"commit_label: {args.commit_label}")
     print(f"enemy_count_requested: {args.enemies}")
-    print(f"enemy_count_spawned: {len(enemies)}")
+    print(f"enemy_count_spawned: {len(get_chase_stress_enemies(game.world))}")
     print(f"radius: {args.radius}")
     print(f"player_tile: {player_tile}")
     print(f"warmup_ticks: {args.warmup_ticks}")
@@ -509,6 +371,7 @@ def run_benchmark(args):
 
     print_profile_rows(game.perf_profiler)
     print_counter_rows(game.perf_profiler)
+    print_chase_controller_stats(controller_summary)
     print_chase_summary(summary)
 
 

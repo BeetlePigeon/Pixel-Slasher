@@ -4,6 +4,13 @@ from combat_ops import queue_damage_request
 from utils.camera_utils import set_camera_follow, set_camera_fixed, start_camera_shake, internal_screen_to_world_tile
 from data.tables_tile_footprints import get_footprint_offsets
 from utils.action_order_utils import get_action_order_summary
+from dev_tools.chase_stress_scenarios import (
+    DEFAULT_CHASE_STRESS_ENEMY_COUNT,
+    DEFAULT_CHASE_STRESS_PLAYER_TILE,
+    DEFAULT_CHASE_STRESS_RADIUS,
+    configure_radial_open_collapse,
+    summarize_chase_stress_state,
+)
 from utils.camera_utils import (
     project_screen_point,
     scale_surface_by_camera_zoom,
@@ -270,6 +277,7 @@ class Debug:
             f"last_calls={row.get('last_calls', 0):3}"
         )
 
+
     def format_counter_row_for_console(self, row):
         return (
             f"{row['name']:<24} "
@@ -280,6 +288,7 @@ class Debug:
             f"last={row.get('last_total', 0.0):8.1f} "
             f"last_records={row.get('last_records', 0):3}"
         )
+
 
     def print_debug_perf_report(self):
         profiler = getattr(
@@ -349,7 +358,6 @@ class Debug:
         return None
 
 
-
     def toggle_control_scheme(self):
         world = self.game.world
 
@@ -358,6 +366,34 @@ class Debug:
         else:
             world.control_scheme = "modern"
 
+
+    def load_chase_stress_radial_open_collapse(self):
+        world = self.game.world
+
+        enemies = configure_radial_open_collapse(
+            world,
+            enemy_count=DEFAULT_CHASE_STRESS_ENEMY_COUNT,
+            radius=DEFAULT_CHASE_STRESS_RADIUS,
+            player_tile=DEFAULT_CHASE_STRESS_PLAYER_TILE,
+        )
+
+        summary = summarize_chase_stress_state(world)
+
+        print("")
+        print("=" * 88)
+        print(
+            "[chase stress] loaded radial open collapse "
+            f"enemies={len(enemies)} "
+            f"radius={DEFAULT_CHASE_STRESS_RADIUS} "
+            f"player_tile={DEFAULT_CHASE_STRESS_PLAYER_TILE}"
+        )
+        for key, value in summary.items():
+            if isinstance(value, float):
+                print(f"{key}: {value:.3f}")
+            else:
+                print(f"{key}: {value}")
+        print("=" * 88)
+        print("")
 
 
     def process_top_level_debug_input(self, input_state):
@@ -424,6 +460,15 @@ class Debug:
 
 
     def process_gamestate_debug_inputs(self, input_state):
+        ctrl_held = (
+            input_state.keys[pygame.K_LCTRL]
+            or input_state.keys[pygame.K_RCTRL]
+        )
+
+        if pygame.K_F8 in input_state.keys_pressed and ctrl_held:
+            self.load_chase_stress_radial_open_collapse()
+            return
+
         if pygame.K_F8 in input_state.keys_pressed:
             self.toggle_control_scheme()
 
@@ -712,6 +757,7 @@ class Debug:
                 scaled_debug_highlighted_tile_image,
             )
 
+
     def draw_debug_highlighted_tile_image_on_tile(
             self,
             world,
@@ -753,6 +799,7 @@ class Debug:
             screen_y + world.tile_size // 4,
         )
 
+
     def draw_debug_marker_on_tile(self, world, surface, tile, color, radius=4):
         if tile is None:
             return
@@ -765,6 +812,7 @@ class Debug:
             1,
         )
 
+
     def draw_debug_line_between_tiles(self, world, surface, start_tile, end_tile, color, width=1):
         if start_tile is None or end_tile is None:
             return
@@ -776,6 +824,7 @@ class Debug:
             self.get_debug_tile_screen_center(world, end_tile),
             width,
         )
+
 
     def draw_enemy_debug_eid_label(self, world, surface, entity):
         transform = world.transform.get(entity)
@@ -803,6 +852,7 @@ class Debug:
                 screen_y - 22,
             ),
         )
+
 
     def format_enemy_movement_debug_row(self, entity, info):
         row = (
@@ -832,6 +882,7 @@ class Debug:
             row += f" blocked_tile={blocked_tile}"
 
         return row
+
 
     def draw_enemy_movement_debug_rows(self, world, surface):
         if not world.debug_enemy_movement:

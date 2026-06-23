@@ -29,6 +29,7 @@
 # F10: Zoom Out
 # F11: Zoom In
 # F12: Cycle Display Mode
+# CTRL + F8: Load Radial Chase Stress Scenario
 
 import sys
 import pygame
