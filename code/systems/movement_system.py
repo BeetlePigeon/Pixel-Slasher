@@ -3297,6 +3297,13 @@ def build_chase_waypoints(world, entity, target, force_replan):
     return [], target_tile, goal_tile
 
 
+def chase_tile_tiebreak_for_entity(entity, tile):
+    if entity % 2 == 0:
+        return tile.y, tile.x
+
+    return -tile.y, -tile.x
+
+
 def choose_chase_goal_tile(world, entity, target_entity):
     actor_tile = tile_from_cpos(world.transform[entity].cpos)
     target_tiles = get_entity_skill_range_tiles(
@@ -3309,11 +3316,16 @@ def choose_chase_goal_tile(world, entity, target_entity):
 
     candidates = []
     for target_tile in target_tiles:
+        tie_y, tie_x = chase_tile_tiebreak_for_entity(
+            entity,
+            target_tile,
+        )
+
         candidates.append(
             (
                 chebyshev_tile_distance(actor_tile, target_tile),
-                target_tile.y,
-                target_tile.x,
+                tie_y,
+                tie_x,
                 target_tile,
             )
         )
@@ -3378,19 +3390,21 @@ def choose_local_chase_waypoint_tile(
 
     candidates = []
 
-    for candidate_tile in iter_local_chase_candidate_tiles(
-        entity,
-        actor_tile,
-        goal_tile,
+    for candidate_order, candidate_tile in enumerate(
+            iter_local_chase_candidate_tiles(
+                entity,
+                actor_tile,
+                goal_tile,
+            )
     ):
         if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
             continue
 
         if not chase_candidate_tile_is_reachable(
-            world,
-            entity,
-            actor_cpos,
-            candidate_tile,
+                world,
+                entity,
+                actor_cpos,
+                candidate_tile,
         ):
             continue
 
@@ -3399,8 +3413,7 @@ def choose_local_chase_waypoint_tile(
         candidates.append(
             (
                 candidate_distance,
-                candidate_tile.y,
-                candidate_tile.x,
+                candidate_order,
                 candidate_tile,
             )
         )

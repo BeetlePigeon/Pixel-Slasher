@@ -144,7 +144,7 @@ def parse_args():
     parser.add_argument("--radius", type=int, default=16)
     parser.add_argument("--warmup-ticks", type=int, default=60)
     parser.add_argument("--measure-ticks", type=int, default=600)
-    parser.add_argument("--commit-label", default="9f22277")
+    parser.add_argument("--commit-label", default="d15a16f")
     parser.add_argument(
         "--player-tile",
         default=f"{DEFAULT_PLAYER_TILE.x},{DEFAULT_PLAYER_TILE.y}",
