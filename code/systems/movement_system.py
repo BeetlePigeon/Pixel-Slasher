@@ -3158,6 +3158,7 @@ def refresh_chase_entity_controller_if_needed(world, entity, controller):
         entity,
         target,
         force_replan=False,
+        controller=controller,
     )
 
     if not waypoints:
@@ -3249,7 +3250,13 @@ def chase_waypoint_still_improves_goal(actor_tile, waypoint_tile, goal_tile):
     return waypoint_distance < actor_distance
 
 
-def build_chase_waypoints(world, entity, target, force_replan):
+def build_chase_waypoints(
+    world,
+    entity,
+    target,
+    force_replan,
+    controller=None,
+):
     target_entity = target["target_entity"]
     desired_range_tiles = target["desired_range_tiles"]
 
@@ -3289,6 +3296,7 @@ def build_chase_waypoints(world, entity, target, force_replan):
         entity,
         goal_tile,
         desired_range_tiles,
+        controller=controller,
     )
 
     if local_tile is not None:
@@ -3302,6 +3310,21 @@ def chase_tile_tiebreak_for_entity(entity, tile):
         return tile.y, tile.x
 
     return -tile.y, -tile.x
+
+
+def get_chase_local_side_preference(world, entity, controller):
+    fallback_side = 1 if entity % 2 == 0 else -1
+
+    if controller is None:
+        return fallback_side, False
+
+    if (
+        controller.side_preference != 0
+        and world.tick < controller.side_preference_until_tick
+    ):
+        return controller.side_preference, True
+
+    return fallback_side, False
 
 
 def choose_chase_goal_tile(world, entity, target_entity):
@@ -3383,19 +3406,28 @@ def choose_local_chase_waypoint_tile(
     entity,
     goal_tile,
     desired_range_tiles,
+    controller=None,
 ):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
     current_distance = chebyshev_tile_distance(actor_tile, goal_tile)
-
     candidates = []
+    side_preference, side_preference_is_active = (
+        get_chase_local_side_preference(
+            world,
+            entity,
+            controller,
+        )
+    )
 
     for candidate_order, candidate_tile in enumerate(
-            iter_local_chase_candidate_tiles(
-                entity,
-                actor_tile,
-                goal_tile,
-            )
+        iter_local_chase_candidate_tiles(
+            entity,
+            actor_tile,
+            goal_tile,
+            side_preference=side_preference,
+            prefer_side_before_axes=side_preference_is_active,
+        )
     ):
         if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
             continue
@@ -3476,9 +3508,18 @@ def signed_round_div(numerator, denominator):
     return (numerator + denominator // 2) // denominator
 
 
-def iter_local_chase_candidate_tiles(entity, actor_tile, goal_tile):
+def iter_local_chase_candidate_tiles(
+    entity,
+    actor_tile,
+    goal_tile,
+    side_preference=None,
+    prefer_side_before_axes=False,
+):
     dx = sign(goal_tile.x - actor_tile.x)
     dy = sign(goal_tile.y - actor_tile.y)
+
+    if side_preference is None or side_preference == 0:
+        side_preference = 1 if entity % 2 == 0 else -1
 
     directions = []
     seen = set()
@@ -3486,41 +3527,58 @@ def iter_local_chase_candidate_tiles(entity, actor_tile, goal_tile):
     def add(direction):
         if direction.x == 0 and direction.y == 0:
             return
+
         key = (direction.x, direction.y)
         if key in seen:
             return
+
         seen.add(key)
         directions.append(direction)
 
-    # Direct / axial progress first.
-    add(Vec2i(dx, dy))
-    add(Vec2i(dx, 0))
-    add(Vec2i(0, dy))
+    def ordered_side_pair(first, second):
+        if side_preference > 0:
+            return first, second
 
-    # Deterministic side probes.
+        return second, first
+
+    side_directions = []
+
     if dx != 0 and dy != 0:
-        if entity % 2 == 0:
-            add(Vec2i(dx, -dy))
-            add(Vec2i(-dx, dy))
-        else:
-            add(Vec2i(-dx, dy))
-            add(Vec2i(dx, -dy))
-    else:
-        if dx != 0:
-            if entity % 2 == 0:
-                add(Vec2i(dx, 1))
-                add(Vec2i(dx, -1))
-            else:
-                add(Vec2i(dx, -1))
-                add(Vec2i(dx, 1))
+        side_directions = ordered_side_pair(
+            Vec2i(dx, -dy),
+            Vec2i(-dx, dy),
+        )
+    elif dx != 0:
+        side_directions = ordered_side_pair(
+            Vec2i(dx, 1),
+            Vec2i(dx, -1),
+        )
+    elif dy != 0:
+        side_directions = ordered_side_pair(
+            Vec2i(1, dy),
+            Vec2i(-1, dy),
+        )
 
-        if dy != 0:
-            if entity % 2 == 0:
-                add(Vec2i(1, dy))
-                add(Vec2i(-1, dy))
-            else:
-                add(Vec2i(-1, dy))
-                add(Vec2i(1, dy))
+    axis_directions = (
+        Vec2i(dx, 0),
+        Vec2i(0, dy),
+    )
+
+    # Direct progress remains first. If it became open again, take it.
+    add(Vec2i(dx, dy))
+
+    if prefer_side_before_axes:
+        for direction in side_directions:
+            add(direction)
+
+        for direction in axis_directions:
+            add(direction)
+    else:
+        for direction in axis_directions:
+            add(direction)
+
+        for direction in side_directions:
+            add(direction)
 
     for direction in directions:
         yield actor_tile + direction
