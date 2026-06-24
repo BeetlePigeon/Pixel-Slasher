@@ -43,7 +43,9 @@
 
   "params": {
     "projectile_id": "fireball",
-    "spawn_distance": 1024
+    "spawn_distance": 1024,
+    "use_range_tiles": 6,
+    "interact_range_tiles": 1
   },
 
   "handler": "execute_cast_skill",

@@ -1,3 +1,4 @@
+import random
 from utils.action_order_utils import (
     entities_are_within_tile_range,
     get_skill_use_range_tiles,
@@ -14,6 +15,8 @@ DEBUG_IN_RANGE_IMAGE_KEY = "enemy_angry"
 DEBUG_USING_SKILL_IMAGE_KEY = "enemy_attack"
 AI_DEBUG_SLASH_SLOT = 0
 AI_DEBUG_SLASH_SKILL_ID = "debug_slash"
+AI_FIREBALL_SLOT = 1
+AI_FIREBALL_SKILL_ID = "fireball"
 
 
 def think(context):
@@ -84,15 +87,11 @@ def think(context):
         target,
     )
 
-    set_action_order(
-        world,
-        entity,
-        build_debug_slash_player_order(
-            world,
-            entity,
-            target,
-        ),
-    )
+    if entity % 2 == 0:
+        set_action_order(world, entity, build_debug_slash_player_order(world, entity, target))
+
+    else:
+        set_action_order(world, entity, build_fireball_player_order(world, entity, target))
 
 
 def set_melee_pawn_debug_info(
@@ -193,6 +192,22 @@ def build_debug_slash_player_order(world, entity, target):
         "target_kind": "enemy",
         "skill_id": AI_DEBUG_SLASH_SKILL_ID,
         "slot": AI_DEBUG_SLASH_SLOT,
+        "input_kind": "ai",
+        "target_lock": "hard",
+        "created_tick": world.tick,
+        "fired_once": False,
+        "allow_approach": True,
+    }
+
+
+def build_fireball_player_order(world, entity, target):
+    return {
+        "type": "use_skill_on_entity",
+        "actor": entity,
+        "target": target,
+        "target_kind": "enemy",
+        "skill_id": AI_FIREBALL_SKILL_ID,
+        "slot": AI_FIREBALL_SLOT,
         "input_kind": "ai",
         "target_lock": "hard",
         "created_tick": world.tick,

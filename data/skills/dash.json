@@ -27,11 +27,11 @@
   },
 
   "cast": {
-    "duration": 3,
+    "duration": 1,
     "tags": ["cast", "dash_windup", "movement_locked", "skill_locked"],
     "events": [
       {
-        "tick": 3,
+        "tick": 0,
         "handler": "execute_dash"
       }
     ]
