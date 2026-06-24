@@ -67,6 +67,10 @@ COUNTER_NAMES = (
     "chase.blockage.stalled_dynamic",
     "chase.blockage.engaged_dynamic",
     "chase.blockage.unknown",
+    "chase.avoidance_episode.static",
+    "chase.avoidance_episode.stalled_dynamic",
+    "chase.avoidance_episode.engaged_dynamic",
+    "chase.avoidance.stalled_dynamic.worse_candidate",
 )
 
 

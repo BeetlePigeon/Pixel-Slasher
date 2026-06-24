@@ -11,7 +11,6 @@ from utils.perf_profiler import profiled, record_counter_for_world
 from utils.action_order_utils import (
     entities_are_within_tile_range,
     get_entity_skill_range_tiles,
-    min_distance_to_tiles,
 )
 from utils.occupancy_utils import (
     clear_dynamic_movement_reservations,
@@ -82,7 +81,14 @@ CHASE_BLOCKAGE_MOVING_DYNAMIC = "moving_dynamic"
 CHASE_BLOCKAGE_STALLED_DYNAMIC = "stalled_dynamic"
 CHASE_BLOCKAGE_ENGAGED_DYNAMIC = "engaged_dynamic"
 
+CHASE_STATIC_AVOIDANCE_EPISODE_TICKS = 12
+CHASE_STALLED_DYNAMIC_AVOIDANCE_EPISODE_TICKS = 10
+CHASE_ENGAGED_DYNAMIC_AVOIDANCE_EPISODE_TICKS = 16
+
 CHASE_STALLED_BLOCKER_TICKS = 6  ## Threshold ticks to recognize this dynamic blocker is not just passing through, it's stuck
+CHASE_STALLED_DYNAMIC_ESCAPE_FAILED_ATTEMPTS = 1
+CHASE_STALLED_DYNAMIC_MAX_WORSEN_TILES = 2
+
 
 @dataclass(frozen=True)
 class MovementCollisionResult:
@@ -351,6 +357,13 @@ def record_chase_controller_block(world, entity, controller, collision_result):
         controller.side_preference_until_tick = (
             world.tick + CHASE_STATIC_SIDE_PREFERENCE_TICKS
         )
+
+    start_or_update_chase_avoidance_episode(
+        world,
+        entity,
+        controller,
+        blockage_type,
+    )
 
 
 def record_movement_approval_counters(world, approval):
@@ -3479,9 +3492,33 @@ def chase_candidate_is_recently_blocked_tile(
     return candidate_tile == controller.last_blocked_tile
 
 
+def stalled_dynamic_escape_probe_is_unlocked(world, controller):
+    if controller is None:
+        return False
+
+    if not chase_avoidance_episode_is_active(world, controller):
+        return False
+
+    if (
+        controller.avoidance_episode_type
+        != CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
+    ):
+        return False
+
+    return (
+        controller.avoidance_episode_failed_attempts
+        >= CHASE_STALLED_DYNAMIC_ESCAPE_FAILED_ATTEMPTS
+    )
+
+
 def get_chase_local_avoidance_mode(world, controller):
     if controller is None:
         return CHASE_LOCAL_AVOIDANCE_DEFAULT
+
+    clear_expired_chase_avoidance_episode(world, controller)
+
+    if chase_avoidance_episode_is_active(world, controller):
+        return controller.avoidance_episode_type
 
     if controller.last_chase_blockage_type == CHASE_BLOCKAGE_STATIC:
         if (
@@ -3517,11 +3554,129 @@ def get_chase_local_avoidance_mode(world, controller):
     return CHASE_LOCAL_AVOIDANCE_DEFAULT
 
 
+def chase_avoidance_episode_is_active(world, controller):
+    if controller is None:
+        return False
+
+    if controller.avoidance_episode_type is None:
+        return False
+
+    return world.tick < controller.avoidance_episode_until_tick
+
+
+def get_chase_blockage_episode_type(blockage_type):
+    if blockage_type == CHASE_BLOCKAGE_STATIC:
+        return CHASE_LOCAL_AVOIDANCE_STATIC
+
+    if blockage_type == CHASE_BLOCKAGE_STALLED_DYNAMIC:
+        return CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
+
+    if blockage_type == CHASE_BLOCKAGE_ENGAGED_DYNAMIC:
+        return CHASE_LOCAL_AVOIDANCE_ENGAGED_DYNAMIC
+
+    return None
+
+
+def get_chase_avoidance_episode_duration_ticks(episode_type):
+    if episode_type == CHASE_LOCAL_AVOIDANCE_STATIC:
+        return CHASE_STATIC_AVOIDANCE_EPISODE_TICKS
+
+    if episode_type == CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC:
+        return CHASE_STALLED_DYNAMIC_AVOIDANCE_EPISODE_TICKS
+
+    if episode_type == CHASE_LOCAL_AVOIDANCE_ENGAGED_DYNAMIC:
+        return CHASE_ENGAGED_DYNAMIC_AVOIDANCE_EPISODE_TICKS
+
+    return 0
+
+
+def get_default_chase_side_preference(entity):
+    return 1 if entity % 2 == 0 else -1
+
+
+def get_chase_episode_side_preference(entity, controller):
+    if controller is not None and controller.avoidance_episode_side_preference != 0:
+        return controller.avoidance_episode_side_preference
+
+    if controller is not None and controller.side_preference != 0:
+        return controller.side_preference
+
+    return get_default_chase_side_preference(entity)
+
+
+def start_or_update_chase_avoidance_episode(
+    world,
+    entity,
+    controller,
+    blockage_type,
+):
+    episode_type = get_chase_blockage_episode_type(blockage_type)
+    if episode_type is None:
+        return
+
+    duration_ticks = get_chase_avoidance_episode_duration_ticks(
+        episode_type,
+    )
+    if duration_ticks <= 0:
+        return
+
+    same_episode = (
+        controller.avoidance_episode_type == episode_type
+        and chase_avoidance_episode_is_active(world, controller)
+    )
+
+    if same_episode:
+        controller.avoidance_episode_failed_attempts += 1
+    else:
+        controller.avoidance_episode_failed_attempts = 0
+
+    controller.avoidance_episode_type = episode_type
+    controller.avoidance_episode_started_tick = world.tick
+    controller.avoidance_episode_until_tick = world.tick + duration_ticks
+    controller.avoidance_episode_side_preference = (
+        get_chase_episode_side_preference(entity, controller)
+    )
+    controller.avoidance_episode_blocked_tile = controller.last_blocked_tile
+    controller.avoidance_episode_blocker_entity = controller.last_blocker_entity
+
+    record_counter_for_world(
+        world,
+        f"chase.avoidance_episode.{episode_type}",
+    )
+
+
+def clear_expired_chase_avoidance_episode(world, controller):
+    if controller is None:
+        return
+
+    if controller.avoidance_episode_type is None:
+        return
+
+    if world.tick < controller.avoidance_episode_until_tick:
+        return
+
+    controller.avoidance_episode_type = None
+    controller.avoidance_episode_started_tick = -1
+    controller.avoidance_episode_until_tick = -1
+    controller.avoidance_episode_side_preference = 0
+    controller.avoidance_episode_failed_attempts = 0
+    controller.avoidance_episode_blocked_tile = None
+    controller.avoidance_episode_blocker_entity = None
+
+
 def get_chase_local_side_preference(world, entity, controller):
-    fallback_side = 1 if entity % 2 == 0 else -1
+    fallback_side = get_default_chase_side_preference(entity)
 
     if controller is None:
         return fallback_side, False
+
+    clear_expired_chase_avoidance_episode(world, controller)
+
+    if (
+        chase_avoidance_episode_is_active(world, controller)
+        and controller.avoidance_episode_side_preference != 0
+    ):
+        return controller.avoidance_episode_side_preference, True
 
     if (
         controller.side_preference != 0
@@ -3666,6 +3821,8 @@ def choose_chase_avoidance_tile_from_candidates(
     goal_tile,
     candidate_tiles,
     controller=None,
+    allow_worse_distance_tiles=0,
+    counter_prefix=None,
 ):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
@@ -3674,7 +3831,12 @@ def choose_chase_avoidance_tile_from_candidates(
     candidates = []
 
     for candidate_order, candidate_tile in enumerate(candidate_tiles):
-        if chebyshev_tile_distance(candidate_tile, goal_tile) > current_distance:
+        candidate_distance = chebyshev_tile_distance(
+            candidate_tile,
+            goal_tile,
+        )
+
+        if candidate_distance > current_distance + allow_worse_distance_tiles:
             continue
 
         if chase_candidate_is_recently_blocked_tile(
@@ -3692,13 +3854,11 @@ def choose_chase_avoidance_tile_from_candidates(
         ):
             continue
 
-        candidate_distance = chebyshev_tile_distance(
-            candidate_tile,
-            goal_tile,
-        )
+        candidate_is_worse = candidate_distance > current_distance
 
         candidates.append(
             (
+                candidate_is_worse,
                 candidate_distance,
                 candidate_order,
                 candidate_tile,
@@ -3709,6 +3869,14 @@ def choose_chase_avoidance_tile_from_candidates(
         return None
 
     candidates.sort()
+
+    chosen_is_worse = candidates[0][0]
+    if chosen_is_worse and counter_prefix is not None:
+        record_counter_for_world(
+            world,
+            f"{counter_prefix}.worse_candidate",
+        )
+
     return candidates[0][-1]
 
 
@@ -3843,6 +4011,10 @@ def choose_stalled_dynamic_chase_avoidance_tile(
         controller,
     )
 
+    allow_worse_distance_tiles = 0
+    if stalled_dynamic_escape_probe_is_unlocked(world, controller):
+        allow_worse_distance_tiles = CHASE_STALLED_DYNAMIC_MAX_WORSEN_TILES
+
     return choose_chase_avoidance_tile_from_candidates(
         world,
         entity,
@@ -3854,6 +4026,8 @@ def choose_stalled_dynamic_chase_avoidance_tile(
             side_preference=side_preference,
         ),
         controller=controller,
+        allow_worse_distance_tiles=allow_worse_distance_tiles,
+        counter_prefix="chase.avoidance.stalled_dynamic",
     )
 
 

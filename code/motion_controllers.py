@@ -89,6 +89,15 @@ class ChaseEntityController:
     last_blocked_tile: Optional[Vec2i] = None
     last_blocker_entity: Optional[int] = None
     last_chase_blockage_type: Optional[str] = None
+
+    avoidance_episode_type: Optional[str] = None
+    avoidance_episode_started_tick: int = -1
+    avoidance_episode_until_tick: int = -1
+    avoidance_episode_side_preference: int = 0
+    avoidance_episode_failed_attempts: int = 0
+    avoidance_episode_blocked_tile: Optional[Vec2i] = None
+    avoidance_episode_blocker_entity: Optional[int] = None
+
     side_preference: int = 0
     side_preference_until_tick: int = 0
     dynamic_retry_after_tick: int = 0
