@@ -30,6 +30,8 @@
 # F11: Zoom In
 # F12: Cycle Display Mode
 # CTRL + F8: Load Radial Chase Stress Scenario
+# CTRL + F9: Ranged Blocker Lane
+
 
 import sys
 import pygame

@@ -9,6 +9,7 @@ from dev_tools.chase_stress_scenarios import (
     DEFAULT_CHASE_STRESS_PLAYER_TILE,
     DEFAULT_CHASE_STRESS_RADIUS,
     configure_radial_open_collapse,
+    configure_ranged_blocker_lane,
     summarize_chase_stress_state,
 )
 from utils.camera_utils import (
@@ -395,6 +396,31 @@ class Debug:
         print("=" * 88)
         print("")
 
+    def load_chase_stress_ranged_blocker_lane(self):
+        world = self.game.world
+
+        enemies = configure_ranged_blocker_lane(
+            world,
+            player_tile=DEFAULT_CHASE_STRESS_PLAYER_TILE,
+        )
+
+        summary = summarize_chase_stress_state(world)
+
+        print("")
+        print("=" * 88)
+        print(
+            "[chase stress] loaded ranged blocker lane "
+            f"enemies={len(enemies)} "
+            f"player_tile={DEFAULT_CHASE_STRESS_PLAYER_TILE}"
+        )
+        for key, value in summary.items():
+            if isinstance(value, float):
+                print(f"{key}: {value:.3f}")
+            else:
+                print(f"{key}: {value}")
+        print("=" * 88)
+        print("")
+
 
     def process_top_level_debug_input(self, input_state):
         if pygame.K_i in input_state.keys_pressed:
@@ -467,6 +493,10 @@ class Debug:
 
         if pygame.K_F8 in input_state.keys_pressed and ctrl_held:
             self.load_chase_stress_radial_open_collapse()
+            return
+
+        if pygame.K_F9 in input_state.keys_pressed and ctrl_held:
+            self.load_chase_stress_ranged_blocker_lane()
             return
 
         if pygame.K_F8 in input_state.keys_pressed:

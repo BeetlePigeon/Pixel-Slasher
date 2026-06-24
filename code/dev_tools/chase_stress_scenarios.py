@@ -21,6 +21,46 @@ DEFAULT_CHASE_STRESS_PLAYER_TILE = Vec2i(19, 19)
 DEFAULT_CHASE_STRESS_ENEMY_COUNT = 60
 DEFAULT_CHASE_STRESS_RADIUS = 16
 
+CHASE_STRESS_RANGED_BLOCKER_LANE = "chase_stress_ranged_blocker_lane"
+
+DEBUG_SLASH_SKILL_ID = "debug_slash"
+FIREBALL_SKILL_ID = "fireball"
+AI_ATTACK_SLOT = 0
+
+
+def configure_enemy_ai_attack_skill(
+    world,
+    enemy,
+    skill_id=DEBUG_SLASH_SKILL_ID,
+    slot=AI_ATTACK_SLOT,
+):
+    world.skills[(enemy, slot)] = skill_id
+    world.skill_cooldown.pop((enemy, slot), None)
+
+    agent = world.ai_agent[enemy]
+    params = agent.setdefault("params", {})
+    params["attack_skill_id"] = skill_id
+    params["attack_slot"] = slot
+
+    agent["think_interval_ticks"] = 1
+    agent["target_entity"] = None
+
+
+def spawn_chase_stress_enemy(
+    world,
+    tile,
+    skill_id=DEBUG_SLASH_SKILL_ID,
+    slot=AI_ATTACK_SLOT,
+):
+    enemy = world.spawn_training_dummy(tile)
+    configure_enemy_ai_attack_skill(
+        world,
+        enemy,
+        skill_id=skill_id,
+        slot=slot,
+    )
+    return enemy
+
 
 def clear_non_player_entities(world):
     for entity in sorted(set(world.transform)):
@@ -162,12 +202,77 @@ def configure_radial_open_collapse(
 
     enemies = []
     for index, tile in enumerate(enemy_tiles):
-        enemy = world.spawn_training_dummy(tile)
-
-        world.ai_agent[enemy]["think_interval_ticks"] = 1
+        enemy = spawn_chase_stress_enemy(
+            world,
+            tile,
+            skill_id=DEBUG_SLASH_SKILL_ID,
+            slot=AI_ATTACK_SLOT,
+        )
         world.ai_agent[enemy]["next_think_tick"] = world.tick + (index % 6)
-        world.ai_agent[enemy]["target_entity"] = None
+        enemies.append(enemy)
 
+    mark_dynamic_occupancy_dirty(world)
+    rebuild_dynamic_occupancy(world)
+
+    return enemies
+
+
+def configure_ranged_blocker_lane(
+    world,
+    player_tile=DEFAULT_CHASE_STRESS_PLAYER_TILE,
+):
+    world.load_area("destacker_arena", "default")
+
+    clear_non_player_entities(world)
+    configure_player(world, player_tile)
+
+    enemies = []
+
+    # Fireball has use_range_tiles=6. Starting these at distance ~8 from
+    # the player's top wing forces them to move briefly, then hold a
+    # ranged combat slot.
+    ranged_tiles = (
+        player_tile + Vec2i(-2, -9),
+        player_tile + Vec2i(0, -9),
+        player_tile + Vec2i(2, -9),
+    )
+
+    for index, tile in enumerate(ranged_tiles):
+        enemy = spawn_chase_stress_enemy(
+            world,
+            tile,
+            skill_id=FIREBALL_SKILL_ID,
+            slot=AI_ATTACK_SLOT,
+        )
+        world.ai_agent[enemy]["next_think_tick"] = world.tick + index
+        enemies.append(enemy)
+
+    # Melee enemies behind the ranged line. These should generate
+    # engaged_dynamic blocks when the fireball actors occupy valid ranged
+    # positions, and may generate stalled_dynamic blocks when melee actors
+    # jam behind each other.
+    melee_tiles = (
+        player_tile + Vec2i(-4, -14),
+        player_tile + Vec2i(-2, -14),
+        player_tile + Vec2i(0, -14),
+        player_tile + Vec2i(2, -14),
+        player_tile + Vec2i(4, -14),
+        player_tile + Vec2i(-3, -16),
+        player_tile + Vec2i(-1, -16),
+        player_tile + Vec2i(1, -16),
+        player_tile + Vec2i(3, -16),
+    )
+
+    for index, tile in enumerate(melee_tiles):
+        enemy = spawn_chase_stress_enemy(
+            world,
+            tile,
+            skill_id=DEBUG_SLASH_SKILL_ID,
+            slot=AI_ATTACK_SLOT,
+        )
+        world.ai_agent[enemy]["next_think_tick"] = (
+            world.tick + (index % 4)
+        )
         enemies.append(enemy)
 
     mark_dynamic_occupancy_dirty(world)

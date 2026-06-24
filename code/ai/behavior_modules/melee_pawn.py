@@ -87,7 +87,7 @@ def think(context):
         target,
     )
 
-    if entity % 2 == 0:
+    if entity % 7 != 0:
         set_action_order(world, entity, build_debug_slash_player_order(world, entity, target))
 
     else:

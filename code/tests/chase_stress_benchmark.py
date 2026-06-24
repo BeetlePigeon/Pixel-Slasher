@@ -31,8 +31,10 @@ from utils.perf_profiler import PerfProfiler
 from utils.skill_utils import validate_skill_defs
 from dev_tools.chase_stress_scenarios import (
     CHASE_STRESS_RADIAL_OPEN_COLLAPSE,
+    CHASE_STRESS_RANGED_BLOCKER_LANE,
     DEFAULT_CHASE_STRESS_PLAYER_TILE,
     configure_radial_open_collapse,
+    configure_ranged_blocker_lane,
     get_chase_stress_enemies,
     summarize_chase_stress_state,
 )
@@ -147,7 +149,10 @@ def parse_args():
     parser.add_argument(
         "--scenario",
         default=DEFAULT_SCENARIO,
-        choices=(DEFAULT_SCENARIO,),
+        choices=(
+            CHASE_STRESS_RADIAL_OPEN_COLLAPSE,
+            CHASE_STRESS_RANGED_BLOCKER_LANE,
+        ),
     )
     parser.add_argument("--enemies", type=int, default=60)
     parser.add_argument("--radius", type=int, default=16)
@@ -341,11 +346,16 @@ def run_benchmark(args):
         history_frames=max(args.measure_ticks, 1),
     )
 
-    if args.scenario == DEFAULT_SCENARIO:
+    if args.scenario == CHASE_STRESS_RADIAL_OPEN_COLLAPSE:
         enemies = configure_radial_open_collapse(
             game.world,
             enemy_count=args.enemies,
             radius=args.radius,
+            player_tile=player_tile,
+        )
+    elif args.scenario == CHASE_STRESS_RANGED_BLOCKER_LANE:
+        enemies = configure_ranged_blocker_lane(
+            game.world,
             player_tile=player_tile,
         )
     else:
