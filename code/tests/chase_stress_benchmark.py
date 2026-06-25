@@ -107,6 +107,15 @@ COUNTER_NAMES = (
     "chase.direct_block_feedback.classified.static",
     "chase.direct_block_feedback.classified.unknown",
     "chase.build_waypoints.using_bypass_after_direct_block",
+    "chase.ring_wall_follow.started",
+    "chase.ring_wall_follow.stalled_dynamic.started",
+    "chase.ring_wall_follow.engaged_dynamic.started",
+    "chase.ring_wall_follow.next_tile",
+    "chase.ring_wall_follow.no_candidate",
+    "chase.ring_wall_follow.cleared.target_missing",
+    "chase.ring_wall_follow.cleared.target_tile_changed",
+    "chase.build_waypoints.using_ring_wall_follow",
+    "chase.build_waypoints.using_ring_wall_follow_after_direct_block",
 )
 
 

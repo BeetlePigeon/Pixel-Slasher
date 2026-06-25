@@ -98,14 +98,11 @@ class ChaseEntityController:
     avoidance_episode_blocked_tile: Optional[Vec2i] = None
     avoidance_episode_blocker_entity: Optional[int] = None
 
-    stationary_bypass_blocker_entity: Optional[int] = None
-    stationary_bypass_blocker_center_tile: Optional[Vec2i] = None
-    stationary_bypass_side_preference: int = 0
-    stationary_bypass_stage: Optional[str] = None
-    stationary_bypass_stage_target_tile: Optional[Vec2i] = None
-    stationary_bypass_exit_tile: Optional[Vec2i] = None
-    stationary_bypass_until_tick: int = -1
-    stationary_bypass_failed_attempts: int = 0
+    ring_wall_follow_active: bool = False
+    ring_wall_follow_target_entity: Optional[int] = None
+    ring_wall_follow_target_tile: Optional[Vec2i] = None
+    ring_wall_follow_side: int = 0
+    ring_wall_follow_last_tile: Optional[Vec2i] = None
 
     side_preference: int = 0
     side_preference_until_tick: int = 0
