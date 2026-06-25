@@ -44,7 +44,7 @@
   "params": {
     "projectile_id": "fireball",
     "spawn_distance": 1024,
-    "use_range_tiles": 6,
+    "use_range_tiles": 12,
     "interact_range_tiles": 1
   },
 

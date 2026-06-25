@@ -637,7 +637,6 @@ class World:
         dummy_image = self.game.assets.images["player"]
 
         self.skills[(eid, 0)] = "debug_slash"
-        self.skills[(eid, 1)] = "fireball"
 
         self.sprite[eid] = {
             "image": dummy_image,

@@ -1,4 +1,3 @@
-import random
 from utils.action_order_utils import (
     entities_are_within_tile_range,
     get_skill_use_range_tiles,
@@ -13,10 +12,8 @@ from ai.ai_queries import (
 DEBUG_DEFAULT_IMAGE_KEY = "enemy_normal"
 DEBUG_IN_RANGE_IMAGE_KEY = "enemy_angry"
 DEBUG_USING_SKILL_IMAGE_KEY = "enemy_attack"
-AI_DEBUG_SLASH_SLOT = 0
-AI_DEBUG_SLASH_SKILL_ID = "debug_slash"
-AI_FIREBALL_SLOT = 1
-AI_FIREBALL_SKILL_ID = "fireball"
+AI_DEFAULT_ATTACK_SLOT = 0
+AI_DEFAULT_ATTACK_SKILL_ID = "debug_slash"
 
 
 def think(context):
@@ -73,25 +70,33 @@ def think(context):
         return []
 
     agent["target_entity"] = target
-    agent["state"] = "issuing_debug_slash_order"
+    attack_skill_id = get_melee_pawn_attack_skill_id(agent)
+    attack_slot = get_melee_pawn_attack_slot(agent)
+
+    agent["state"] = f"issuing_{attack_skill_id}_order"
     set_melee_pawn_debug_info(
         agent,
         target_entity=target,
         in_attack_range=None,
         attack_position_tile=None,
     )
-
     set_debug_engagement_sprite(
         world,
         entity,
         target,
     )
-
-    if entity % 7 != 0:
-        set_action_order(world, entity, build_debug_slash_player_order(world, entity, target))
-
-    else:
-        set_action_order(world, entity, build_fireball_player_order(world, entity, target))
+    set_action_order(
+        world,
+        entity,
+        build_ai_attack_player_order(
+            world,
+            entity,
+            target,
+            skill_id=attack_skill_id,
+            slot=attack_slot,
+        ),
+    )
+    return []
 
 
 def set_melee_pawn_debug_info(
@@ -161,7 +166,7 @@ def get_debug_engagement_image_key(visual_state):
 
 def entity_is_in_debug_slash_range(world, entity, target):
     use_range_tiles = get_skill_use_range_tiles(
-        AI_DEBUG_SLASH_SKILL_ID,
+        AI_DEFAULT_ATTACK_SKILL_ID,
     )
 
     if use_range_tiles is None:
@@ -181,36 +186,52 @@ def entity_is_using_debug_slash(world, entity):
     if action_state is None:
         return False
 
-    return action_state.get("skill_id") == AI_DEBUG_SLASH_SKILL_ID
+    return action_state.get("skill_id") == AI_DEFAULT_ATTACK_SKILL_ID
+
+
+def get_melee_pawn_attack_skill_id(agent):
+    params = agent.get("params", {})
+    return params.get(
+        "attack_skill_id",
+        AI_DEFAULT_ATTACK_SKILL_ID,
+    )
+
+
+def get_melee_pawn_attack_slot(agent):
+    params = agent.get("params", {})
+    return params.get(
+        "attack_slot",
+        AI_DEFAULT_ATTACK_SLOT,
+    )
+
+
+def build_ai_attack_player_order(
+    world,
+    entity,
+    target,
+    skill_id,
+    slot,
+):
+    return {
+        "type": "use_skill_on_entity",
+        "actor": entity,
+        "target": target,
+        "target_kind": "enemy",
+        "skill_id": skill_id,
+        "slot": slot,
+        "input_kind": "ai",
+        "target_lock": "hard",
+        "created_tick": world.tick,
+        "fired_once": False,
+        "allow_approach": True,
+    }
 
 
 def build_debug_slash_player_order(world, entity, target):
-    return {
-        "type": "use_skill_on_entity",
-        "actor": entity,
-        "target": target,
-        "target_kind": "enemy",
-        "skill_id": AI_DEBUG_SLASH_SKILL_ID,
-        "slot": AI_DEBUG_SLASH_SLOT,
-        "input_kind": "ai",
-        "target_lock": "hard",
-        "created_tick": world.tick,
-        "fired_once": False,
-        "allow_approach": True,
-    }
-
-
-def build_fireball_player_order(world, entity, target):
-    return {
-        "type": "use_skill_on_entity",
-        "actor": entity,
-        "target": target,
-        "target_kind": "enemy",
-        "skill_id": AI_FIREBALL_SKILL_ID,
-        "slot": AI_FIREBALL_SLOT,
-        "input_kind": "ai",
-        "target_lock": "hard",
-        "created_tick": world.tick,
-        "fired_once": False,
-        "allow_approach": True,
-    }
+    return build_ai_attack_player_order(
+        world,
+        entity,
+        target,
+        skill_id=AI_DEFAULT_ATTACK_SKILL_ID,
+        slot=AI_DEFAULT_ATTACK_SLOT,
+    )

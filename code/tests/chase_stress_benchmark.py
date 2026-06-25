@@ -299,6 +299,16 @@ def print_profile_rows(profiler):
         )
 
 
+def make_zero_counter_row(name):
+    return {
+        "name": name,
+        "avg_total": 0.0,
+        "peak_total": 0.0,
+        "peak_value": 0.0,
+        "avg_records": 0.0,
+    }
+
+
 def print_counter_rows(profiler):
     rows_by_name = {
         row["name"]: row
@@ -318,7 +328,7 @@ def print_counter_rows(profiler):
     for name in COUNTER_NAMES:
         row = rows_by_name.get(name)
         if row is None:
-            continue
+            row = make_zero_counter_row(name)
 
         print(
             f"{name:42} "
