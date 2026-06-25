@@ -71,9 +71,10 @@ CHASE_DYNAMIC_RETRY_TICKS = 30
 CHASE_TARGET_TELEPORT_TILES = 4
 CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS = 3
 
-CHASE_STATIONARY_BYPASS_TICKS = 24
-CHASE_STATIONARY_BYPASS_SHOULDER = "shoulder"
-CHASE_STATIONARY_BYPASS_EXIT = "exit"
+CHASE_STATIONARY_BYPASS_TICKS = 32
+CHASE_STATIONARY_BYPASS_WALL_HUG = "wall_hug"
+CHASE_STATIONARY_BYPASS_MAX_GOAL_DISTANCE_PENALTY = 3
+CHASE_STATIONARY_BYPASS_RELAX_AFTER_FAILURES = 2
 
 CHASE_LOCAL_AVOIDANCE_DEFAULT = "default"
 CHASE_LOCAL_AVOIDANCE_STATIC = "static"
@@ -327,6 +328,56 @@ def blocker_has_active_movement_goal(world, blocker_entity, motion_state):
         return True
 
     return False
+
+
+def record_chase_direct_block_feedback(
+    world,
+    entity,
+    controller,
+    collision_result,
+):
+    if not isinstance(controller, ChaseEntityController):
+        return
+
+    if collision_result is None:
+        return
+
+    if not movement_collision_blocks(collision_result):
+        return
+
+    if (
+        controller.last_blocked_tick == world.tick
+        and controller.last_blocker_entity == collision_result.blocker_entity
+        and controller.last_blocked_tile == collision_result.blocked_tile
+        and controller.last_blocker_collision_type
+        == collision_result.blocker_collision_type
+    ):
+        return
+
+    record_counter_for_world(
+        world,
+        "chase.direct_block_feedback.recorded",
+    )
+
+    if collision_result.blocker_collision_type is not None:
+        record_counter_for_world(
+            world,
+            f"chase.direct_block_feedback."
+            f"{collision_result.blocker_collision_type}",
+        )
+
+    record_chase_controller_block(
+        world,
+        entity,
+        controller,
+        collision_result,
+    )
+
+    record_counter_for_world(
+        world,
+        f"chase.direct_block_feedback.classified."
+        f"{controller.last_chase_blockage_type}",
+    )
 
 
 def record_chase_controller_block(world, entity, controller, collision_result):
@@ -3488,52 +3539,47 @@ def start_or_update_chase_stationary_dynamic_bypass_episode(
     if controller.target_entity not in world.transform:
         return
 
-    same_blocker = (
+    blocker_center_tile = tile_from_cpos(
+        world.transform[blocker_entity].cpos,
+    )
+
+    if (
         controller.stationary_bypass_blocker_entity == blocker_entity
         and chase_stationary_dynamic_bypass_is_active(world, controller)
-    )
-
-    if same_blocker:
+    ):
+        controller.stationary_bypass_until_tick = (
+            world.tick + CHASE_STATIONARY_BYPASS_TICKS
+        )
         controller.stationary_bypass_failed_attempts += 1
-    else:
-        controller.stationary_bypass_failed_attempts = 0
-
-    side_preference = get_chase_episode_side_preference(
-        entity,
-        controller,
-    )
-
-    if same_blocker and controller.stationary_bypass_failed_attempts % 2 == 1:
-        side_preference = -side_preference
-
-    candidate = choose_stationary_dynamic_bypass_candidate(
-        world,
-        entity,
-        controller,
-        blocker_entity,
-        side_preference,
-    )
-
-    if candidate is None:
         record_counter_for_world(
             world,
-            "chase.stationary_bypass.no_candidate",
+            "chase.stationary_bypass.retry_same_blocker",
         )
         return
 
-    shoulder_tile, exit_tile, chosen_side = candidate
-
     controller.stationary_bypass_blocker_entity = blocker_entity
-    controller.stationary_bypass_blocker_center_tile = tile_from_cpos(
-        world.transform[blocker_entity].cpos
-    )
-    controller.stationary_bypass_side_preference = chosen_side
-    controller.stationary_bypass_stage = CHASE_STATIONARY_BYPASS_SHOULDER
-    controller.stationary_bypass_stage_target_tile = shoulder_tile
-    controller.stationary_bypass_exit_tile = exit_tile
+    controller.stationary_bypass_blocker_center_tile = blocker_center_tile
+
+    if controller.avoidance_episode_side_preference != 0:
+        controller.stationary_bypass_side_preference = (
+            controller.avoidance_episode_side_preference
+        )
+    elif controller.side_preference != 0:
+        controller.stationary_bypass_side_preference = (
+            controller.side_preference
+        )
+    else:
+        controller.stationary_bypass_side_preference = (
+            1 if entity % 2 == 0 else -1
+        )
+
+    controller.stationary_bypass_stage = CHASE_STATIONARY_BYPASS_WALL_HUG
+    controller.stationary_bypass_stage_target_tile = None
+    controller.stationary_bypass_exit_tile = None
     controller.stationary_bypass_until_tick = (
         world.tick + CHASE_STATIONARY_BYPASS_TICKS
     )
+    controller.stationary_bypass_failed_attempts = 0
 
     record_counter_for_world(
         world,
@@ -3543,12 +3589,10 @@ def start_or_update_chase_stationary_dynamic_bypass_episode(
         world,
         f"chase.stationary_bypass.{blockage_type}.started",
     )
-
-    if same_blocker:
-        record_counter_for_world(
-            world,
-            "chase.stationary_bypass.retry_same_blocker",
-        )
+    record_counter_for_world(
+        world,
+        "chase.stationary_bypass.wall_hug.started",
+    )
 
 
 def choose_stationary_dynamic_bypass_candidate(
@@ -3787,15 +3831,34 @@ def build_chase_waypoints(
     if bypass_tile is not None:
         return [tile_center(bypass_tile)], target_tile, goal_tile
 
-    direct_tile = choose_direct_chase_waypoint_tile(
+    direct_tile, direct_block_collision = choose_direct_chase_waypoint_attempt(
         world,
         entity,
         goal_tile,
         desired_range_tiles,
     )
-
     if direct_tile is not None:
         return [tile_center(direct_tile)], target_tile, goal_tile
+
+    if direct_block_collision is not None:
+        record_chase_direct_block_feedback(
+            world,
+            entity,
+            controller,
+            direct_block_collision,
+        )
+
+        bypass_tile = choose_active_stationary_dynamic_bypass_waypoint_tile(
+            world,
+            entity,
+            controller,
+        )
+        if bypass_tile is not None:
+            record_counter_for_world(
+                world,
+                "chase.build_waypoints.using_bypass_after_direct_block",
+            )
+            return [tile_center(bypass_tile)], target_tile, goal_tile
 
     local_tile = choose_local_chase_waypoint_tile(
         world,
@@ -3816,45 +3879,85 @@ def choose_active_stationary_dynamic_bypass_waypoint_tile(
     entity,
     controller,
 ):
-    if controller is None:
-        return None
-
-    clear_expired_chase_stationary_dynamic_bypass(world, controller)
-
     if not chase_stationary_dynamic_bypass_is_active(world, controller):
         return None
 
     blocker_entity = controller.stationary_bypass_blocker_entity
-    if blocker_entity not in world.transform:
+    if blocker_entity is None or blocker_entity not in world.transform:
         clear_chase_stationary_dynamic_bypass(controller)
+        record_counter_for_world(
+            world,
+            "chase.stationary_bypass.finished.blocker_missing",
+        )
         return None
 
-    actor_tile = tile_from_cpos(world.transform[entity].cpos)
-    stage_target_tile = controller.stationary_bypass_stage_target_tile
-
-    if actor_tile == stage_target_tile:
-        if controller.stationary_bypass_stage == CHASE_STATIONARY_BYPASS_SHOULDER:
-            controller.stationary_bypass_stage = CHASE_STATIONARY_BYPASS_EXIT
-            controller.stationary_bypass_stage_target_tile = (
-                controller.stationary_bypass_exit_tile
-            )
-            stage_target_tile = controller.stationary_bypass_stage_target_tile
-
-            record_counter_for_world(
-                world,
-                "chase.stationary_bypass.advance_exit",
-            )
-        else:
-            clear_chase_stationary_dynamic_bypass(controller)
-            record_counter_for_world(
-                world,
-                "chase.stationary_bypass.finished",
-            )
-            return None
-
-    if stage_target_tile is None:
+    target_entity = controller.target_entity
+    if target_entity not in world.transform:
         clear_chase_stationary_dynamic_bypass(controller)
+        record_counter_for_world(
+            world,
+            "chase.stationary_bypass.finished.target_missing",
+        )
         return None
+
+    if entities_are_within_tile_range(
+        world,
+        entity,
+        target_entity,
+        controller.desired_range_tiles,
+    ):
+        clear_chase_stationary_dynamic_bypass(controller)
+        record_counter_for_world(
+            world,
+            "chase.stationary_bypass.finished.in_range",
+        )
+        return None
+
+    blocker_center_tile = tile_from_cpos(
+        world.transform[blocker_entity].cpos,
+    )
+
+    if (
+        controller.stationary_bypass_blocker_center_tile is not None
+        and blocker_center_tile
+        != controller.stationary_bypass_blocker_center_tile
+    ):
+        clear_chase_stationary_dynamic_bypass(controller)
+        record_counter_for_world(
+            world,
+            "chase.stationary_bypass.finished.blocker_moved",
+        )
+        return None
+
+    target_tile = tile_from_cpos(world.transform[target_entity].cpos)
+
+    candidate_tile = choose_stationary_dynamic_wall_hug_candidate(
+        world,
+        entity,
+        controller,
+        blocker_entity,
+        blocker_center_tile,
+        target_tile,
+    )
+
+    if candidate_tile is None:
+        controller.stationary_bypass_failed_attempts += 1
+        record_counter_for_world(
+            world,
+            "chase.stationary_bypass.wall_hug.no_candidate",
+        )
+
+        if controller.stationary_bypass_failed_attempts % 2 == 0:
+            controller.stationary_bypass_side_preference *= -1
+            record_counter_for_world(
+                world,
+                "chase.stationary_bypass.wall_hug.flip_side",
+            )
+
+        return None
+
+    controller.stationary_bypass_stage = CHASE_STATIONARY_BYPASS_WALL_HUG
+    controller.stationary_bypass_stage_target_tile = candidate_tile
 
     record_counter_for_world(
         world,
@@ -3862,10 +3965,223 @@ def choose_active_stationary_dynamic_bypass_waypoint_tile(
     )
     record_counter_for_world(
         world,
-        f"chase.stationary_bypass.stage.{controller.stationary_bypass_stage}",
+        "chase.stationary_bypass.wall_hug.active_waypoint",
     )
 
-    return stage_target_tile
+    return candidate_tile
+
+
+def choose_stationary_dynamic_wall_hug_candidate(
+    world,
+    entity,
+    controller,
+    blocker_entity,
+    blocker_center_tile,
+    target_tile,
+):
+    actor_cpos = world.transform[entity].cpos
+    actor_tile = tile_from_cpos(actor_cpos)
+
+    actor_goal_distance = chebyshev_tile_distance(actor_tile, target_tile)
+
+    body_tiles = set(
+        get_movement_body_tiles_for_origin_tile(
+            world,
+            blocker_entity,
+            blocker_center_tile,
+        )
+    )
+
+    candidates = list(
+        iter_stationary_dynamic_wall_hug_candidates(
+            blocker_center_tile,
+            body_tiles,
+            actor_tile,
+            controller.stationary_bypass_side_preference,
+        )
+    )
+
+    relaxed = (
+        controller.stationary_bypass_failed_attempts
+        >= CHASE_STATIONARY_BYPASS_RELAX_AFTER_FAILURES
+    )
+
+    for candidate_tile in candidates:
+        if candidate_tile == actor_tile:
+            continue
+
+        if candidate_tile in body_tiles:
+            continue
+
+        if (
+            controller.last_blocked_tile is not None
+            and candidate_tile == controller.last_blocked_tile
+            and world.tick - controller.last_blocked_tick
+            <= CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS
+        ):
+            continue
+
+        candidate_goal_distance = chebyshev_tile_distance(
+            candidate_tile,
+            target_tile,
+        )
+
+        if (
+            not relaxed
+            and candidate_goal_distance
+            > actor_goal_distance
+            + CHASE_STATIONARY_BYPASS_MAX_GOAL_DISTANCE_PENALTY
+        ):
+            continue
+
+        if not stationary_wall_hug_candidate_is_plausible(
+            world,
+            entity,
+            actor_cpos,
+            candidate_tile,
+            body_tiles,
+        ):
+            continue
+
+        return candidate_tile
+
+    return None
+
+
+def iter_stationary_dynamic_wall_hug_candidates(
+    blocker_center_tile,
+    body_tiles,
+    actor_tile,
+    side_preference,
+):
+    perimeter_tiles = set()
+
+    for body_tile in body_tiles:
+        for neighbor_tile in iter_8_neighbor_tiles(body_tile):
+            if neighbor_tile in body_tiles:
+                continue
+            perimeter_tiles.add(neighbor_tile)
+
+    if not perimeter_tiles:
+        return
+
+    ordered_direction_buckets = ordered_wall_hug_direction_buckets(
+        blocker_center_tile,
+        actor_tile,
+        side_preference,
+    )
+
+    indexed_candidates = []
+
+    for candidate_tile in perimeter_tiles:
+        direction_bucket = wall_hug_direction_bucket(
+            candidate_tile - blocker_center_tile,
+        )
+
+        try:
+            direction_index = ordered_direction_buckets.index(
+                direction_bucket,
+            )
+        except ValueError:
+            direction_index = len(ordered_direction_buckets)
+
+        indexed_candidates.append(
+            (
+                direction_index,
+                chebyshev_tile_distance(actor_tile, candidate_tile),
+                candidate_tile.x,
+                candidate_tile.y,
+                candidate_tile,
+            )
+        )
+
+    indexed_candidates.sort()
+
+    for _, _, _, _, candidate_tile in indexed_candidates:
+        yield candidate_tile
+
+
+WALL_HUG_DIRECTION_BUCKETS = (
+    Vec2i(1, 0),
+    Vec2i(1, 1),
+    Vec2i(0, 1),
+    Vec2i(-1, 1),
+    Vec2i(-1, 0),
+    Vec2i(-1, -1),
+    Vec2i(0, -1),
+    Vec2i(1, -1),
+)
+
+
+def ordered_wall_hug_direction_buckets(
+    blocker_center_tile,
+    actor_tile,
+    side_preference,
+):
+    actor_bucket = wall_hug_direction_bucket(
+        actor_tile - blocker_center_tile,
+    )
+
+    if actor_bucket in WALL_HUG_DIRECTION_BUCKETS:
+        start_index = WALL_HUG_DIRECTION_BUCKETS.index(actor_bucket)
+    else:
+        start_index = 0
+
+    step = 1 if side_preference >= 0 else -1
+
+    ordered = []
+    count = len(WALL_HUG_DIRECTION_BUCKETS)
+
+    # Start one bucket to the side, not directly where the actor already is.
+    for offset in range(1, count + 1):
+        ordered.append(
+            WALL_HUG_DIRECTION_BUCKETS[
+                (start_index + step * offset) % count
+            ]
+        )
+
+    return ordered
+
+
+def wall_hug_direction_bucket(delta):
+    return Vec2i(
+        sign(delta.x),
+        sign(delta.y),
+    )
+
+
+def iter_8_neighbor_tiles(tile):
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            yield Vec2i(tile.x + dx, tile.y + dy)
+
+
+def stationary_wall_hug_candidate_is_plausible(
+    world,
+    entity,
+    actor_cpos,
+    candidate_tile,
+    blocker_body_tiles,
+):
+    if candidate_tile in blocker_body_tiles:
+        return False
+
+    if stationary_bypass_tile_is_inside_blocker_body(
+        world,
+        entity,
+        candidate_tile,
+        blocker_body_tiles,
+    ):
+        return False
+
+    return chase_candidate_tile_is_reachable(
+        world,
+        entity,
+        actor_cpos,
+        candidate_tile,
+    )
 
 
 def chase_tile_tiebreak_for_entity(entity, tile):
@@ -4127,7 +4443,29 @@ def choose_chase_goal_tile(world, entity, target_entity):
     return candidates[0][-1]
 
 
-def choose_direct_chase_waypoint_tile(
+def choose_chase_direct_failure_collision(current, candidate):
+    if candidate is None:
+        return current
+
+    if not movement_collision_blocks(candidate):
+        return current
+
+    if current is None:
+        return candidate
+
+    if (
+        current.blocker_collision_type != "dynamic"
+        and candidate.blocker_collision_type == "dynamic"
+    ):
+        return candidate
+
+    if current.blocker_entity is None and candidate.blocker_entity is not None:
+        return candidate
+
+    return current
+
+
+def choose_direct_chase_waypoint_attempt(
     world,
     entity,
     goal_tile,
@@ -4135,40 +4473,58 @@ def choose_direct_chase_waypoint_tile(
 ):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
+    actor_distance = chebyshev_tile_distance(actor_tile, goal_tile)
 
-    best_tile = None
+    blocking_collision_result = None
 
     for candidate_tile in iter_direct_chase_tiles(
         actor_tile,
         goal_tile,
         CHASE_DIRECT_LOOKAHEAD_TILES,
     ):
-        if candidate_tile == actor_tile:
+        candidate_distance = chebyshev_tile_distance(
+            candidate_tile,
+            goal_tile,
+        )
+
+        if candidate_distance > actor_distance:
             continue
 
-        if chebyshev_tile_distance(candidate_tile, goal_tile) <= desired_range_tiles:
-            # Stop at the range boundary instead of moving into the target,
-            # but only commit the waypoint if that tile center was validated.
-            if chase_candidate_tile_is_reachable(
-                world,
-                entity,
-                actor_cpos,
-                candidate_tile,
-            ):
-                best_tile = candidate_tile
-            break
-
-        if not chase_candidate_tile_is_reachable(
+        reachable, collision_result = check_chase_candidate_tile_reachability(
             world,
             entity,
             actor_cpos,
             candidate_tile,
-        ):
-            break
+        )
 
-        best_tile = candidate_tile
+        if not reachable:
+            blocking_collision_result = choose_chase_direct_failure_collision(
+                blocking_collision_result,
+                collision_result,
+            )
+            continue
 
-    return best_tile
+        if candidate_distance <= desired_range_tiles:
+            return candidate_tile, None
+
+        return candidate_tile, None
+
+    return None, blocking_collision_result
+
+
+def choose_direct_chase_waypoint_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+):
+    direct_tile, _ = choose_direct_chase_waypoint_attempt(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+    )
+    return direct_tile
 
 
 def choose_local_chase_waypoint_tile(
@@ -4507,20 +4863,54 @@ def chase_candidate_tile_is_reachable(
     actor_cpos,
     candidate_tile,
 ):
+    reachable, _ = check_chase_candidate_tile_reachability(
+        world,
+        entity,
+        actor_cpos,
+        candidate_tile,
+    )
+    return reachable
+
+
+def check_chase_candidate_tile_reachability(
+    world,
+    entity,
+    actor_cpos,
+    candidate_tile,
+):
     candidate_cpos = tile_center(candidate_tile)
     delta = candidate_cpos - actor_cpos
 
-    collision_result, resolved_cpos = trace_static_tile_path(
+    static_collision_result, resolved_cpos = trace_static_tile_path(
         world,
         entity,
         actor_cpos,
         delta,
     )
 
-    return (
-        movement_collision_allows(collision_result)
-        and resolved_cpos == candidate_cpos
+    if not movement_collision_allows(static_collision_result):
+        return False, static_collision_result
+
+    if resolved_cpos != candidate_cpos:
+        return (
+            False,
+            make_movement_collision_result(
+                "block",
+                blocker_collision_type="static",
+                blocked_tile=tile_from_cpos(resolved_cpos),
+            ),
+        )
+
+    dynamic_collision_result = handle_dynamic_movement_collision(
+        world,
+        entity,
+        candidate_tile,
     )
+
+    if not movement_collision_allows(dynamic_collision_result):
+        return False, dynamic_collision_result
+
+    return True, MOVEMENT_COLLISION_ALLOW
 
 
 def iter_direct_chase_tiles(start_tile, goal_tile, max_tiles):

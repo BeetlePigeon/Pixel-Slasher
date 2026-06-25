@@ -98,6 +98,15 @@ COUNTER_NAMES = (
     "chase.stationary_bypass.stage.exit",
     "chase.stationary_bypass.advance_exit",
     "chase.stationary_bypass.finished",
+    "chase.direct_block_feedback.recorded",
+    "chase.direct_block_feedback.dynamic",
+    "chase.direct_block_feedback.static",
+    "chase.direct_block_feedback.classified.moving_dynamic",
+    "chase.direct_block_feedback.classified.stalled_dynamic",
+    "chase.direct_block_feedback.classified.engaged_dynamic",
+    "chase.direct_block_feedback.classified.static",
+    "chase.direct_block_feedback.classified.unknown",
+    "chase.build_waypoints.using_bypass_after_direct_block",
 )
 
 
