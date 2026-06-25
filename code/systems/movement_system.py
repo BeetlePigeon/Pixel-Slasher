@@ -64,7 +64,9 @@ PATH_FOLLOW_STALL_LIFETIME = "lifetime_expired"
 CHASE_DIRECT_LOOKAHEAD_TILES = 6
 CHASE_REPLAN_INTERVAL_TICKS = 30
 CHASE_WAYPOINT_MAX_AGE_TICKS = 12
-CHASE_STATIC_SIDE_PREFERENCE_TICKS = 10
+CHASE_LOCAL_PROBE_MIN_TILES = 1
+CHASE_LOCAL_PROBE_MAX_TILES = 1
+CHASE_STATIC_SIDE_PREFERENCE_TICKS = 60
 CHASE_DYNAMIC_RETRY_TICKS = 30
 CHASE_TARGET_TELEPORT_TILES = 4
 CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS = 3
@@ -3815,12 +3817,13 @@ def choose_local_chase_waypoint_tile(
     )
 
 
-def choose_chase_avoidance_tile_from_candidates(
+def choose_chase_avoidance_probe_tile_from_directions(
     world,
     entity,
     goal_tile,
-    candidate_tiles,
+    directions,
     controller=None,
+    mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
     allow_worse_distance_tiles=0,
     counter_prefix=None,
 ):
@@ -3828,9 +3831,107 @@ def choose_chase_avoidance_tile_from_candidates(
     actor_tile = tile_from_cpos(actor_cpos)
     current_distance = chebyshev_tile_distance(actor_tile, goal_tile)
 
+    min_probe_tiles = max(1, CHASE_LOCAL_PROBE_MIN_TILES)
+    max_probe_tiles = max(min_probe_tiles, CHASE_LOCAL_PROBE_MAX_TILES)
+
     candidates = []
 
-    for candidate_order, candidate_tile in enumerate(candidate_tiles):
+    for direction_order, direction in enumerate(directions):
+        candidate = choose_best_chase_probe_tile_for_direction(
+            world,
+            entity,
+            actor_cpos,
+            actor_tile,
+            goal_tile,
+            direction,
+            min_probe_tiles=min_probe_tiles,
+            max_probe_tiles=max_probe_tiles,
+            allow_worse_distance_tiles=allow_worse_distance_tiles,
+            current_distance=current_distance,
+            controller=controller,
+        )
+
+        if candidate is None:
+            continue
+
+        candidate_tile, probe_length, candidate_distance = candidate
+        candidate_is_worse = candidate_distance > current_distance
+
+        candidates.append(
+            (
+                candidate_distance,
+                direction_order,
+                -probe_length,
+                candidate_tile.y,
+                candidate_tile.x,
+                candidate_is_worse,
+                candidate_tile,
+                probe_length,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+
+    chosen = candidates[0]
+    chosen_is_worse = chosen[-3]
+    chosen_tile = chosen[-2]
+    chosen_length = chosen[-1]
+
+    record_counter_for_world(
+        world,
+        "chase.local_probe.length",
+        chosen_length,
+    )
+    record_counter_for_world(
+        world,
+        f"chase.local_probe.{mode}.length",
+        chosen_length,
+    )
+
+    if chosen_length > 1:
+        record_counter_for_world(
+            world,
+            "chase.local_probe.extended",
+        )
+        record_counter_for_world(
+            world,
+            f"chase.local_probe.{mode}.extended",
+        )
+
+    if chosen_is_worse and counter_prefix is not None:
+        record_counter_for_world(
+            world,
+            f"{counter_prefix}.worse_candidate",
+        )
+
+    return chosen_tile
+
+
+def choose_best_chase_probe_tile_for_direction(
+    world,
+    entity,
+    actor_cpos,
+    actor_tile,
+    goal_tile,
+    direction,
+    min_probe_tiles,
+    max_probe_tiles,
+    allow_worse_distance_tiles,
+    current_distance,
+    controller=None,
+):
+    if direction.x == 0 and direction.y == 0:
+        return None
+
+    for probe_length in range(max_probe_tiles, min_probe_tiles - 1, -1):
+        candidate_tile = actor_tile + Vec2i(
+            direction.x * probe_length,
+            direction.y * probe_length,
+        )
+
         candidate_distance = chebyshev_tile_distance(
             candidate_tile,
             goal_tile,
@@ -3854,154 +3955,19 @@ def choose_chase_avoidance_tile_from_candidates(
         ):
             continue
 
-        candidate_is_worse = candidate_distance > current_distance
+        return candidate_tile, probe_length, candidate_distance
 
-        candidates.append(
-            (
-                candidate_is_worse,
-                candidate_distance,
-                candidate_order,
-                candidate_tile,
-            )
-        )
-
-    if not candidates:
-        return None
-
-    candidates.sort()
-
-    chosen_is_worse = candidates[0][0]
-    if chosen_is_worse and counter_prefix is not None:
-        record_counter_for_world(
-            world,
-            f"{counter_prefix}.worse_candidate",
-        )
-
-    return candidates[0][-1]
+    return None
 
 
-def choose_default_chase_avoidance_tile(
+def choose_chase_avoidance_probe_tile_for_mode(
     world,
     entity,
     goal_tile,
     desired_range_tiles,
     controller=None,
-):
-    actor_tile = tile_from_cpos(world.transform[entity].cpos)
-
-    side_preference, _ = get_chase_local_side_preference(
-        world,
-        entity,
-        controller,
-    )
-
-    return choose_chase_avoidance_tile_from_candidates(
-        world,
-        entity,
-        goal_tile,
-        iter_default_chase_avoidance_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-        ),
-        controller=controller,
-    )
-
-
-def choose_static_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
-):
-    actor_tile = tile_from_cpos(world.transform[entity].cpos)
-
-    side_preference, _ = get_chase_local_side_preference(
-        world,
-        entity,
-        controller,
-    )
-
-    return choose_chase_avoidance_tile_from_candidates(
-        world,
-        entity,
-        goal_tile,
-        iter_static_chase_avoidance_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-        ),
-        controller=controller,
-    )
-
-
-def choose_moving_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
-):
-    actor_tile = tile_from_cpos(world.transform[entity].cpos)
-
-    side_preference, _ = get_chase_local_side_preference(
-        world,
-        entity,
-        controller,
-    )
-
-    return choose_chase_avoidance_tile_from_candidates(
-        world,
-        entity,
-        goal_tile,
-        iter_moving_dynamic_chase_avoidance_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-        ),
-        controller=controller,
-    )
-
-
-def choose_engaged_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
-):
-    actor_tile = tile_from_cpos(world.transform[entity].cpos)
-
-    side_preference, _ = get_chase_local_side_preference(
-        world,
-        entity,
-        controller,
-    )
-
-    return choose_chase_avoidance_tile_from_candidates(
-        world,
-        entity,
-        goal_tile,
-        iter_engaged_dynamic_chase_avoidance_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-        ),
-        controller=controller,
-    )
-
-
-def choose_stalled_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+    mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+    counter_prefix=None,
 ):
     actor_tile = tile_from_cpos(world.transform[entity].cpos)
 
@@ -4012,21 +3978,117 @@ def choose_stalled_dynamic_chase_avoidance_tile(
     )
 
     allow_worse_distance_tiles = 0
-    if stalled_dynamic_escape_probe_is_unlocked(world, controller):
+    if (
+        mode == CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
+        and stalled_dynamic_escape_probe_is_unlocked(world, controller)
+    ):
         allow_worse_distance_tiles = CHASE_STALLED_DYNAMIC_MAX_WORSEN_TILES
 
-    return choose_chase_avoidance_tile_from_candidates(
+    directions = make_ordered_chase_direction_list(
+        entity,
+        actor_tile,
+        goal_tile,
+        side_preference=side_preference,
+        order_mode=mode,
+    )
+
+    return choose_chase_avoidance_probe_tile_from_directions(
         world,
         entity,
         goal_tile,
-        iter_stalled_dynamic_chase_avoidance_tiles(
-            entity,
-            actor_tile,
-            goal_tile,
-            side_preference=side_preference,
-        ),
+        directions,
         controller=controller,
+        mode=mode,
         allow_worse_distance_tiles=allow_worse_distance_tiles,
+        counter_prefix=counter_prefix,
+    )
+
+
+def choose_default_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    return choose_chase_avoidance_probe_tile_for_mode(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+        mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+    )
+
+
+def choose_static_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    return choose_chase_avoidance_probe_tile_for_mode(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+        mode=CHASE_LOCAL_AVOIDANCE_STATIC,
+        counter_prefix="chase.avoidance.static",
+    )
+
+
+def choose_moving_dynamic_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    return choose_chase_avoidance_probe_tile_for_mode(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+        mode=CHASE_LOCAL_AVOIDANCE_MOVING_DYNAMIC,
+        counter_prefix="chase.avoidance.moving_dynamic",
+    )
+
+
+def choose_engaged_dynamic_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    return choose_chase_avoidance_probe_tile_for_mode(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+        mode=CHASE_LOCAL_AVOIDANCE_ENGAGED_DYNAMIC,
+        counter_prefix="chase.avoidance.engaged_dynamic",
+    )
+
+
+def choose_stalled_dynamic_chase_avoidance_tile(
+    world,
+    entity,
+    goal_tile,
+    desired_range_tiles,
+    controller=None,
+):
+    return choose_chase_avoidance_probe_tile_for_mode(
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=controller,
+        mode=CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC,
         counter_prefix="chase.avoidance.stalled_dynamic",
     )
 
@@ -4247,86 +4309,6 @@ def make_ordered_chase_direction_list(
         add(direction)
 
     return directions
-
-
-def iter_default_chase_avoidance_tiles(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-):
-    for direction in make_ordered_chase_direction_list(
-        entity,
-        actor_tile,
-        goal_tile,
-        side_preference=side_preference,
-        order_mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
-    ):
-        yield actor_tile + direction
-
-
-def iter_static_chase_avoidance_tiles(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-):
-    for direction in make_ordered_chase_direction_list(
-        entity,
-        actor_tile,
-        goal_tile,
-        side_preference=side_preference,
-        order_mode=CHASE_LOCAL_AVOIDANCE_STATIC,
-    ):
-        yield actor_tile + direction
-
-
-def iter_moving_dynamic_chase_avoidance_tiles(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-):
-    for direction in make_ordered_chase_direction_list(
-        entity,
-        actor_tile,
-        goal_tile,
-        side_preference=side_preference,
-        order_mode=CHASE_LOCAL_AVOIDANCE_MOVING_DYNAMIC,
-    ):
-        yield actor_tile + direction
-
-
-def iter_stalled_dynamic_chase_avoidance_tiles(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-):
-    for direction in make_ordered_chase_direction_list(
-        entity,
-        actor_tile,
-        goal_tile,
-        side_preference=side_preference,
-        order_mode=CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC,
-    ):
-        yield actor_tile + direction
-
-
-def iter_engaged_dynamic_chase_avoidance_tiles(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-):
-    for direction in make_ordered_chase_direction_list(
-        entity,
-        actor_tile,
-        goal_tile,
-        side_preference=side_preference,
-        order_mode=CHASE_LOCAL_AVOIDANCE_ENGAGED_DYNAMIC,
-    ):
-        yield actor_tile + direction
 
 
 def target_tile_changed_sharply(old_tile, new_tile):

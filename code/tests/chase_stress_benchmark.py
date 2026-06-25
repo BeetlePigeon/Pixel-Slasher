@@ -73,6 +73,21 @@ COUNTER_NAMES = (
     "chase.avoidance_episode.stalled_dynamic",
     "chase.avoidance_episode.engaged_dynamic",
     "chase.avoidance.stalled_dynamic.worse_candidate",
+    "chase.local_probe.length",
+    "chase.local_probe.extended",
+    "chase.local_probe.default.length",
+    "chase.local_probe.default.extended",
+    "chase.local_probe.static.length",
+    "chase.local_probe.static.extended",
+    "chase.local_probe.moving_dynamic.length",
+    "chase.local_probe.moving_dynamic.extended",
+    "chase.local_probe.stalled_dynamic.length",
+    "chase.local_probe.stalled_dynamic.extended",
+    "chase.local_probe.engaged_dynamic.length",
+    "chase.local_probe.engaged_dynamic.extended",
+    "chase.avoidance.static.worse_candidate",
+    "chase.avoidance.moving_dynamic.worse_candidate",
+    "chase.avoidance.engaged_dynamic.worse_candidate",
 )
 
 
