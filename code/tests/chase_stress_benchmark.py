@@ -88,6 +88,16 @@ COUNTER_NAMES = (
     "chase.avoidance.static.worse_candidate",
     "chase.avoidance.moving_dynamic.worse_candidate",
     "chase.avoidance.engaged_dynamic.worse_candidate",
+    "chase.stationary_bypass.started",
+    "chase.stationary_bypass.stalled_dynamic.started",
+    "chase.stationary_bypass.engaged_dynamic.started",
+    "chase.stationary_bypass.no_candidate",
+    "chase.stationary_bypass.retry_same_blocker",
+    "chase.stationary_bypass.active_waypoint",
+    "chase.stationary_bypass.stage.shoulder",
+    "chase.stationary_bypass.stage.exit",
+    "chase.stationary_bypass.advance_exit",
+    "chase.stationary_bypass.finished",
 )
 
 
