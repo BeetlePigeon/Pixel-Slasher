@@ -3309,31 +3309,40 @@ def start_path_follow_controller(world, entity, target):
 
 
 def start_chase_entity_controller(world, entity, target):
-    waypoints, target_tile, goal_tile = build_chase_waypoints(
-        world,
-        entity,
-        target,
-        force_replan=True,
-    )
-
-    if not waypoints:
-        return False
-
     locomotion = world.locomotion[entity]
     motion_state = world.motion_state[entity]
 
     controller = ChaseEntityController(
         target_entity=target["target_entity"],
         desired_range_tiles=target["desired_range_tiles"],
-        waypoints=waypoints,
+        waypoints=[],
         current_index=0,
         speed=get_locomotion_speed_cpos_per_tick(locomotion),
         created_tick=target.get("created_tick", world.tick),
-        cached_target_tile=target_tile,
-        cached_goal_tile=goal_tile,
+        cached_target_tile=None,
+        cached_goal_tile=None,
         last_replan_tick=world.tick,
         waypoint_created_tick=world.tick,
     )
+
+    waypoints, target_tile, goal_tile = build_chase_waypoints(
+        world,
+        entity,
+        target,
+        force_replan=True,
+        controller=controller,
+    )
+
+    if not waypoints and not controller.ring_wall_follow_active:
+        return False
+
+    controller.waypoints = waypoints
+    controller.current_index = 0
+    controller.cached_target_tile = target_tile
+    controller.cached_goal_tile = goal_tile
+    controller.last_replan_tick = world.tick
+    controller.waypoint_created_tick = world.tick
+    discard_pending_controller_advance(controller)
 
     motion_state["controller"] = controller
     motion_state["controller_source"] = "chase_entity"
@@ -3347,6 +3356,7 @@ def start_chase_entity_controller(world, entity, target):
         )
 
     rebuild_dynamic_occupancy(world)
+
     return True
 
 
