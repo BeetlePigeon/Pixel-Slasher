@@ -90,7 +90,7 @@ def start_action_state(world, entity, action_state):
 
     if action_state_blocks_voluntary_movement(action_state):
         # Imported here to avoid circular imports.
-        from .movement_system import cancel_voluntary_movement
+        from systems.movement.movement_system import cancel_voluntary_movement
 
         cancel_voluntary_movement(world, entity)
 

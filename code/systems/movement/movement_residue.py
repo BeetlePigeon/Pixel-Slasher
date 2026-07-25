@@ -1,8 +1,8 @@
 from math import isqrt
 from policies import PATH_POLICIES, DIRECTIONAL_MOVEMENT_MODE, SETTLE_LOCKED_TAG
 from constants import MOVE_BUFFER_TICKS, TILE_UNITS
-from .action_state_system import get_active_action_tags, tags_block_voluntary_movement
-from .event_system import emit_event
+from systems.action_state_system import get_active_action_tags, tags_block_voluntary_movement
+from systems.event_system import emit_event
 from support import Vec2i
 from dataclasses import dataclass
 from typing import Optional
@@ -45,7 +45,6 @@ from utils.path_utils import (
     build_local_dynamic_blocker_context,
 )
 
-
 ORDER_OWNED_CONTROLLER_SOURCES = {
     "move_target",
     "recenter_for_action",
@@ -81,13 +80,13 @@ CHASE_RING_WALL_FOLLOW_CLOCKWISE = 1
 CHASE_RING_WALL_FOLLOW_COUNTERCLOCKWISE = -1
 
 CHASE_RING_WALL_BUCKETS_CLOCKWISE = (
-    Vec2i(0, -1),   # N
-    Vec2i(1, -1),   # NE
-    Vec2i(1, 0),    # E
-    Vec2i(1, 1),    # SE
-    Vec2i(0, 1),    # S
-    Vec2i(-1, 1),   # SW
-    Vec2i(-1, 0),   # W
+    Vec2i(0, -1),  # N
+    Vec2i(1, -1),  # NE
+    Vec2i(1, 0),  # E
+    Vec2i(1, 1),  # SE
+    Vec2i(0, 1),  # S
+    Vec2i(-1, 1),  # SW
+    Vec2i(-1, 0),  # W
     Vec2i(-1, -1),  # NW
 )
 
@@ -172,10 +171,10 @@ class MovementPathCheckResult:
 
 
 def make_movement_collision_result(
-    collision_result,
-    blocker_collision_type=None,
-    blocked_tile=None,
-    blocker_entity=None,
+        collision_result,
+        blocker_collision_type=None,
+        blocked_tile=None,
+        blocker_entity=None,
 ):
     if collision_result == "allow":
         return MOVEMENT_COLLISION_ALLOW
@@ -186,6 +185,7 @@ def make_movement_collision_result(
         blocked_tile=blocked_tile,
         blocker_entity=blocker_entity,
     )
+
 
 def movement_collision_allows(collision_result):
     return collision_result.allows_movement
@@ -243,15 +243,15 @@ def classify_chase_blockage(world, entity, controller, collision_result):
         return CHASE_BLOCKAGE_MOVING_DYNAMIC
 
     if blocker_is_engaged_with_chase_target(
-        world,
-        blocker_entity,
-        controller,
+            world,
+            blocker_entity,
+            controller,
     ):
         return CHASE_BLOCKAGE_ENGAGED_DYNAMIC
 
     if blocker_is_stalled_dynamic_obstacle(
-        world,
-        blocker_entity,
+            world,
+            blocker_entity,
     ):
         return CHASE_BLOCKAGE_STALLED_DYNAMIC
 
@@ -259,9 +259,9 @@ def classify_chase_blockage(world, entity, controller, collision_result):
 
 
 def blocker_is_engaged_with_chase_target(
-    world,
-    blocker_entity,
-    controller,
+        world,
+        blocker_entity,
+        controller,
 ):
     target_entity = controller.target_entity
     if target_entity not in world.transform:
@@ -271,10 +271,10 @@ def blocker_is_engaged_with_chase_target(
         return False
 
     if not entities_are_within_tile_range(
-        world,
-        blocker_entity,
-        target_entity,
-        controller.desired_range_tiles,
+            world,
+            blocker_entity,
+            target_entity,
+            controller.desired_range_tiles,
     ):
         return False
 
@@ -340,10 +340,10 @@ def blocker_has_active_movement_goal(world, blocker_entity, motion_state):
 
 
 def record_chase_direct_block_feedback(
-    world,
-    entity,
-    controller,
-    collision_result,
+        world,
+        entity,
+        controller,
+        collision_result,
 ):
     if not isinstance(controller, ChaseEntityController):
         return
@@ -355,11 +355,11 @@ def record_chase_direct_block_feedback(
         return
 
     if (
-        controller.last_blocked_tick == world.tick
-        and controller.last_blocker_entity == collision_result.blocker_entity
-        and controller.last_blocked_tile == collision_result.blocked_tile
-        and controller.last_blocker_collision_type
-        == collision_result.blocker_collision_type
+            controller.last_blocked_tick == world.tick
+            and controller.last_blocker_entity == collision_result.blocker_entity
+            and controller.last_blocked_tile == collision_result.blocked_tile
+            and controller.last_blocker_collision_type
+            == collision_result.blocker_collision_type
     ):
         return
 
@@ -413,7 +413,7 @@ def record_chase_controller_block(world, entity, controller, collision_result):
 
     if collision_result.blocker_collision_type == "dynamic":
         controller.dynamic_retry_after_tick = (
-            world.tick + CHASE_DYNAMIC_RETRY_TICKS
+                world.tick + CHASE_DYNAMIC_RETRY_TICKS
         )
 
     if collision_result.blocker_collision_type == "static":
@@ -421,7 +421,7 @@ def record_chase_controller_block(world, entity, controller, collision_result):
             controller.side_preference = 1 if entity % 2 == 0 else -1
 
         controller.side_preference_until_tick = (
-            world.tick + CHASE_STATIC_SIDE_PREFERENCE_TICKS
+                world.tick + CHASE_STATIC_SIDE_PREFERENCE_TICKS
         )
 
     start_or_update_chase_avoidance_episode(
@@ -500,14 +500,14 @@ def record_direct_rejection_counters(world, collision_result):
 
 
 def emit_movement_collision_event(
-    world,
-    event_type,
-    entity,
-    cpos,
-    tile,
-    collision_result,
-    controller,
-    influence_active,
+        world,
+        event_type,
+        entity,
+        cpos,
+        tile,
+        collision_result,
+        controller,
+        influence_active,
 ):
     emit_event(
         world,
@@ -546,16 +546,16 @@ def movement_arbiter_system(world):
     }
 
     entities = (
-        (
-            set(world.move_intent)
-            | set(world.buffered_move_intent)
-            | set(world.move_target)
-            | active_directional_entities
-            | active_chase_entities
-        )
-        & set(world.transform)
-        & set(world.motion_state)
-        & set(world.locomotion)
+            (
+                    set(world.move_intent)
+                    | set(world.buffered_move_intent)
+                    | set(world.move_target)
+                    | active_directional_entities
+                    | active_chase_entities
+            )
+            & set(world.transform)
+            & set(world.motion_state)
+            & set(world.locomotion)
     )
 
     for entity in sorted(entities):
@@ -740,8 +740,8 @@ def movement_proposal_system(world):
     clear_dynamic_movement_reservations(world)
 
     entities = (
-        set(world.transform)
-        & set(world.motion_state)
+            set(world.transform)
+            & set(world.motion_state)
     )
 
     for entity in sorted(entities):
@@ -764,7 +764,7 @@ def movement_proposal_system(world):
             proposal,
             approval,
         )
-        
+
         if proposal.admission_policy.claims_movement_space:
             record_counter_for_world(
                 world,
@@ -782,10 +782,10 @@ def movement_proposal_system(world):
         )
 
         if (
-            proposal.admission_policy.reserves_movement_space
-            and approval.approved
-            and movement_collision_allows(approval.collision_result)
-            and approval.placement_path
+                proposal.admission_policy.reserves_movement_space
+                and approval.approved
+                and movement_collision_allows(approval.collision_result)
+                and approval.placement_path
         ):
             add_entity_movement_reservations_for_origin_path(
                 world,
@@ -808,8 +808,8 @@ def movement_apply_system(world):
     rebuild_dynamic_occupancy(world)
 
     entities = (
-        set(world.transform)
-        & set(world.motion_state)
+            set(world.transform)
+            & set(world.motion_state)
     )
 
     for entity in sorted(entities):
@@ -1046,8 +1046,8 @@ def is_at_cpos(a: Vec2i, b: Vec2i) -> bool:
 
 
 def same_tile_delta_stays_on_pre_center_half(
-    start_cpos: Vec2i,
-    delta: Vec2i,
+        start_cpos: Vec2i,
+        delta: Vec2i,
 ) -> bool:
     if not vec_is_nonzero(delta):
         return True
@@ -1066,9 +1066,9 @@ def same_tile_delta_stays_on_pre_center_half(
 
 
 def same_tile_delta_lands_on_blocked_side_for_axis(
-    start_cpos: Vec2i,
-    delta: Vec2i,
-    axis: str,
+        start_cpos: Vec2i,
+        delta: Vec2i,
+        axis: str,
 ) -> bool:
     if not vec_is_nonzero(delta):
         return False
@@ -1095,10 +1095,10 @@ def same_tile_delta_lands_on_blocked_side_for_axis(
 
 
 def diagonal_approach_can_ignore_side_axis_guards(
-    world,
-    entity,
-    current_tile: Vec2i,
-    delta: Vec2i,
+        world,
+        entity,
+        current_tile: Vec2i,
+        delta: Vec2i,
 ) -> bool:
     if delta.x == 0 or delta.y == 0:
         return False
@@ -1180,12 +1180,12 @@ def diagonal_approach_can_ignore_side_axis_guards(
 
 
 def check_same_tile_blocked_axis_components(
-    world,
-    entity,
-    current_tile: Vec2i,
-    start_cpos: Vec2i,
-    delta: Vec2i,
-    step_axis: str,
+        world,
+        entity,
+        current_tile: Vec2i,
+        start_cpos: Vec2i,
+        delta: Vec2i,
+        step_axis: str,
 ):
     axis_order = []
 
@@ -1197,10 +1197,10 @@ def check_same_tile_blocked_axis_components(
         axis_order = ["x", "y"]
 
     if diagonal_approach_can_ignore_side_axis_guards(
-        world,
-        entity,
-        current_tile,
-        delta,
+            world,
+            entity,
+            current_tile,
+            delta,
     ):
         return None
 
@@ -1210,9 +1210,9 @@ def check_same_tile_blocked_axis_components(
                 continue
 
             if not same_tile_delta_lands_on_blocked_side_for_axis(
-                start_cpos,
-                delta,
-                "x",
+                    start_cpos,
+                    delta,
+                    "x",
             ):
                 continue
 
@@ -1243,9 +1243,9 @@ def check_same_tile_blocked_axis_components(
                 continue
 
             if not same_tile_delta_lands_on_blocked_side_for_axis(
-                start_cpos,
-                delta,
-                "y",
+                    start_cpos,
+                    delta,
+                    "y",
             ):
                 continue
 
@@ -1275,12 +1275,12 @@ def check_same_tile_blocked_axis_components(
 
 
 def check_blocked_axis_components_for_segment(
-    world,
-    entity,
-    current_tile: Vec2i,
-    segment_start_cpos: Vec2i,
-    segment_end_cpos: Vec2i,
-    step_axis: str,
+        world,
+        entity,
+        current_tile: Vec2i,
+        segment_start_cpos: Vec2i,
+        segment_end_cpos: Vec2i,
+        step_axis: str,
 ):
     segment_delta = segment_end_cpos - segment_start_cpos
 
@@ -1321,10 +1321,10 @@ def corner_boundary_cpos(current_tile: Vec2i, step_x: int, step_y: int) -> Vec2i
 
 
 def near_corner_crossing(
-    next_cross_x: int,
-    next_cross_y: int,
-    abs_dx: int,
-    abs_dy: int,
+        next_cross_x: int,
+        next_cross_y: int,
+        abs_dx: int,
+        abs_dy: int,
 ) -> bool:
     # left/right are the existing integer cross-multiply comparison.
     left = next_cross_x * abs_dy
@@ -1411,11 +1411,11 @@ def entity_can_start_voluntary_movement(world, entity):
 
 
 def make_path_query_key(
-    entity,
-    start_tile,
-    target_tile,
-    path_policy_name,
-    dynamic_blocker_key,
+        entity,
+        start_tile,
+        target_tile,
+        path_policy_name,
+        dynamic_blocker_key,
 ):
     return (
         entity,
@@ -1480,10 +1480,10 @@ def get_path_policy(world, target):
 
 
 def build_path_dynamic_blocker_context(
-    world,
-    entity,
-    start_tile,
-    path_policy,
+        world,
+        entity,
+        start_tile,
+        path_policy,
 ):
     if not path_policy["path_local_dynamic_blockers_enabled"]:
         return None
@@ -1533,8 +1533,8 @@ def entity_can_attempt_path_build(world, entity, target):
     )
 
     return (
-        world.tick
-        >= path_build_state.get("next_allowed_tick", 0)
+            world.tick
+            >= path_build_state.get("next_allowed_tick", 0)
     )
 
 
@@ -1551,8 +1551,8 @@ def mark_path_build_attempted(world, entity, target):
 
     path_build_state["last_attempt_tick"] = world.tick
     path_build_state["next_allowed_tick"] = (
-        world.tick
-        + cooldown_ticks
+            world.tick
+            + cooldown_ticks
     )
 
 
@@ -1606,8 +1606,8 @@ def cpos_vector_length(vec: Vec2i) -> int:
 
 def get_remaining_movement_budget(reference_delta: Vec2i, spent_delta: Vec2i) -> int:
     remaining = (
-        cpos_vector_length(reference_delta)
-        - cpos_vector_length(spent_delta)
+            cpos_vector_length(reference_delta)
+            - cpos_vector_length(spent_delta)
     )
     if remaining <= 0:
         return 0
@@ -1686,19 +1686,19 @@ def initialize_path_follow_progress(world, entity, controller):
 def update_path_follow_stall_detection(world, progress, path_policy):
     ticks_since_escape = world.tick - progress["last_escape_tick"]
     ticks_since_node_progress = (
-        world.tick - progress["last_node_progress_tick"]
+            world.tick - progress["last_node_progress_tick"]
     )
 
     progress["ticks_since_escape"] = ticks_since_escape
     progress["ticks_since_node_progress"] = ticks_since_node_progress
 
     progress["local_stalled"] = (
-        ticks_since_escape >= path_policy["stall_ticks_before_repath"]
+            ticks_since_escape >= path_policy["stall_ticks_before_repath"]
     )
 
     progress["path_progress_timed_out"] = (
-        ticks_since_node_progress
-        >= path_policy["path_progress_timeout_ticks"]
+            ticks_since_node_progress
+            >= path_policy["path_progress_timeout_ticks"]
     )
 
 
@@ -1760,8 +1760,8 @@ def update_path_follow_progress(world, entity, controller):
     index_advanced = controller.current_index > progress["last_index"]
 
     distance_decreased = (
-        distance_sq + progress_min_sq
-        < progress["best_node_distance_sq"]
+            distance_sq + progress_min_sq
+            < progress["best_node_distance_sq"]
     )
 
     if index_advanced or distance_decreased:
@@ -1785,11 +1785,11 @@ def update_path_follow_progress(world, entity, controller):
         anchor_cpos = progress["anchor_cpos"]
 
         escaped_anchor = (
-            cpos_distance_sq(
-                transform.cpos,
-                anchor_cpos,
-            )
-            >= stall_escape_sq
+                cpos_distance_sq(
+                    transform.cpos,
+                    anchor_cpos,
+                )
+                >= stall_escape_sq
         )
 
         if escaped_anchor:
@@ -1865,9 +1865,9 @@ def get_path_follow_stall_reason(world, entity, target, path_policy):
     progress = world.motion_state[entity].get("path_follow_progress")
 
     if path_follow_exceeded_lifetime(
-        world,
-        target,
-        path_policy,
+            world,
+            target,
+            path_policy,
     ):
         if progress is not None:
             progress["stall_reason"] = PATH_FOLLOW_STALL_LIFETIME
@@ -1932,16 +1932,16 @@ def recover_stale_path_follow_if_needed(world, entity, controller):
         return False
 
     if not entity_can_attempt_path_build(
-        world,
-        entity,
-        target,
+            world,
+            entity,
+            target,
     ):
         return False
 
     target["repath_attempts"] = target.get("repath_attempts", 0) + 1
 
     target["next_repath_tick"] = (
-        world.tick + path_policy["repath_cooldown_ticks"]
+            world.tick + path_policy["repath_cooldown_ticks"]
     )
 
     mark_path_build_attempted(
@@ -1974,8 +1974,8 @@ def cancel_active_voluntary_motion_if_needed(world, entity):
     controller_source = motion_state.get("controller_source")
 
     if (
-        isinstance(controller, PathFollowController)
-        and controller_source == "move_target"
+            isinstance(controller, PathFollowController)
+            and controller_source == "move_target"
     ):
         transform = world.transform.get(entity)
 
@@ -1988,8 +1988,8 @@ def cancel_active_voluntary_motion_if_needed(world, entity):
         return
 
     if (
-        isinstance(controller, DirectionalMoveController)
-        and controller_source in {"move_intent", "buffered_move"}
+            isinstance(controller, DirectionalMoveController)
+            and controller_source in {"move_intent", "buffered_move"}
     ):
         transform = world.transform.get(entity)
 
@@ -2041,12 +2041,12 @@ def entity_allows_grid_slide(world, entity):
 
 
 def resolve_grid_move_direction_from_tile(
-    world,
-    entity,
-    current_tile: Vec2i,
-    desired_direction: Vec2i,
-    slide_vector=None,
-    slide_context="grid",
+        world,
+        entity,
+        current_tile: Vec2i,
+        desired_direction: Vec2i,
+        slide_vector=None,
+        slide_context="grid",
 ):
     desired_tile = current_tile + desired_direction
 
@@ -2130,11 +2130,11 @@ def resolve_grid_move_direction_from_tile(
 
 
 def resolve_grid_move_direction(
-    world,
-    entity,
-    desired_direction: Vec2i,
-    slide_vector=None,
-    slide_context="grid",
+        world,
+        entity,
+        desired_direction: Vec2i,
+        slide_vector=None,
+        slide_context="grid",
 ):
     transform = world.transform[entity]
 
@@ -2421,12 +2421,12 @@ def trace_static_tile_path(world, entity, start_cpos: Vec2i, delta: Vec2i):
 
 
 def set_move_target(
-    world,
-    entity,
-    target_tile: Vec2i,
-    target_cpos=None,
-    path_policy="actor_move",
-    owner_order_id=None,
+        world,
+        entity,
+        target_tile: Vec2i,
+        target_cpos=None,
+        path_policy="actor_move",
+        owner_order_id=None,
 ):
     if target_cpos is None:
         target_cpos = tile_center(target_tile)
@@ -2458,16 +2458,16 @@ def set_move_target(
 
 
 def set_chase_entity_target(
-    world,
-    entity,
-    target_entity,
-    desired_range_tiles,
-    owner_order_id=None,
+        world,
+        entity,
+        target_entity,
+        desired_range_tiles,
+        owner_order_id=None,
 ):
     existing_target = world.move_target.get(entity)
     owner_changed = (
-        existing_target is not None
-        and existing_target.get("owner_order_id") != owner_order_id
+            existing_target is not None
+            and existing_target.get("owner_order_id") != owner_order_id
     )
 
     if existing_target is None or owner_changed:
@@ -2563,9 +2563,9 @@ def clear_stale_order_owned_movement(world, entity):
 
 
 def mark_settle_after_influence_if_needed(
-    transform,
-    motion_state,
-    influence_active,
+        transform,
+        motion_state,
+        influence_active,
 ):
     if not influence_active:
         return
@@ -2695,11 +2695,11 @@ def get_corner_cutting_policy(world, entity):
 
 
 def resolve_corner_crossing_collision(
-    world,
-    entity,
-    side_x_tile,
-    side_y_tile,
-    diagonal_tile,
+        world,
+        entity,
+        side_x_tile,
+        side_y_tile,
+        diagonal_tile,
 ):
     corner_policy = get_corner_cutting_policy(world, entity)
 
@@ -2768,9 +2768,9 @@ def handle_static_tile_collision(world, entity, next_tile):
         return MOVEMENT_COLLISION_ALLOW
 
     if is_static_movement_placement_blocked(
-        world,
-        entity,
-        next_tile,
+            world,
+            entity,
+            next_tile,
     ):
         return make_movement_collision_result(behavior, blocker_collision_type="static", blocked_tile=next_tile)
 
@@ -3013,14 +3013,6 @@ def build_path_follow_nodes(world, entity, target):
 
     clear_failed_path_query(world, query_key)
 
-    debug_path_runtime_edges_for_tile_path(
-        world,
-        entity,
-        "raw",
-        current_tile,
-        path_tiles,
-    )
-
     smooth_max = path_policy["smooth_max_path_length"]
 
     if smooth_max is not None and len(path_tiles) > smooth_max:
@@ -3035,22 +3027,14 @@ def build_path_follow_nodes(world, entity, target):
             edge_is_allowed=edge_is_allowed,
         )
 
-    debug_path_runtime_edges_for_tile_path(
-        world,
-        entity,
-        "smoothed",
-        current_tile,
-        smoothed_tiles,
-    )
-
     return path_tiles_to_cpos_nodes(smoothed_tiles)
 
 
 def start_directional_node_follow_controller(
-    world,
-    entity,
-    desired_direction,
-    using_buffered_intent=False,
+        world,
+        entity,
+        desired_direction,
+        using_buffered_intent=False,
 ):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
@@ -3099,10 +3083,10 @@ def start_directional_node_follow_controller(
 
 
 def start_directional_grid_move_controller(
-    world,
-    entity,
-    desired_direction,
-    using_buffered_intent=False,
+        world,
+        entity,
+        desired_direction,
+        using_buffered_intent=False,
 ):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
@@ -3154,10 +3138,10 @@ def start_directional_grid_move_controller(
 
 
 def start_directional_movement_controller(
-    world,
-    entity,
-    desired_direction,
-    using_buffered_intent=False,
+        world,
+        entity,
+        desired_direction,
+        using_buffered_intent=False,
 ):
     if DIRECTIONAL_MOVEMENT_MODE == "node_follow":
         return start_directional_node_follow_controller(
@@ -3181,9 +3165,9 @@ def start_directional_movement_controller(
 
 
 def start_directional_continuous_controller(
-    world,
-    entity,
-    desired_direction,
+        world,
+        entity,
+        desired_direction,
 ):
     transform = world.transform[entity]
     locomotion = world.locomotion[entity]
@@ -3213,10 +3197,10 @@ def start_directional_continuous_controller(
 
 
 def update_directional_continuous_controller(
-    world,
-    entity,
-    controller,
-    desired_direction,
+        world,
+        entity,
+        controller,
+        desired_direction,
 ):
     locomotion = world.locomotion[entity]
 
@@ -3376,10 +3360,10 @@ def refresh_chase_entity_controller_if_needed(world, entity, controller):
         return True
 
     if entities_are_within_tile_range(
-        world,
-        entity,
-        controller.target_entity,
-        controller.desired_range_tiles,
+            world,
+            entity,
+            controller.target_entity,
+            controller.desired_range_tiles,
     ):
         clear_motion_controller(world.motion_state[entity])
         request_settle_when_allowed(world, entity)
@@ -3458,8 +3442,8 @@ def chase_controller_needs_replan(world, entity, controller):
     target_tile = tile_from_cpos(world.transform[controller.target_entity].cpos)
 
     if target_tile_changed_sharply(
-        controller.cached_target_tile,
-        target_tile,
+            controller.cached_target_tile,
+            target_tile,
     ):
         return True
 
@@ -3497,10 +3481,10 @@ def blockage_type_can_start_ring_wall_follow(blockage_type):
 
 
 def start_chase_ring_wall_follow_if_needed(
-    world,
-    entity,
-    controller,
-    blockage_type,
+        world,
+        entity,
+        controller,
+        blockage_type,
 ):
     if not isinstance(controller, ChaseEntityController):
         return
@@ -3515,9 +3499,9 @@ def start_chase_ring_wall_follow_if_needed(
     target_tile = tile_from_cpos(world.transform[target_entity].cpos)
 
     if (
-        controller.ring_wall_follow_active
-        and controller.ring_wall_follow_target_entity == target_entity
-        and controller.ring_wall_follow_target_tile == target_tile
+            controller.ring_wall_follow_active
+            and controller.ring_wall_follow_target_entity == target_entity
+            and controller.ring_wall_follow_target_tile == target_tile
     ):
         return
 
@@ -3612,10 +3596,10 @@ def ring_wall_bucket_index(tile, target_tile):
 
 
 def ring_wall_progress_distance(
-    actor_tile,
-    target_tile,
-    candidate_tile,
-    side,
+        actor_tile,
+        target_tile,
+        candidate_tile,
+        side,
 ):
     current_index = ring_wall_bucket_index(actor_tile, target_tile)
     candidate_index = ring_wall_bucket_index(candidate_tile, target_tile)
@@ -3628,10 +3612,10 @@ def ring_wall_progress_distance(
 
 
 def build_ring_wall_body_tiles(
-    world,
-    entity,
-    target_entity,
-    desired_range_tiles,
+        world,
+        entity,
+        target_entity,
+        desired_range_tiles,
 ):
     wall_tiles = set()
 
@@ -3653,17 +3637,17 @@ def build_ring_wall_body_tiles(
             continue
 
         if not blocker_is_targeting_entity(
-            world,
-            other_entity,
-            target_entity,
+                world,
+                other_entity,
+                target_entity,
         ):
             continue
 
         if not entities_are_within_tile_range(
-            world,
-            other_entity,
-            target_entity,
-            desired_range_tiles,
+                world,
+                other_entity,
+                target_entity,
+                desired_range_tiles,
         ):
             continue
 
@@ -3685,10 +3669,10 @@ def build_ring_wall_body_tiles(
 
 
 def ring_wall_follow_tile_is_legal(
-    world,
-    entity,
-    actor_cpos,
-    tile,
+        world,
+        entity,
+        actor_cpos,
+        tile,
 ):
     return chase_candidate_tile_is_reachable(
         world,
@@ -3707,9 +3691,9 @@ def ring_wall_follow_tile_touches_wall(tile, wall_body_tiles):
 
 
 def choose_next_ring_wall_follow_tile(
-    world,
-    entity,
-    controller,
+        world,
+        entity,
+        controller,
 ):
     if not chase_ring_wall_follow_is_active(world, controller):
         return None
@@ -3734,16 +3718,16 @@ def choose_next_ring_wall_follow_tile(
 
     for candidate_tile in iter_8_neighbor_tiles(actor_tile):
         if not ring_wall_follow_tile_is_legal(
-            world,
-            entity,
-            actor_cpos,
-            candidate_tile,
+                world,
+                entity,
+                actor_cpos,
+                candidate_tile,
         ):
             continue
 
         if not ring_wall_follow_tile_touches_wall(
-            candidate_tile,
-            wall_body_tiles,
+                candidate_tile,
+                wall_body_tiles,
         ):
             continue
 
@@ -3758,8 +3742,8 @@ def choose_next_ring_wall_follow_tile(
             progress = len(CHASE_RING_WALL_BUCKETS_CLOCKWISE)
 
         backtrack = (
-            controller.ring_wall_follow_last_tile is not None
-            and candidate_tile == controller.ring_wall_follow_last_tile
+                controller.ring_wall_follow_last_tile is not None
+                and candidate_tile == controller.ring_wall_follow_last_tile
         )
 
         actor_distance = chebyshev_tile_distance(
@@ -3805,10 +3789,10 @@ def choose_next_ring_wall_follow_tile(
 
 
 def stationary_bypass_tile_is_inside_blocker_body(
-    world,
-    blocker_entity,
-    blocker_tile,
-    tile,
+        world,
+        blocker_entity,
+        blocker_tile,
+        tile,
 ):
     blocker_body_tiles = get_movement_body_tiles_for_origin_tile(
         world,
@@ -3820,11 +3804,11 @@ def stationary_bypass_tile_is_inside_blocker_body(
 
 
 def build_chase_waypoints(
-    world,
-    entity,
-    target,
-    force_replan,
-    controller=None,
+        world,
+        entity,
+        target,
+        force_replan,
+        controller=None,
 ):
     target_entity = target["target_entity"]
     desired_range_tiles = target["desired_range_tiles"]
@@ -3833,10 +3817,10 @@ def build_chase_waypoints(
         return [], None, None
 
     if entities_are_within_tile_range(
-        world,
-        entity,
-        target_entity,
-        desired_range_tiles,
+            world,
+            entity,
+            target_entity,
+            desired_range_tiles,
     ):
         return [], None, None
 
@@ -3921,9 +3905,9 @@ WALL_HUG_DIRECTION_BUCKETS = (
 
 
 def ordered_wall_hug_direction_buckets(
-    blocker_center_tile,
-    actor_tile,
-    side_preference,
+        blocker_center_tile,
+        actor_tile,
+        side_preference,
 ):
     actor_bucket = wall_hug_direction_bucket(
         actor_tile - blocker_center_tile,
@@ -3944,7 +3928,7 @@ def ordered_wall_hug_direction_buckets(
         ordered.append(
             WALL_HUG_DIRECTION_BUCKETS[
                 (start_index + step * offset) % count
-            ]
+                ]
         )
 
     return ordered
@@ -3966,20 +3950,20 @@ def iter_8_neighbor_tiles(tile):
 
 
 def stationary_wall_hug_candidate_is_plausible(
-    world,
-    entity,
-    actor_cpos,
-    candidate_tile,
-    blocker_body_tiles,
+        world,
+        entity,
+        actor_cpos,
+        candidate_tile,
+        blocker_body_tiles,
 ):
     if candidate_tile in blocker_body_tiles:
         return False
 
     if stationary_bypass_tile_is_inside_blocker_body(
-        world,
-        entity,
-        candidate_tile,
-        blocker_body_tiles,
+            world,
+            entity,
+            candidate_tile,
+            blocker_body_tiles,
     ):
         return False
 
@@ -4009,15 +3993,15 @@ def chase_recent_blocked_tile_is_active(world, controller):
         return False
 
     return (
-        world.tick - controller.last_blocked_tick
-        <= CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS
+            world.tick - controller.last_blocked_tick
+            <= CHASE_RECENT_BLOCKED_TILE_AVOID_TICKS
     )
 
 
 def chase_candidate_is_recently_blocked_tile(
-    world,
-    controller,
-    candidate_tile,
+        world,
+        controller,
+        candidate_tile,
 ):
     if not chase_recent_blocked_tile_is_active(world, controller):
         return False
@@ -4033,14 +4017,14 @@ def stalled_dynamic_escape_probe_is_unlocked(world, controller):
         return False
 
     if (
-        controller.avoidance_episode_type
-        != CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
+            controller.avoidance_episode_type
+            != CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
     ):
         return False
 
     return (
-        controller.avoidance_episode_failed_attempts
-        >= CHASE_STALLED_DYNAMIC_ESCAPE_FAILED_ATTEMPTS
+            controller.avoidance_episode_failed_attempts
+            >= CHASE_STALLED_DYNAMIC_ESCAPE_FAILED_ATTEMPTS
     )
 
 
@@ -4055,8 +4039,8 @@ def get_chase_local_avoidance_mode(world, controller):
 
     if controller.last_chase_blockage_type == CHASE_BLOCKAGE_STATIC:
         if (
-            controller.side_preference != 0
-            and world.tick < controller.side_preference_until_tick
+                controller.side_preference != 0
+                and world.tick < controller.side_preference_until_tick
         ):
             return CHASE_LOCAL_AVOIDANCE_STATIC
 
@@ -4076,9 +4060,9 @@ def get_chase_local_avoidance_mode(world, controller):
 
     if controller.last_chase_blockage_type == CHASE_BLOCKAGE_MOVING_DYNAMIC:
         if (
-            controller.last_blocker_collision_type == "dynamic"
-            and controller.last_blocked_tick >= 0
-            and world.tick < controller.dynamic_retry_after_tick
+                controller.last_blocker_collision_type == "dynamic"
+                and controller.last_blocked_tick >= 0
+                and world.tick < controller.dynamic_retry_after_tick
         ):
             return CHASE_LOCAL_AVOIDANCE_MOVING_DYNAMIC
 
@@ -4138,10 +4122,10 @@ def get_chase_episode_side_preference(entity, controller):
 
 
 def start_or_update_chase_avoidance_episode(
-    world,
-    entity,
-    controller,
-    blockage_type,
+        world,
+        entity,
+        controller,
+        blockage_type,
 ):
     episode_type = get_chase_blockage_episode_type(blockage_type)
     if episode_type is None:
@@ -4154,8 +4138,8 @@ def start_or_update_chase_avoidance_episode(
         return
 
     same_episode = (
-        controller.avoidance_episode_type == episode_type
-        and chase_avoidance_episode_is_active(world, controller)
+            controller.avoidance_episode_type == episode_type
+            and chase_avoidance_episode_is_active(world, controller)
     )
 
     if same_episode:
@@ -4206,14 +4190,14 @@ def get_chase_local_side_preference(world, entity, controller):
     clear_expired_chase_avoidance_episode(world, controller)
 
     if (
-        chase_avoidance_episode_is_active(world, controller)
-        and controller.avoidance_episode_side_preference != 0
+            chase_avoidance_episode_is_active(world, controller)
+            and controller.avoidance_episode_side_preference != 0
     ):
         return controller.avoidance_episode_side_preference, True
 
     if (
-        controller.side_preference != 0
-        and world.tick < controller.side_preference_until_tick
+            controller.side_preference != 0
+            and world.tick < controller.side_preference_until_tick
     ):
         return controller.side_preference, True
 
@@ -4261,8 +4245,8 @@ def choose_chase_direct_failure_collision(current, candidate):
         return candidate
 
     if (
-        current.blocker_collision_type != "dynamic"
-        and candidate.blocker_collision_type == "dynamic"
+            current.blocker_collision_type != "dynamic"
+            and candidate.blocker_collision_type == "dynamic"
     ):
         return candidate
 
@@ -4273,10 +4257,10 @@ def choose_chase_direct_failure_collision(current, candidate):
 
 
 def choose_direct_chase_waypoint_attempt(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
 ):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
@@ -4285,9 +4269,9 @@ def choose_direct_chase_waypoint_attempt(
     blocking_collision_result = None
 
     for candidate_tile in iter_direct_chase_tiles(
-        actor_tile,
-        goal_tile,
-        CHASE_DIRECT_LOOKAHEAD_TILES,
+            actor_tile,
+            goal_tile,
+            CHASE_DIRECT_LOOKAHEAD_TILES,
     ):
         candidate_distance = chebyshev_tile_distance(
             candidate_tile,
@@ -4320,10 +4304,10 @@ def choose_direct_chase_waypoint_attempt(
 
 
 def choose_direct_chase_waypoint_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
 ):
     direct_tile, _ = choose_direct_chase_waypoint_attempt(
         world,
@@ -4335,11 +4319,11 @@ def choose_direct_chase_waypoint_tile(
 
 
 def choose_local_chase_waypoint_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     mode = get_chase_local_avoidance_mode(world, controller)
 
@@ -4389,14 +4373,14 @@ def choose_local_chase_waypoint_tile(
 
 
 def choose_chase_avoidance_probe_tile_from_directions(
-    world,
-    entity,
-    goal_tile,
-    directions,
-    controller=None,
-    mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
-    allow_worse_distance_tiles=0,
-    counter_prefix=None,
+        world,
+        entity,
+        goal_tile,
+        directions,
+        controller=None,
+        mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+        allow_worse_distance_tiles=0,
+        counter_prefix=None,
 ):
     actor_cpos = world.transform[entity].cpos
     actor_tile = tile_from_cpos(actor_cpos)
@@ -4482,17 +4466,17 @@ def choose_chase_avoidance_probe_tile_from_directions(
 
 
 def choose_best_chase_probe_tile_for_direction(
-    world,
-    entity,
-    actor_cpos,
-    actor_tile,
-    goal_tile,
-    direction,
-    min_probe_tiles,
-    max_probe_tiles,
-    allow_worse_distance_tiles,
-    current_distance,
-    controller=None,
+        world,
+        entity,
+        actor_cpos,
+        actor_tile,
+        goal_tile,
+        direction,
+        min_probe_tiles,
+        max_probe_tiles,
+        allow_worse_distance_tiles,
+        current_distance,
+        controller=None,
 ):
     if direction.x == 0 and direction.y == 0:
         return None
@@ -4512,17 +4496,17 @@ def choose_best_chase_probe_tile_for_direction(
             continue
 
         if chase_candidate_is_recently_blocked_tile(
-            world,
-            controller,
-            candidate_tile,
+                world,
+                controller,
+                candidate_tile,
         ):
             continue
 
         if not chase_candidate_tile_is_reachable(
-            world,
-            entity,
-            actor_cpos,
-            candidate_tile,
+                world,
+                entity,
+                actor_cpos,
+                candidate_tile,
         ):
             continue
 
@@ -4532,13 +4516,13 @@ def choose_best_chase_probe_tile_for_direction(
 
 
 def choose_chase_avoidance_probe_tile_for_mode(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
-    mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
-    counter_prefix=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
+        mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+        counter_prefix=None,
 ):
     actor_tile = tile_from_cpos(world.transform[entity].cpos)
 
@@ -4550,8 +4534,8 @@ def choose_chase_avoidance_probe_tile_for_mode(
 
     allow_worse_distance_tiles = 0
     if (
-        mode == CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
-        and stalled_dynamic_escape_probe_is_unlocked(world, controller)
+            mode == CHASE_LOCAL_AVOIDANCE_STALLED_DYNAMIC
+            and stalled_dynamic_escape_probe_is_unlocked(world, controller)
     ):
         allow_worse_distance_tiles = CHASE_STALLED_DYNAMIC_MAX_WORSEN_TILES
 
@@ -4576,11 +4560,11 @@ def choose_chase_avoidance_probe_tile_for_mode(
 
 
 def choose_default_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     return choose_chase_avoidance_probe_tile_for_mode(
         world,
@@ -4593,11 +4577,11 @@ def choose_default_chase_avoidance_tile(
 
 
 def choose_static_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     return choose_chase_avoidance_probe_tile_for_mode(
         world,
@@ -4611,11 +4595,11 @@ def choose_static_chase_avoidance_tile(
 
 
 def choose_moving_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     return choose_chase_avoidance_probe_tile_for_mode(
         world,
@@ -4629,11 +4613,11 @@ def choose_moving_dynamic_chase_avoidance_tile(
 
 
 def choose_engaged_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     return choose_chase_avoidance_probe_tile_for_mode(
         world,
@@ -4647,11 +4631,11 @@ def choose_engaged_dynamic_chase_avoidance_tile(
 
 
 def choose_stalled_dynamic_chase_avoidance_tile(
-    world,
-    entity,
-    goal_tile,
-    desired_range_tiles,
-    controller=None,
+        world,
+        entity,
+        goal_tile,
+        desired_range_tiles,
+        controller=None,
 ):
     return choose_chase_avoidance_probe_tile_for_mode(
         world,
@@ -4665,10 +4649,10 @@ def choose_stalled_dynamic_chase_avoidance_tile(
 
 
 def chase_candidate_tile_is_reachable(
-    world,
-    entity,
-    actor_cpos,
-    candidate_tile,
+        world,
+        entity,
+        actor_cpos,
+        candidate_tile,
 ):
     reachable, _ = check_chase_candidate_tile_reachability(
         world,
@@ -4680,10 +4664,10 @@ def chase_candidate_tile_is_reachable(
 
 
 def check_chase_candidate_tile_reachability(
-    world,
-    entity,
-    actor_cpos,
-    candidate_tile,
+        world,
+        entity,
+        actor_cpos,
+        candidate_tile,
 ):
     candidate_cpos = tile_center(candidate_tile)
     delta = candidate_cpos - actor_cpos
@@ -4750,11 +4734,11 @@ def signed_round_div(numerator, denominator):
 
 
 def make_ordered_chase_direction_list(
-    entity,
-    actor_tile,
-    goal_tile,
-    side_preference=None,
-    order_mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
+        entity,
+        actor_tile,
+        goal_tile,
+        side_preference=None,
+        order_mode=CHASE_LOCAL_AVOIDANCE_DEFAULT,
 ):
     dx = sign(goal_tile.x - actor_tile.x)
     dy = sign(goal_tile.y - actor_tile.y)
@@ -4921,8 +4905,8 @@ def target_tile_changed_sharply(old_tile, new_tile):
         return False
 
     return (
-        chebyshev_tile_distance(old_tile, new_tile)
-        >= CHASE_TARGET_TELEPORT_TILES
+            chebyshev_tile_distance(old_tile, new_tile)
+            >= CHASE_TARGET_TELEPORT_TILES
     )
 
 
@@ -4938,9 +4922,9 @@ def discard_pending_controller_advance(controller):
 
 
 def same_order_path_follow_controller_active(
-    world,
-    entity,
-    owner_order_id,
+        world,
+        entity,
+        owner_order_id,
 ):
     motion_state = world.motion_state.get(entity)
     if motion_state is None:
@@ -4957,10 +4941,10 @@ def same_order_path_follow_controller_active(
 
 
 def recenter_for_action_controller_active(
-    world,
-    entity,
-    target_tile,
-    owner_order_id,
+        world,
+        entity,
+        target_tile,
+        owner_order_id,
 ):
     motion_state = world.motion_state.get(entity)
     if motion_state is None:
@@ -4980,9 +4964,9 @@ def recenter_for_action_controller_active(
 
 
 def mark_recenter_for_action_controller(
-    motion_state,
-    target_tile,
-    owner_order_id,
+        motion_state,
+        target_tile,
+        owner_order_id,
 ):
     motion_state["controller_source"] = "recenter_for_action"
     motion_state["controller_owner_order_id"] = owner_order_id
@@ -4991,12 +4975,12 @@ def mark_recenter_for_action_controller(
 
 
 def retarget_path_follow_controller_for_action_recenter(
-    world,
-    entity,
-    controller,
-    target_tile,
-    target_cpos,
-    owner_order_id,
+        world,
+        entity,
+        controller,
+        target_tile,
+        target_cpos,
+        owner_order_id,
 ):
     locomotion = world.locomotion[entity]
     motion_state = world.motion_state[entity]
@@ -5026,11 +5010,11 @@ def retarget_path_follow_controller_for_action_recenter(
 
 
 def start_recenter_for_action_settle_controller(
-    world,
-    entity,
-    target_tile,
-    target_cpos,
-    owner_order_id,
+        world,
+        entity,
+        target_tile,
+        target_cpos,
+        owner_order_id,
 ):
     transform = world.transform.get(entity)
     motion_state = world.motion_state.get(entity)
@@ -5063,20 +5047,20 @@ def start_recenter_for_action_settle_controller(
 
 
 def start_or_update_recenter_for_action(
-    world,
-    entity,
-    target_tile,
-    target_cpos,
-    owner_order_id,
+        world,
+        entity,
+        target_tile,
+        target_cpos,
+        owner_order_id,
 ):
     clear_buffered_move_intent(world, entity)
     world.move_intent.pop(entity, None)
 
     if recenter_for_action_controller_active(
-        world,
-        entity,
-        target_tile,
-        owner_order_id,
+            world,
+            entity,
+            target_tile,
+            owner_order_id,
     ):
         return True
 
@@ -5087,9 +5071,9 @@ def start_or_update_recenter_for_action(
     controller = motion_state.get("controller")
 
     if same_order_path_follow_controller_active(
-        world,
-        entity,
-        owner_order_id,
+            world,
+            entity,
+            owner_order_id,
     ):
         return retarget_path_follow_controller_for_action_recenter(
             world,
@@ -5146,9 +5130,9 @@ def should_refresh_path_follow_controller(world, entity, controller):
 
 def refresh_path_follow_controller_if_needed(world, entity, controller):
     if not should_refresh_path_follow_controller(
-        world,
-        entity,
-        controller,
+            world,
+            entity,
+            controller,
     ):
         return False
 
@@ -5225,10 +5209,10 @@ def should_debug_path_runtime_edges(world, entity) -> bool:
 
 
 def build_path_runtime_edge_probe_proposal(
-    world,
-    entity,
-    start_cpos: Vec2i,
-    end_cpos: Vec2i,
+        world,
+        entity,
+        start_cpos: Vec2i,
+        end_cpos: Vec2i,
 ):
     delta = end_cpos - start_cpos
 
@@ -5261,12 +5245,12 @@ def path_runtime_edge_is_clean(proposal, approval) -> bool:
     expected_cpos = proposal.start_cpos + proposal.final_delta
 
     return (
-        approval.approved
-        and approval.delta == proposal.final_delta
-        and requested_cpos == expected_cpos
-        and resolved_cpos == expected_cpos
-        and movement_collision_allows(approval.collision_result)
-        and movement_collision_allows(approval.requested_collision_result)
+            approval.approved
+            and approval.delta == proposal.final_delta
+            and requested_cpos == expected_cpos
+            and resolved_cpos == expected_cpos
+            and movement_collision_allows(approval.collision_result)
+            and movement_collision_allows(approval.requested_collision_result)
     )
 
 
@@ -5306,10 +5290,10 @@ def append_unique_movement_placement(path, tile):
 
 
 def get_next_movement_crossing_axis(
-    next_cross_x,
-    next_cross_y,
-    abs_dx: int,
-    abs_dy: int,
+        next_cross_x,
+        next_cross_y,
+        abs_dx: int,
+        abs_dy: int,
 ):
     if next_cross_x is None:
         return "y"
@@ -5318,10 +5302,10 @@ def get_next_movement_crossing_axis(
         return "x"
 
     if near_corner_crossing(
-        next_cross_x,
-        next_cross_y,
-        abs_dx,
-        abs_dy,
+            next_cross_x,
+            next_cross_y,
+            abs_dx,
+            abs_dy,
     ):
         return "corner"
 
@@ -5356,12 +5340,12 @@ def check_axis_movement_placement(world, entity, placement_path, tile):
 
 
 def check_corner_movement_placement(
-    world,
-    entity,
-    placement_path,
-    current_tile: Vec2i,
-    step_x: int,
-    step_y: int,
+        world,
+        entity,
+        placement_path,
+        current_tile: Vec2i,
+        step_x: int,
+        step_y: int,
 ):
     record_counter_for_world(
         world,
@@ -5416,17 +5400,17 @@ def check_corner_movement_placement(
 
 
 def check_same_tile_extrapolated_movement_path(
-    world,
-    entity,
-    current_tile: Vec2i,
-    start_cpos: Vec2i,
-    delta: Vec2i,
-    step_x: int,
-    step_y: int,
-    next_cross_x,
-    next_cross_y,
-    abs_dx: int,
-    abs_dy: int,
+        world,
+        entity,
+        current_tile: Vec2i,
+        start_cpos: Vec2i,
+        delta: Vec2i,
+        step_x: int,
+        step_y: int,
+        next_cross_x,
+        next_cross_y,
+        abs_dx: int,
+        abs_dy: int,
 ):
     placement_path = []
 
@@ -5482,11 +5466,11 @@ def check_same_tile_extrapolated_movement_path(
         )
 
     if (
-        not movement_collision_allows(collision_result)
-        and same_tile_delta_stays_on_pre_center_half(
-            start_cpos,
-            delta,
-        )
+            not movement_collision_allows(collision_result)
+            and same_tile_delta_stays_on_pre_center_half(
+        start_cpos,
+        delta,
+    )
     ):
         return MovementPathCheckResult(
             collision_result=MOVEMENT_COLLISION_ALLOW,
@@ -5500,10 +5484,10 @@ def check_same_tile_extrapolated_movement_path(
 
 
 def check_normal_movement_delta_path(
-    world,
-    entity,
-    start_cpos: Vec2i,
-    delta: Vec2i,
+        world,
+        entity,
+        start_cpos: Vec2i,
+        delta: Vec2i,
 ):
     if not vec_is_nonzero(delta):
         return MovementPathCheckResult(
@@ -5527,26 +5511,26 @@ def check_normal_movement_delta_path(
             next_cross_x = None
         elif step_x > 0:
             next_cross_x = (
-                (current_tile.x + 1) * TILE_UNITS
-                - start_cpos.x
+                    (current_tile.x + 1) * TILE_UNITS
+                    - start_cpos.x
             )
         else:
             next_cross_x = (
-                start_cpos.x
-                - current_tile.x * TILE_UNITS
+                    start_cpos.x
+                    - current_tile.x * TILE_UNITS
             )
 
         if abs_dy == 0:
             next_cross_y = None
         elif step_y > 0:
             next_cross_y = (
-                (current_tile.y + 1) * TILE_UNITS
-                - start_cpos.y
+                    (current_tile.y + 1) * TILE_UNITS
+                    - start_cpos.y
             )
         else:
             next_cross_y = (
-                start_cpos.y
-                - current_tile.y * TILE_UNITS
+                    start_cpos.y
+                    - current_tile.y * TILE_UNITS
             )
 
         return check_same_tile_extrapolated_movement_path(
@@ -5569,26 +5553,26 @@ def check_normal_movement_delta_path(
         next_cross_x = None
     elif step_x > 0:
         next_cross_x = (
-            (current_tile.x + 1) * TILE_UNITS
-            - start_cpos.x
+                (current_tile.x + 1) * TILE_UNITS
+                - start_cpos.x
         )
     else:
         next_cross_x = (
-            start_cpos.x
-            - current_tile.x * TILE_UNITS
+                start_cpos.x
+                - current_tile.x * TILE_UNITS
         )
 
     if abs_dy == 0:
         next_cross_y = None
     elif step_y > 0:
         next_cross_y = (
-            (current_tile.y + 1) * TILE_UNITS
-            - start_cpos.y
+                (current_tile.y + 1) * TILE_UNITS
+                - start_cpos.y
         )
     else:
         next_cross_y = (
-            start_cpos.y
-            - current_tile.y * TILE_UNITS
+                start_cpos.y
+                - current_tile.y * TILE_UNITS
         )
 
     segment_start_cpos = start_cpos
@@ -5772,11 +5756,11 @@ def check_normal_movement_delta_path(
 
 
 def make_allowed_movement_approval(
-    proposal: MovementProposal,
-    delta: Vec2i,
-    resolution_kind: str,
-    placement_path=(),
-    requested_collision_result=MOVEMENT_COLLISION_ALLOW,
+        proposal: MovementProposal,
+        delta: Vec2i,
+        resolution_kind: str,
+        placement_path=(),
+        requested_collision_result=MOVEMENT_COLLISION_ALLOW,
 ):
     return MovementApproval(
         entity=proposal.entity,
@@ -5792,10 +5776,10 @@ def make_allowed_movement_approval(
 
 
 def make_blocked_movement_approval(
-    proposal: MovementProposal,
-    collision_result: MovementCollisionResult,
-    resolution_kind: str,
-    placement_path=(),
+        proposal: MovementProposal,
+        collision_result: MovementCollisionResult,
+        resolution_kind: str,
+        placement_path=(),
 ):
     return MovementApproval(
         entity=proposal.entity,
@@ -5812,9 +5796,9 @@ def make_blocked_movement_approval(
 
 def is_explicit_current_tile_centering(proposal: MovementProposal):
     return (
-        proposal.admission_policy.allows_finish_current_tile
-        and isinstance(proposal.controller, SettleToGridController)
-        and not proposal.influence_active
+            proposal.admission_policy.allows_finish_current_tile
+            and isinstance(proposal.controller, SettleToGridController)
+            and not proposal.influence_active
     )
 
 
@@ -5828,8 +5812,8 @@ def build_explicit_centering_approval(proposal: MovementProposal):
 
 
 def get_blocked_axis_from_collision(
-    start_cpos: Vec2i,
-    collision_result: MovementCollisionResult,
+        start_cpos: Vec2i,
+        collision_result: MovementCollisionResult,
 ):
     blocked_tile = collision_result.blocked_tile
     if blocked_tile is None:
@@ -5869,9 +5853,9 @@ def get_axis_component(vec: Vec2i, axis: str) -> int:
 
 
 def build_blocked_axis_center_delta(
-    start_cpos: Vec2i,
-    reference_delta: Vec2i,
-    blocked_axis: str,
+        start_cpos: Vec2i,
+        reference_delta: Vec2i,
+        blocked_axis: str,
 ) -> Vec2i:
     if not vec_is_nonzero(reference_delta):
         return Vec2i(0, 0)
@@ -5902,8 +5886,8 @@ def build_blocked_axis_center_delta(
 
 
 def try_build_clipped_to_center_approval(
-    proposal: MovementProposal,
-    rejection_result: MovementCollisionResult,
+        proposal: MovementProposal,
+        rejection_result: MovementCollisionResult,
 ):
     if not proposal.admission_policy.allows_finish_current_tile:
         return None
@@ -5960,9 +5944,9 @@ def try_build_direct_movement_approval(proposal: MovementProposal, world):
 
 
 def try_build_directional_center_finish_approval(
-    world,
-    proposal: MovementProposal,
-    direct_rejection: MovementPathCheckResult,
+        world,
+        proposal: MovementProposal,
+        direct_rejection: MovementPathCheckResult,
 ):
     if not isinstance(proposal.controller, DirectionalMoveController):
         return None
@@ -6010,9 +5994,9 @@ def try_build_directional_center_finish_approval(
 
 
 def try_build_path_follow_current_node_finish_approval(
-    world,
-    proposal: MovementProposal,
-    direct_rejection: MovementPathCheckResult,
+        world,
+        proposal: MovementProposal,
+        direct_rejection: MovementPathCheckResult,
 ):
     controller = proposal.controller
 
@@ -6061,9 +6045,9 @@ def try_build_path_follow_current_node_finish_approval(
 
 
 def try_build_slide_approval(
-    world,
-    proposal: MovementProposal,
-    direct_rejection: MovementPathCheckResult,
+        world,
+        proposal: MovementProposal,
+        direct_rejection: MovementPathCheckResult,
 ):
     collision_result = direct_rejection.collision_result
 
@@ -6099,9 +6083,9 @@ def try_build_slide_approval(
     )
 
     if not passes_slide_threshold(
-        tangent_component,
-        normal_component,
-        ratio,
+            tangent_component,
+            normal_component,
+            ratio,
     ):
         return None
 
@@ -6786,9 +6770,9 @@ def get_navigation_start_tile(world, entity):
 
 
 def path_follow_movement_was_modified(
-    controller,
-    requested_cpos,
-    resolved_cpos,
+        controller,
+        requested_cpos,
+        resolved_cpos,
 ):
     if not is_path_follow_controller(controller):
         return False
@@ -6843,8 +6827,6 @@ def get_motion_controller_tag(controller):
         return None
 
     return getattr(controller, "motion_tag", None)
-
-
 
 
 def print_entity_movement_diagnostics(world, entity):
@@ -6952,9 +6934,9 @@ def print_entity_movement_diagnostics(world, entity):
         )
 
         if (
-            label in {"NE", "SE", "SW", "NW"}
-            or placement_result != current_trace_result
-            or center_trace_result != current_trace_result
+                label in {"NE", "SE", "SW", "NW"}
+                or placement_result != current_trace_result
+                or center_trace_result != current_trace_result
         ):
             mismatch_labels.append((
                 label,
@@ -6971,14 +6953,14 @@ def print_entity_movement_diagnostics(world, entity):
     print("  Detailed traces for mismatches and diagonals")
 
     for (
-        label,
-        placement_result,
-        center_trace_result,
-        center_resolved,
-        center_steps,
-        current_trace_result,
-        current_resolved,
-        current_steps,
+            label,
+            placement_result,
+            center_trace_result,
+            center_resolved,
+            center_steps,
+            current_trace_result,
+            current_resolved,
+            current_steps,
     ) in mismatch_labels:
         print(
             f"  {label}: placement={placement_result} "
@@ -7034,14 +7016,12 @@ def print_entity_movement_diagnostics(world, entity):
     print("")
 
 
-
-
 def debug_path_runtime_edges_for_tile_path(
-    world,
-    entity,
-    label: str,
-    start_tile: Vec2i,
-    path_tiles,
+        world,
+        entity,
+        label: str,
+        start_tile: Vec2i,
+        path_tiles,
 ):
     if not should_debug_path_runtime_edges(world, entity):
         return

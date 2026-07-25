@@ -1,5 +1,5 @@
 from support import Vec2i
-from systems.movement_system import (
+from systems.movement.movement_system import (
     set_move_target,
     set_chase_entity_target,
     clear_move_target,

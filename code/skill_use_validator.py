@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from skill_registry import SKILL_DEFS
 from systems.action_state_system import get_active_action_tags
-from systems.movement_system import get_active_motion_tag
+from systems.movement.movement_system import get_active_motion_tag
 
 
 @dataclass(frozen=True)

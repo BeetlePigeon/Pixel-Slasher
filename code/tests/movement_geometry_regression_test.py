@@ -10,7 +10,7 @@ if CODE_DIR not in sys.path:
 from constants import TILE_UNITS
 from motion_controllers import SettleToGridController
 from support import Transform, Vec2i
-from systems.movement_system import (
+from systems.movement.movement_system import (
     movement_collision_allows,
     trace_static_tile_path,
 )

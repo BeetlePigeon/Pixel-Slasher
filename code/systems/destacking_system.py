@@ -1,7 +1,7 @@
 from policies import DESTACK_POLICIES
 from support import Vec2i
 from utils.perf_profiler import profiled
-from systems.movement_system import (
+from systems.movement.movement_system import (
     clear_failed_path_queries_for_entity,
     clear_motion_controller,
     clear_move_target,

@@ -51,7 +51,7 @@ def status_effect_cancels_active_action(world, entity, status_effect):
 def apply_status_entry_policies(world, entity, status_effect):
     # 1. Movement-blocking statuses cancel voluntary movement first.
     if status_effect_blocks_voluntary_movement(status_effect):
-        from systems.movement_system import cancel_voluntary_movement
+        from systems.movement.movement_system import cancel_voluntary_movement
 
         cancel_voluntary_movement(world, entity)
 
@@ -73,7 +73,7 @@ def apply_status_entry_policies(world, entity, status_effect):
     )
 
     if cancels_motion_tags:
-        from systems.movement_system import cancel_motion_by_tags_for_status
+        from systems.movement.movement_system import cancel_motion_by_tags_for_status
 
         cancel_motion_by_tags_for_status(
             world,

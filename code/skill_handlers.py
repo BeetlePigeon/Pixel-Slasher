@@ -180,7 +180,7 @@ def execute_dash(world, caster, context):
     if aim_vector is None:
         return False
 
-    from systems.movement_system import cancel_voluntary_movement
+    from systems.movement.movement_system import cancel_voluntary_movement
 
     cancel_voluntary_movement(world, caster)
 

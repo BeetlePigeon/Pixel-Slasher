@@ -436,7 +436,7 @@ class Debug:
             if self.game.simulation_paused:
                 self.game.single_step_requested = True
         if pygame.K_k in input_state.keys_pressed:
-            from systems.movement_system import print_entity_movement_diagnostics
+            from systems.movement.movement_system import print_entity_movement_diagnostics
 
             print_entity_movement_diagnostics(
                 self.game.world,
